@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "servers": {
+    "example": {
+      "enabled": false,
+      "transport": "stdio",
+      "cwdEnv": "EXAMPLE_MCP_REPO",
+      "command": "node",
+      "args": ["dist/index.js"],
+      "configFile": "config/private/example.json"
+    }
+  },
+  "features": {
+    "example-feature": {
+      "enabled": false,
+      "tools": [
+        {
+          "server": "example",
+          "name": "example_tool",
+          "exposeAs": "example__example_tool"
+        }
+      ]
+    }
+  }
+}
