@@ -1,0 +1,12 @@
+# Local configuration and secrets
+.local/
+config/private/
+config/**/*.local.json
+config/**/*.local.yaml
+.env
+.env.*
+!.env.example
+
+# Runtime logs
+logs/
+*.log
