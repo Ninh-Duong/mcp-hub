@@ -1,10 +1,9 @@
 # Runtime source layout
 
-The runtime implementation will be split by responsibility after selecting the language and MCP SDK:
+The Python runtime lives in `src/mcp_hub/`:
 
-- `config/` — load and validate the hub manifest and private per-MCP settings.
-- `clients/` — connect to and manage child MCP processes/connections.
-- `routing/` — expose allowlisted tools and route calls to the owning child server.
-- `logging/` — structured audit events, redaction, and log rotation.
+- `config.py` — validates the Hub manifest and private per-server configs.
+- `server.py` — starts child MCP stdio clients, exposes allowlisted schemas, routes calls, and records audit events.
+- `audit.py` — writes rotating JSONL logs with secret redaction.
 
-Keep credentials out of tool descriptions, source files, and log records.
+The Hub uses the MCP Python SDK low-level server so downstream JSON Schemas and tool annotations can be forwarded without hand-written wrappers.

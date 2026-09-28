@@ -1,0 +1,13 @@
+README.md
+pyproject.toml
+src/mcp_hub/__init__.py
+src/mcp_hub/__main__.py
+src/mcp_hub/audit.py
+src/mcp_hub/config.py
+src/mcp_hub/server.py
+src/mcp_hub.egg-info/PKG-INFO
+src/mcp_hub.egg-info/SOURCES.txt
+src/mcp_hub.egg-info/dependency_links.txt
+src/mcp_hub.egg-info/entry_points.txt
+src/mcp_hub.egg-info/requires.txt
+src/mcp_hub.egg-info/top_level.txt

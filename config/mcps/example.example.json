@@ -1,5 +1,8 @@
 {
-  "credentials": {
-    "apiTokenEnv": "EXAMPLE_MCP_API_TOKEN"
-  }
+  "transport": "stdio",
+  "command": "<absolute-path-to-python-or-runtime>",
+  "args": ["server.py"],
+  "cwd": "<absolute-path-to-mcp-repository>",
+  "inheritEnv": ["PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE"],
+  "env": {}
 }

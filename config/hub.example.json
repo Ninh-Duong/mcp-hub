@@ -3,11 +3,7 @@
   "servers": {
     "example": {
       "enabled": false,
-      "transport": "stdio",
-      "cwdEnv": "EXAMPLE_MCP_REPO",
-      "command": "node",
-      "args": ["dist/index.js"],
-      "configFile": "config/private/example.json"
+      "configFile": "config/private/mcps/example.json"
     }
   },
   "features": {
