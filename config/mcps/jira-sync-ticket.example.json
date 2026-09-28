@@ -1,0 +1,14 @@
+{
+  "transport": "stdio",
+  "command": "<absolute-path-to-python-or-runtime>",
+  "args": ["server.py"],
+  "cwd": "<absolute-path-to-mcp-repository>",
+  "inheritEnv": ["PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE"],
+  "env": {},
+  "jira": {
+    "base_url": "https://your-domain.atlassian.net",
+    "email": "user@example.com",
+    "api_token": "<SET_ONLY_IN_CONFIG_PRIVATE>",
+    "max_asset_size_mb": 15
+  }
+}

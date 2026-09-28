@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +12,7 @@ HUB_ROOT = Path(__file__).resolve().parents[2]
 PRIVATE_ROOT = (HUB_ROOT / "config" / "private").resolve()
 _DEFAULT_CONFIG = PRIVATE_ROOT / "hub.json"
 _ALIAS_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+_SENSITIVE_KEY_RE = re.compile(r"token|secret|password|authorization|email|credential", re.IGNORECASE)
 
 
 class ConfigError(ValueError):
@@ -26,6 +27,7 @@ class ServerConfig:
     cwd: Path
     env: dict[str, str]
     inherit_env: tuple[str, ...]
+    secret_values: tuple[str, ...] = field(default=(), repr=False)
 
 
 @dataclass(frozen=True)
@@ -53,6 +55,20 @@ def _string(value: Any, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ConfigError(f"{label} must be a non-empty string")
     return value.strip()
+
+
+def _collect_sensitive_values(value: Any, parent_key: str = "") -> list[str]:
+    found: list[str] = []
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if _SENSITIVE_KEY_RE.search(str(key)) and isinstance(child, str) and child:
+                found.append(child)
+            else:
+                found.extend(_collect_sensitive_values(child, str(key)))
+    elif isinstance(value, list):
+        for child in value:
+            found.extend(_collect_sensitive_values(child, parent_key))
+    return found
 
 
 def _private_file(path_value: Any, label: str) -> Path:
@@ -117,6 +133,7 @@ def load_config(config_path: str | Path | None = None) -> HubConfig:
             cwd=cwd,
             env=dict(env),
             inherit_env=tuple(inherit_env),
+            secret_values=tuple(_collect_sensitive_values(local)),
         )
 
     raw_features = _mapping(raw.get("features"), "features")
