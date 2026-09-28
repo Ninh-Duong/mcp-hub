@@ -1,0 +1,1 @@
+"""Config-driven MCP gateway."""

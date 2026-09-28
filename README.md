@@ -1,26 +1,33 @@
 # mcp-hub
 
-This folder is the local MCP gateway used by an AI agent. The Hub exposes only enabled, allowlisted tools from configured child MCP servers and records operational events without logging credentials or full tool payloads.
+Local, config-driven MCP gateway for AI agents. The Hub connects to child MCP servers over stdio, discovers their tool schemas, exposes only configured allowlisted tools, routes calls, and writes audit events to `logs/mcp-hub.jsonl`.
 
-## Current scaffold
+## Run
 
-This first base establishes the configuration, documentation, secret, and logging boundaries. Runtime code and a language-specific package are intentionally not added yet.
+Python 3.10+ and `uv` are required.
 
-## Layout
+```powershell
+uv sync
+uv run mcp-hub
+```
 
-- `AGENTS.md` — operating rules for agents working in this repository.
-- `config/hub.example.json` — safe template for child servers, features, and exposed tools.
-- `config/mcps/` — safe per-MCP templates and notes.
-- `config/private/` — local per-MCP configuration; ignored by Git.
-- `docs/` — architecture, security, logging, and child MCP contracts.
-- `src/` — planned runtime areas; see `src/README.md`.
-- `logs/` — local runtime logs; ignored by Git.
+The default runtime config is `config/private/hub.json`. `config/hub.example.json` is the safe template. Each enabled server points to a private per-MCP config under `config/private/mcps/`.
 
-## Local setup
+## Jira integration
 
-1. Copy `config/hub.example.json` to `config/private/hub.json`.
-2. Copy each needed `config/mcps/<id>.example.json` to `config/private/<id>.json` and fill it according to that MCP's documentation.
-3. Put repository paths and credential values in local environment variables or private local files. Never commit them.
-4. Add the child MCP contract under `docs/mcps/<id>.md` before enabling its tools.
+The initial local config connects to `D:/Visual Studio Code/jira_sync_ticket`. The child server keeps using its existing ignored `.env`; the Hub does not copy credential values. See `docs/mcps/jira-sync-ticket.md` for each exposed tool and its side effects.
 
-The runtime implementation will define and validate the exact config schema before any child server is launched.
+Run the read-only integration smoke check with:
+
+```powershell
+uv run python scripts/smoke_jira.py
+```
+
+It verifies Hub tool discovery and calls `jira__check_connection`. It does not sync a ticket or print Jira account details. `jira__sync_ticket` writes files and is not needed to prove connectivity.
+
+## Security
+
+- Never commit `config/private/`, `.env`, or `logs/`.
+- Tool arguments and successful results are not written to Hub logs.
+- The Hub passes only selected process environment variables to a child, plus values explicitly set in that child's private config.
+- Stdio diagnostics go to stderr or the log file; stdout is reserved for MCP protocol frames.

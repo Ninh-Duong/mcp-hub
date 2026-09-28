@@ -1,3 +1,9 @@
+.venv/
+.uv-cache/
+__pycache__/
+*.py[cod]
+.ruff_cache/
+
 # Local configuration and secrets
 .local/
 config/private/
