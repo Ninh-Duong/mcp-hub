@@ -11,10 +11,9 @@ from typing import Any, Iterable
 from .config import HUB_ROOT
 
 
-_SECRET_VALUE_PATTERNS = (
-    re.compile(r"(?i)(authorization\s*[:=]\s*)(?:basic|bearer)\s+[^\s,;]+"),
-    re.compile(r"(?i)\b(?:basic|bearer)\s+[A-Za-z0-9._~+/=-]+"),
-    re.compile(r"(?i)((?:api[_-]?token|access[_-]?token|refresh[_-]?token|password|secret|api[_-]?key)\s*[:=]\s*)['\"]?[^\s,;'\"]+['\"]?"),
+_BEARER_RE = re.compile(r"(?i)((?:authorization\s*[:=]\s*)?(?:basic|bearer)\s+)[^\s,;]+")
+_KEY_VALUE_RE = re.compile(
+    r"(?i)([\"']?(?:api[_-]?token|access[_-]?token|refresh[_-]?token|password|secret|api[_-]?key)[\"']?\s*[:=]\s*[\"']?)[^\"'\s,;}]+"
 )
 
 
@@ -22,8 +21,8 @@ def redact(value: str, secrets: Iterable[str] = ()) -> str:
     result = value
     for secret in sorted((item for item in secrets if item), key=len, reverse=True):
         result = result.replace(secret, "[REDACTED]")
-    for pattern in _SECRET_VALUE_PATTERNS:
-        result = pattern.sub(r"\1[REDACTED]" if "\\1" in pattern.pattern else "[REDACTED]", result)
+    result = _BEARER_RE.sub(r"\1[REDACTED]", result)
+    result = _KEY_VALUE_RE.sub(r"\1[REDACTED]", result)
     return result[:1000]
 
 

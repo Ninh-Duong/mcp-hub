@@ -15,7 +15,7 @@ The default runtime config is `config/private/hub.json`. `config/hub.example.jso
 
 ## Jira integration
 
-The initial local config connects to `D:/Visual Studio Code/jira_sync_ticket`. The child server keeps using its existing ignored `.env`; the Hub does not copy credential values. See `docs/mcps/jira-sync-ticket.md` for each exposed tool and its side effects.
+The initial local config connects to `D:/Visual Studio Code/jira_sync_ticket`. Jira credentials are in the ignored per-MCP file; the Hub passes its path to the Jira MCP using `CENTRAL_CONFIG_PATH`. The Jira repository's existing `.env` is unchanged for standalone use. See `docs/mcps/jira-sync-ticket.md` for each exposed tool and its side effects.
 
 Run the read-only integration smoke check with:
 
@@ -30,4 +30,5 @@ It verifies Hub tool discovery and calls `jira__check_connection`. It does not s
 - Never commit `config/private/`, `.env`, or `logs/`.
 - Tool arguments and successful results are not written to Hub logs.
 - The Hub passes only selected process environment variables to a child, plus values explicitly set in that child's private config.
+- Secret values found in private config are redacted from Hub error messages.
 - Stdio diagnostics go to stderr or the log file; stdout is reserved for MCP protocol frames.

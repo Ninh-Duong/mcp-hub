@@ -35,6 +35,7 @@ class HubRuntime:
         discovered: dict[str, dict[str, Tool]] = {}
         for server_id, server_config in self.config.servers.items():
             self.audit.add_secrets(server_config.env.values())
+            self.audit.add_secrets(server_config.secret_values)
             client = await self._connect_server(stack, server_config)
             self.clients[server_id] = client
             discovered[server_id] = await self._list_all_tools(client)
