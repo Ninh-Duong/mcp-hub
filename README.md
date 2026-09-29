@@ -4,12 +4,23 @@ Local, config-driven MCP gateway for AI agents. The Hub connects to child MCP se
 
 ## Run
 
-Python 3.10+ and `uv` are required.
+Python 3.12 is the default project runtime. The launcher checks for `uv` and Python 3.12 before starting.
+
+Run from an interactive terminal the first time:
 
 ```powershell
-uv sync
-uv run mcp-hub
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start.ps1
 ```
+
+On Linux or macOS:
+
+```sh
+bash scripts/start.sh
+```
+
+If `uv` or Python 3.12 is missing, the launcher asks before installing. If needed, it installs `uv` under the ignored `.tools/` directory, then uses `uv` to install Python and sync project dependencies. The first install needs internet access and write permission in the repository. Answering No stops without installing anything.
+
+When an MCP host launches the stdio server, it cannot answer an interactive prompt. Run the launcher once from a terminal first if prerequisites are missing. After setup, the launcher runs without prompting. Startup diagnostics go to stderr; stdout remains available to the MCP protocol.
 
 The default runtime config is `config/private/hub.json`. `config/hub.example.json` is the safe template. Each enabled server points to a private per-MCP config under `config/private/mcps/`.
 
