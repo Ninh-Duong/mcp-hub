@@ -28,9 +28,9 @@ Never open the file after creating it. The `set` value is JSON, so strings need 
 |-----|----------|---------|-------|
 | `transport` | yes | none | Must be `"stdio"`. |
 | `cwd` | yes | none | Relative paths resolve against the `mcp-hub` root, e.g. `../<repo>`. Must exist. |
-| `command` | yes | none | A relative path containing `/` resolves against `cwd`, e.g. `.venv/Scripts/python.exe`. A bare name (`python`, `node`, `uv`) is looked up on `PATH`. |
+| `command` | yes | none | A relative path containing `/` resolves against `cwd`, e.g. `.venv/Scripts/python.exe` (Windows) or `.venv/bin/python` (macOS/Linux; templates show the Windows form). A bare name (`python`, `node`, `uv`) is looked up on `PATH`. |
 | `args` | no | `[]` | A list of strings, passed verbatim. No secrets. |
-| `inheritEnv` | no | `PATH`, `SYSTEMROOT`, `WINDIR`, `TEMP`, `TMP`, `USERPROFILE` | The only Hub process env vars the child receives. |
+| `inheritEnv` | no | `PATH`, `SYSTEMROOT`, `WINDIR`, `TEMP`, `TMP`, `USERPROFILE` | Hub process env vars passed to the child, in addition to the MCP SDK's default safe set (e.g. `PATH`, `APPDATA`, `USERNAME`; POSIX: `HOME`, `USER`). No other Hub env vars reach the child. |
 | `env` | no | `{}` | String values passed verbatim. A path inside `env` is resolved by the child, normally against its `cwd`, so use a path relative to the child repo (e.g. `../mcp-hub/config/private/mcps/<id>.json`). All values are redacted from Hub error logs. |
 | `timeoutSeconds` | no | `60` | Limit for each tool call. |
 | any other key | no | none | Ignored by the Hub; children may read them (e.g. the `jira` block). Values under sensitive-looking keys are redacted from logs. |
@@ -45,7 +45,7 @@ Add the server **disabled** and allowlist only the tools that are needed:
 },
 "features": {
   "<feature-name>": {
-    "enabled": true,
+    "enabled": false,
     "tools": [ { "server": "<id>", "name": "<child_tool>", "exposeAs": "<short>__<child_tool>" } ]
   }
 }
@@ -78,6 +78,6 @@ Check the newest events in `logs/mcp-hub.jsonl`:
 | `server.connect.failed` / `server.list_tools.failed` | Child didn't start or answer | Check `cwd`, `command`, `args`, and the child's own logs |
 | `route.skipped` with `tool not found` | Wrong tool name in the allowlist | Fix `name` in `hub.json` |
 
-Add one line for the child to `CHECKS` in `scripts/smoke.py`, using a read-only tool that proves the child reaches its upstream service. Then run the definition-of-done commands in [AGENTS.md](../AGENTS.md). `smoke.py` prints `NO_CHECK` for an enabled child that has no entry.
+Add one line for the child to `CHECKS` in `scripts/smoke.py`, using a read-only tool that proves the child reaches its upstream service. Then run the definition-of-done commands in [AGENTS.md](../AGENTS.md). For an enabled child without an entry, `smoke.py` checks only the connection and prints `PASS  N tools, connected (no read-only check in CHECKS)`.
 
 If the child keeps its credentials in its own repo (as `mcp-server-logs` does), the Hub config has no `<SET_BY_USER>` fields and step 5.1 is skipped. Ask the user to fill the child's own account files instead.

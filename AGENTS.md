@@ -7,6 +7,7 @@ This repo is maintained entirely by AI agents. These rules are mandatory. Text r
 | The user wants to… | Do this |
 |---|---|
 | Use mcp-hub from their AI client, switch to it, or know how to configure it | Follow [docs/connecting-a-client.md](docs/connecting-a-client.md). It changes only the client's config, never this repo. |
+| Use mcp-hub tools to do work (e.g. `mcp-hub:mcp-server-logs …`) | Follow [docs/client-rules.md](docs/client-rules.md). |
 | Add, remove, or reconfigure a child MCP | Follow [docs/adding-a-child-mcp.md](docs/adding-a-child-mcp.md). |
 | Check that the Hub reaches its children | Run `uv run python scripts/smoke.py` (see README → Check connections). |
 | Change the Hub's code or docs | Read the rest of this file first. |
@@ -46,4 +47,4 @@ All three must pass. `check_leaks.py` scans every committable file (tracked, plu
 
 ## Reporting failures
 
-Report the request ID, child server ID, tool name, and the sanitized `error_type`/`error` from `logs/mcp-hub.jsonl` (events are listed in `docs/security-and-logging.md`). Never include secret values.
+Report the request ID, child server ID, tool name, and the redacted `error_type`/`error` (or `error_summary` for child error results) from `logs/mcp-hub.jsonl` (events are listed in `docs/security-and-logging.md`). Never include secret values.

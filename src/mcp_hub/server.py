@@ -266,12 +266,14 @@ async def serve() -> None:
     runtime = HubRuntime(config, audit)
     async with AsyncExitStack() as stack:
         await runtime.connect(stack)
-        groups = "; ".join(f"{sid}: {', '.join(tools)}" for sid, tools in runtime.tools_by_server().items())
+        groups = "\n".join(f"- {sid}: {', '.join(tools)}" for sid, tools in runtime.tools_by_server().items())
+        rules = HUB_ROOT / "docs" / "client-rules.md"
         server = Server(
             "mcp-hub",
             instructions=(
-                "Config-driven MCP hub. Only the listed, allowlisted child tools are available. "
-                f"Tools by child MCP: {groups}. When the user names a child MCP, use only its tools."
+                f"Config-driven MCP hub. Only the listed, allowlisted child tools are available.\n\n"
+                f"Tools by child MCP (server ID: tools):\n{groups}\n\n"
+                + (rules.read_text(encoding="utf-8") if rules.is_file() else "When the user names a child MCP, use only its tools.")
             ),
             on_list_tools=runtime.list_tools,
             on_call_tool=runtime.call_tool,

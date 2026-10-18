@@ -4,16 +4,38 @@
 
 ---
 
-## 0. For the human: the prompt
+## 0. For the human: the prompts
 
-Paste this into any agent, replacing `<MCP_HUB_PATH>` with this repo's absolute path (forward slashes):
+Paste one of these into any agent. Replace `<MCP_HUB_PATH>` with this repo's absolute path (forward slashes). The agent will ask before it writes global config or removes entries.
+
+**A. Full setup (connect + install the rule).** Use this the first time on each client:
 
 ```text
-Read <MCP_HUB_PATH>/docs/connecting-a-client.md and follow it to connect yourself to mcp-hub
-as one MCP server named mcp-hub. Replace any old entries for its child MCPs.
+Read <MCP_HUB_PATH>/docs/connecting-a-client.md and follow every step to connect yourself to mcp-hub:
+register one MCP server named mcp-hub, replace any old entries for its child MCPs, and install
+<MCP_HUB_PATH>/docs/client-rules.md as an always-on global rule (step 7). Ask me before writing
+global config or removing entries, and report what you changed at the end.
 ```
 
-To only get the instructions, without changes: `… and tell me what to change, but do not edit any file.` In that mode the agent does only the read-only steps (1, 2, 3, 5). It gives the user the entry and the commands for steps 4, 6 and 7 instead of running them.
+The user may write these prompts in any language. Agents: follow this file the same way regardless.
+
+**B. Instructions only, no changes:**
+
+```text
+Read <MCP_HUB_PATH>/docs/connecting-a-client.md and tell me exactly what to change in this client
+to use mcp-hub, including the rule from step 7. Do not edit any file.
+```
+
+In this mode the agent does only steps 1, 2, and 3, plus step 5 as a list: it names the old entries and removes none. It gives the entry, the rule file, and the commands for steps 4, 6, 7 and 8 instead of running them.
+
+**C. Already connected; only install or refresh the rule** (e.g. after `client-rules.md` changed):
+
+```text
+Install <MCP_HUB_PATH>/docs/client-rules.md as an always-on global rule in this client, following
+step 7 of <MCP_HUB_PATH>/docs/connecting-a-client.md. Replace the old copy if there is one.
+```
+
+**D. Daily use:** `mcp-hub:<server-id> <task>`, e.g. `mcp-hub:mcp-server-logs show the prod logs for service orders-api` or `mcp-hub:jira-sync-ticket check connection`. The rules are in [client-rules.md](client-rules.md).
 
 ---
 
@@ -74,6 +96,8 @@ Check `uv --version`, or check whether `<MCP_HUB_PATH>/.tools/uv.exe` (`.tools/u
 powershell -NoProfile -ExecutionPolicy Bypass -File "<MCP_HUB_PATH>/scripts/start.ps1"
 ```
 
+On macOS/Linux: `bash "<MCP_HUB_PATH>/scripts/start.sh"`.
+
 It asks before installing `uv` / Python 3.12. When it then sits silently, the Hub is running: press Ctrl+C.
 **Done when** `uv` is found.
 
@@ -90,7 +114,9 @@ Expect one `PASS` line per child MCP. A `FAIL` line names the cause; report it t
 ### Step 5: Find old direct entries (migration)
 The Hub replaces direct connections to its children. Each child is described in `docs/mcps/<server-id>.md` (skip `README.md`, which is the template), and its `Repository:` line names the child repo (e.g. `../mcp-server-logs`, `../jira_sync_ticket`). In the client's config, find entries that either:
 - have `command`/`args` pointing into one of those repos (e.g. `…/mcp-server-logs/start.mjs`, `…/jira_sync_ticket/server.py`), or
-- are named after a child or its old names (`mcp-logs`, `log-hub*`, `mcp-server-log-hub`, `jira*`).
+- are named after an old name of a child (`mcp-logs`, `log-hub*`, `mcp-server-log-hub`).
+
+Never remove an entry just because its name mentions a product (e.g. another Jira or Atlassian server). It must point into a child repo or carry one of the old names above.
 
 *Ask* the user, then remove them. Keeping both exposes every tool twice under different names.
 
@@ -103,11 +129,27 @@ If the client has the config in two places (e.g. Antigravity's current and older
 Add the §2 entry using the client's row in §4. Prefer the client's CLI command when it has one. Raise the startup timeout to 60–120 s where the client allows it, because the Hub starts every child before it answers.
 **Done when** the entry is saved and the file still parses.
 
-### Step 7: Reload and verify
+### Step 7: Install the client rule
+[client-rules.md](client-rules.md) tells the agent how to use the Hub, e.g. `mcp-hub:<server-id> <task>`, the `env` rules, and how to treat writing tools. The Hub already sends it as server instructions, but some clients don't show those to the model. Install it as an always-on rule too, at user/global level so it works in every workspace. *Ask* before writing.
+
+| Client | Where | How |
+|---|---|---|
+| Google Antigravity | `~/.gemini/config/rules/mcp-hub.md` | New file: a frontmatter block `---` / `trigger: always_on` / `---`, then the content of `client-rules.md`. |
+| Claude Code | `~/.claude/CLAUDE.md` | Append one import line: `@<MCP_HUB_PATH>/docs/client-rules.md`. It stays current automatically. |
+| OpenAI Codex | `~/.codex/AGENTS.md` | Append the content under a `# mcp-hub` heading. |
+| Cursor | Settings → Rules → User Rules | Paste the content. |
+| VS Code + Copilot | the user's custom instructions, or the workspace's `.github/copilot-instructions.md` | Append the content. |
+| Any other | the client's always-on global rules or custom instructions | Copy the content. If the client has only workspace rules, use the user's workspace, never this repo. |
+
+A copy does not update itself. When `client-rules.md` changes, copy it again. The import, and the Hub's server instructions, are always current.
+**Done when** the rule file is in place, or the user declined.
+
+### Step 8: Reload and verify
 1. Reload as the client's row says. If the user must restart the app, tell them exactly what to do and continue after they confirm.
 2. The client should list tools named `<prefix>__<tool>` (e.g. `jira__check_connection`, `logs__query_logs`). If it shows MCP prompts, there is one per child, named after its server ID.
 3. For each child, call its read-only check tool from the `CHECKS` table in `scripts/smoke.py` (today `jira__check_connection` and `logs__list_openobserve_organizations`).
-4. Report to the user: the config file you changed, the entries you removed, and the tool calls that worked.
+4. Test the call style: `mcp-hub:mcp-server-logs list the services in dev`. The agent should use only `logs__*` tools with `env: "dev"`.
+5. Report to the user: the config file you changed, the entries you removed, where the rule was installed, and the tool calls that worked.
 
 **Done when** the read-only calls succeed.
 
@@ -115,7 +157,7 @@ Add the §2 entry using the client's row in §4. Prefer the client's CLI command
 
 ## 4. Client reference
 
-`<P>` = `<MCP_HUB_PATH>`, and "entry" = §2. Paths were checked against the clients' docs on 2026-10-17. If a path does not exist, look up the client's current MCP docs and map §2 onto it.
+`<P>` = `<MCP_HUB_PATH>`, and "entry" = §2. Paths were checked against the clients' docs on 2026-10-17. If a path does not exist, look up the client's current MCP docs and map §2 onto it. Rows show the Windows command. On macOS/Linux, use `bash` with `["<P>/scripts/start.sh"]` instead (e.g. `claude mcp add … mcp-hub -- bash "<P>/scripts/start.sh"`).
 
 | Client | Config file (global; project) | Shape / notes | Reload |
 |---|---|---|---|
@@ -153,7 +195,7 @@ Add the §2 entry using the client's row in §4. Prefer the client's CLI command
 | Symptom | Fix |
 |---|---|
 | `mcp-hub` fails to start / no tools | Run `uv run python scripts/smoke.py` in `<P>`. Its FAIL line names the cause. Details are in `<P>/logs/mcp-hub.jsonl`. |
-| `Missing uv, Python 3.12…` in the client log | Prerequisites missing: have the user run step 3 in a terminal. If `uv` works in a terminal, the client starts with a different `PATH`; use the §2 fallback with the absolute `uv` path. |
+| `Missing uv, Python 3.12…` (start.ps1) or `Missing prerequisites. Run bash scripts/start.sh…` (start.sh) in the client log | Prerequisites missing: have the user run step 3 in a terminal. If `uv` works in a terminal, the client starts with a different `PATH`; use the §2 fallback with the absolute `uv` path. |
 | `spawn powershell ENOENT` | Use `pwsh`, or the absolute path printed by `where powershell`, or the §2 fallback. |
 | Timeout on start | Run step 4 first (it finishes builds), then raise the client's startup timeout (§4). |
 | A child's tools are missing | That child failed or a tool name is wrong. `smoke.py` shows which (`not connected` / `tool not found`). |
