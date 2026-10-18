@@ -19,7 +19,7 @@ Every exposed tool should map to exactly one child server and tool name. Use nam
 - A child that fails to start, or a configured tool the child does not list, is logged (`server.connect.failed`, `route.skipped`) and skipped; the Hub starts with the remaining tools and fails only when none are available.
 - Each call is limited by the child's `timeoutSeconds` (default 60); a timeout is logged as `tool.call.failed` with `error_type=TimeoutError`.
 - The Hub exposes one MCP prompt per connected child, named after its server ID. Clients that support prompts show it as a slash command (the exact format is client-defined); it tells the Agent which Hub tools belong to that child and includes `docs/mcps/<server-id>.md`.
-- On connect, the Hub sends server instructions: the tool list per child, followed by [client-rules.md](client-rules.md), read at startup. Clients that ignore server instructions get the same rules from the always-on rule installed by [connecting-a-client.md](connecting-a-client.md) step 7.
+- On connect, the Hub sends server instructions, essentials first: a summary under 512 characters (`INSTRUCTIONS_SUMMARY` in `server.py`), the tool list per child, and then [client-rules.md](client-rules.md), read at startup. Clients may truncate them (Claude Code cuts at 4,096 characters), so only the tail of the rules can be lost. Clients that ignore server instructions get the same rules from the always-on rule installed by [connecting-a-client.md](connecting-a-client.md) step 7.
 
 ## Local child servers
 

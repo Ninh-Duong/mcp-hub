@@ -6,7 +6,7 @@ This repo is maintained entirely by AI agents. These rules are mandatory. Text r
 
 | The user wants to… | Do this |
 |---|---|
-| Use mcp-hub from their AI client, switch to it, or know how to configure it | Follow [docs/connecting-a-client.md](docs/connecting-a-client.md). It changes only the client's config, never this repo. |
+| Use mcp-hub from their AI client, switch to it, or know how to configure it | Follow [docs/connecting-a-client.md](docs/connecting-a-client.md), plus your client's file in [docs/clients/](docs/clients/). It changes only the client's config, never this repo. |
 | Use mcp-hub tools to do work (e.g. `mcp-hub:mcp-server-logs …`) | Follow [docs/client-rules.md](docs/client-rules.md). |
 | Add, remove, or reconfigure a child MCP | Follow [docs/adding-a-child-mcp.md](docs/adding-a-child-mcp.md). |
 | Check that the Hub reaches its children | Run `uv run python scripts/smoke.py` (see README → Check connections). |

@@ -1,6 +1,8 @@
 # Rules for agents using mcp-hub
 
-These rules apply in any workspace where the `mcp-hub` MCP server is connected. The Hub also sends them as its server instructions. [connecting-a-client.md](connecting-a-client.md) step 7 installs them as an always-on client rule. This file has no machine paths, so it can be copied as-is.
+Version: 2026-10-19. A copy with an older version, or without this line, is stale; refresh it (connecting-a-client.md, prompt C).
+
+These rules apply in any workspace where the `mcp-hub` MCP server is connected. The Hub also sends them as its server instructions. Step 7 of `docs/connecting-a-client.md` in the mcp-hub repo installs them as an always-on client rule. This file has no machine paths or relative links, so it can be copied as-is.
 
 ## What mcp-hub is
 
@@ -10,10 +12,19 @@ These rules apply in any workspace where the `mcp-hub` MCP server is connected. 
 
 ## How the user calls a child
 
-A message that starts with `mcp-hub:<server-id>` or `/mcp-hub:<server-id>` means "do the rest of this message with that child". Example:
+Each of these means "do the rest of this message with that child":
+
+| Form | Where it comes from |
+|---|---|
+| `/mcp-hub <server-id> <task>` | the `mcp-hub` skill or custom command (most clients) |
+| `$mcp-hub <server-id> <task>` | the `mcp-hub` skill in Codex |
+| `/mcp-hub:<server-id>`, `/mcp-hub.<server-id>`, `/<server-id>` | the Hub's MCP prompt, in clients that show prompts as commands (Claude Code, VS Code, Gemini CLI) |
+| `mcp-hub:<server-id> <task>` | plain text; works in every client |
+
+Example:
 
 ```text
-mcp-hub:mcp-server-logs show the prod logs for service orders-api
+/mcp-hub mcp-server-logs show the prod logs for service orders-api
 ```
 
 1. Work with that child's tools only. If the server ID is unknown, list the available IDs (from the Hub instructions or the `[… via <server-id>]` tool descriptions) and ask.

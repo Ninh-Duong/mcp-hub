@@ -1,6 +1,6 @@
 # Connecting an AI client to mcp-hub
 
-> **You are an AI agent, and the user wants their client (Antigravity, Claude Code, Cursor, Copilot, Codex, …) to use mcp-hub.** Follow this file from top to bottom. Ask the user only where a step says *Ask*. This task changes **the client's** MCP config. It does not change anything in this repository.
+> **You are an AI agent, and the user wants their client (Antigravity, Claude Code, Cursor, Copilot, Codex, …) to use mcp-hub.** Follow this file from top to bottom. For the client-specific parts (steps 6–8), use your client's file in [clients/](clients/) (§4). Ask the user only where a step says *Ask*. This task changes **the client's** config. It does not change anything in this repository.
 
 ---
 
@@ -8,13 +8,13 @@
 
 Paste one of these into any agent. Replace `<MCP_HUB_PATH>` with this repo's absolute path (forward slashes). The agent will ask before it writes global config or removes entries.
 
-**A. Full setup (connect + install the rule).** Use this the first time on each client:
+**A. Full setup (connect, rule, `/mcp-hub` command).** Use this the first time on each client:
 
 ```text
-Read <MCP_HUB_PATH>/docs/connecting-a-client.md and follow every step to connect yourself to mcp-hub:
-register one MCP server named mcp-hub, replace any old entries for its child MCPs, and install
-<MCP_HUB_PATH>/docs/client-rules.md as an always-on global rule (step 7). Ask me before writing
-global config or removing entries, and report what you changed at the end.
+Read <MCP_HUB_PATH>/docs/connecting-a-client.md and follow every step to connect yourself to mcp-hub,
+using the file for this client in <MCP_HUB_PATH>/docs/clients/: register one MCP server named mcp-hub,
+replace any old entries for its child MCPs, install the always-on rule and the /mcp-hub command.
+Ask me before writing global config or removing entries, and report what you changed at the end.
 ```
 
 The user may write these prompts in any language. Agents: follow this file the same way regardless.
@@ -22,20 +22,21 @@ The user may write these prompts in any language. Agents: follow this file the s
 **B. Instructions only, no changes:**
 
 ```text
-Read <MCP_HUB_PATH>/docs/connecting-a-client.md and tell me exactly what to change in this client
-to use mcp-hub, including the rule from step 7. Do not edit any file.
+Read <MCP_HUB_PATH>/docs/connecting-a-client.md and the file for this client in <MCP_HUB_PATH>/docs/clients/,
+and tell me exactly what to change in this client to use mcp-hub, including the rule and the /mcp-hub
+command. Do not edit any file.
 ```
 
-In this mode the agent does only steps 1, 2, and 3, plus step 5 as a list: it names the old entries and removes none. It gives the entry, the rule file, and the commands for steps 4, 6, 7 and 8 instead of running them.
+In this mode the agent does steps 1 and 2. In step 3 it only checks, and reports the launcher command instead of asking the user to run it. Step 5 becomes a list: it names the old entries and removes none. It gives the entry, the rule file, and the commands for steps 4, 6, 7 and 8 instead of running them.
 
-**C. Already connected; only install or refresh the rule** (e.g. after `client-rules.md` changed):
+**C. Already connected; only install or refresh the rule and command** (e.g. after `client-rules.md` or the templates changed):
 
 ```text
-Install <MCP_HUB_PATH>/docs/client-rules.md as an always-on global rule in this client, following
-step 7 of <MCP_HUB_PATH>/docs/connecting-a-client.md. Replace the old copy if there is one.
+Following sections 2 and 3 of the file for this client in <MCP_HUB_PATH>/docs/clients/, install or
+refresh the mcp-hub always-on rule and the /mcp-hub command. Replace old copies if there are any.
 ```
 
-**D. Daily use:** `mcp-hub:<server-id> <task>`, e.g. `mcp-hub:mcp-server-logs show the prod logs for service orders-api` or `mcp-hub:jira-sync-ticket check connection`. The rules are in [client-rules.md](client-rules.md).
+**D. Daily use:** `/mcp-hub <server-id> <task>`, e.g. `/mcp-hub mcp-server-logs show the prod logs for service orders-api` or `/mcp-hub jira-sync-ticket check connection`. In Codex, use `$mcp-hub …`. Without the command, type `mcp-hub:<server-id> <task>`. Each client's file lists its exact forms. The rules are in [client-rules.md](client-rules.md).
 
 ---
 
@@ -82,8 +83,8 @@ The launcher finds `uv` (on `PATH` or in the repo's `.tools/`), checks Python, a
 Each step ends with **Done when**. If a step cannot be done, stop and tell the user.
 
 ### Step 1: Identify the client and OS
-Find out which client you are running in (your system prompt or product name usually says). If unsure, *ask*. Detect the OS and shell.
-**Done when** you have picked one row of §4.
+Find out which client you are running in (your system prompt or product name usually says). If unsure, *ask*. Detect the OS and shell. Open the client's file from §4, and read it fully before step 6.
+**Done when** you have the client's file open (or [clients/other.md](clients/other.md)).
 
 ### Step 2: Find the repo
 `<MCP_HUB_PATH>` is the folder that contains `scripts/start.ps1` and this file. Record it as an absolute path with forward slashes.
@@ -122,62 +123,47 @@ Never remove an entry just because its name mentions a product (e.g. another Jir
 
 If a removed entry set `env` values (e.g. `OPENOBSERVE_ENV`), tell the user. The Hub entry carries no env, so that setting now belongs in the child's Hub config. Setting it is a separate task in [adding-a-child-mcp.md](adding-a-child-mcp.md), e.g. `uv run python scripts/private_config.py set mcp-server-logs env.OPENOBSERVE_ENV '"prod"'`.
 
+Also list user skills, commands, or rules that target an old server name or old tool names (e.g. a `log-hub` skill, or rules that call `query_logs`). They may steer the agent away from the Hub. *Ask* whether to update or remove each one; never delete one without a yes.
+
 If the client has the config in two places (e.g. Antigravity's current and older-build paths), apply the same change to every file that exists. Leftover per-server cache folders from the old entries can be left alone.
 **Done when** no entry other than `mcp-hub` points at a child repo.
 
 ### Step 6: Register `mcp-hub`
-Add the §2 entry using the client's row in §4. Prefer the client's CLI command when it has one. Raise the startup timeout to 60–120 s where the client allows it, because the Hub starts every child before it answers.
+Follow §1 of the client's file. Prefer the client's CLI command when it has one. Raise the startup timeout to 60–120 s where the client allows it, because the Hub starts every child before it answers.
 **Done when** the entry is saved and the file still parses.
 
-### Step 7: Install the client rule
-[client-rules.md](client-rules.md) tells the agent how to use the Hub, e.g. `mcp-hub:<server-id> <task>`, the `env` rules, and how to treat writing tools. The Hub already sends it as server instructions, but some clients don't show those to the model. Install it as an always-on rule too, at user/global level so it works in every workspace. *Ask* before writing.
+### Step 7: Install the rule and the `/mcp-hub` command
+Follow §2 and §3 of the client's file. *Ask* before writing; use user/global level so they work in every workspace.
+- **Rule:** [client-rules.md](client-rules.md) tells the agent how to use the Hub (call forms, `env`, writing tools). The Hub also sends it as server instructions, but not every client shows those to the model.
+- **Command:** a skill or custom command built from [clients/templates/](clients/templates/). It gives `/mcp-hub <server-id> <task>`. In most clients, `/` commands come only from skills or commands, never from the MCP server's name.
 
-| Client | Where | How |
-|---|---|---|
-| Google Antigravity | `~/.gemini/config/rules/mcp-hub.md` | New file: a frontmatter block `---` / `trigger: always_on` / `---`, then the content of `client-rules.md`. |
-| Claude Code | `~/.claude/CLAUDE.md` | Append one import line: `@<MCP_HUB_PATH>/docs/client-rules.md`. It stays current automatically. |
-| OpenAI Codex | `~/.codex/AGENTS.md` | Append the content under a `# mcp-hub` heading. |
-| Cursor | Settings → Rules → User Rules | Paste the content. |
-| VS Code + Copilot | the user's custom instructions, or the workspace's `.github/copilot-instructions.md` | Append the content. |
-| Any other | the client's always-on global rules or custom instructions | Copy the content. If the client has only workspace rules, use the user's workspace, never this repo. |
-
-A copy does not update itself. When `client-rules.md` changes, copy it again. The import, and the Hub's server instructions, are always current.
-**Done when** the rule file is in place, or the user declined.
+A copied rule does not update itself; when `client-rules.md` or a template changes, copy it again (prompt C in §0). Imports (e.g. Claude Code's `@…/docs/client-rules.md` line) and the Hub's server instructions are always current. A copied rule shows its `Version:` line, so a stale copy is easy to spot.
+**Done when** the rule and the command are in place, or the user declined.
 
 ### Step 8: Reload and verify
-1. Reload as the client's row says. If the user must restart the app, tell them exactly what to do and continue after they confirm.
-2. The client should list tools named `<prefix>__<tool>` (e.g. `jira__check_connection`, `logs__query_logs`). If it shows MCP prompts, there is one per child, named after its server ID.
+1. Reload and verify as §4 of the client's file says. If the user must restart the app, tell them exactly what to do and continue after they confirm.
+2. The client should list tools named `<prefix>__<tool>` (e.g. `jira__check_connection`, `logs__query_logs`).
 3. For each child, call its read-only check tool from the `CHECKS` table in `scripts/smoke.py` (today `jira__check_connection` and `logs__list_openobserve_organizations`).
-4. Test the call style: `mcp-hub:mcp-server-logs list the services in dev`. The agent should use only `logs__*` tools with `env: "dev"`.
-5. Report to the user: the config file you changed, the entries you removed, where the rule was installed, and the tool calls that worked.
+4. Test the command: `/mcp-hub mcp-server-logs list the services in dev` (or the client's form from §5 of its file). The agent should use only `logs__*` tools, with `env: "dev"`.
+5. Report to the user: the config file you changed, the entries you removed, where the rule and command were installed, and the tool calls that worked.
 
 **Done when** the read-only calls succeed.
 
 ---
 
-## 4. Client reference
+## 4. Client files
 
-`<P>` = `<MCP_HUB_PATH>`, and "entry" = §2. Paths were checked against the clients' docs on 2026-10-17. If a path does not exist, look up the client's current MCP docs and map §2 onto it. Rows show the Windows command. On macOS/Linux, use `bash` with `["<P>/scripts/start.sh"]` instead (e.g. `claude mcp add … mcp-hub -- bash "<P>/scripts/start.sh"`).
+| Client | File |
+|---|---|
+| Google Antigravity (App, IDE, `agy` CLI) | [clients/antigravity.md](clients/antigravity.md) |
+| Claude Code (CLI, VS Code, JetBrains) | [clients/claude-code.md](clients/claude-code.md) |
+| OpenAI Codex (CLI, IDE, app) | [clients/codex.md](clients/codex.md) |
+| Cursor (editor, `agent` CLI) | [clients/cursor.md](clients/cursor.md) |
+| GitHub Copilot in VS Code | [clients/vscode-copilot.md](clients/vscode-copilot.md) |
+| Gemini CLI | [clients/gemini-cli.md](clients/gemini-cli.md) |
+| Anything else (Claude Desktop, Copilot CLI, Cline, Roo, Continue, Zed, JetBrains AI, Kiro, OpenCode, Goose, …) | [clients/other.md](clients/other.md) |
 
-| Client | Config file (global; project) | Shape / notes | Reload |
-|---|---|---|---|
-| Google Antigravity | `~/.gemini/config/mcp_config.json` (older builds: `~/.gemini/antigravity/mcp_config.json`); `.agents/mcp_config.json` | `mcpServers`, entry as-is. UI: Agent panel → `…` → MCP Servers → Manage → View raw config | **Refresh** in the MCP panel; CLI `/mcp` |
-| Claude Code | `~/.claude.json` (user/local); `.mcp.json` | `claude mcp add --transport stdio --scope user mcp-hub -- powershell -NoProfile -ExecutionPolicy Bypass -File "<P>/scripts/start.ps1"`. File shape adds `"type": "stdio"` | `/mcp`, `claude mcp list` |
-| Claude Desktop | `%APPDATA%\Claude\claude_desktop_config.json` (Store build: `%LOCALAPPDATA%\Packages\Claude_<id>\LocalCache\Roaming\Claude\`); macOS `~/Library/Application Support/Claude/` | `mcpServers`, no `type` | Quit from the tray, reopen |
-| Cursor | `~/.cursor/mcp.json`; `.cursor/mcp.json` | `mcpServers` + `"type": "stdio"` | Settings → MCP toggle |
-| VS Code + Copilot | user `mcp.json` (*MCP: Open User Configuration*); `.vscode/mcp.json` | top key **`servers`** + `"type": "stdio"` | *MCP: List Servers* → Restart |
-| Copilot CLI | `~/.copilot/mcp-config.json`; `.mcp.json` | `mcpServers`, `"type": "local"`, `"tools": ["*"]` | `copilot mcp list` |
-| Cline | via Cline pane → MCP Servers → Configure | `mcpServers` + **`"type": "stdio"`** (otherwise SSE) | Restart button |
-| Roo Code | global `mcp_settings.json`; `.roo/mcp.json` | `mcpServers`; optional `timeout` (s) | Toggle in MCP view |
-| Continue | `~/.continue/config.yaml`; `.continue/mcpServers/mcp-hub.yaml` | YAML list `mcpServers: - name: mcp-hub, type: stdio, command, args`; Agent mode only | Save reloads |
-| Gemini CLI | `~/.gemini/settings.json`; `.gemini/settings.json` | `mcpServers` | `/mcp` |
-| OpenAI Codex | `~/.codex/config.toml`; `.codex/config.toml` | `[mcp_servers.mcp-hub]` `command = "powershell"`, `args = [...]` with single-quoted paths, **`startup_timeout_sec = 120`** (default 10 s is too short) | `codex mcp list`, `/mcp` |
-| Zed | `~/.config/zed/settings.json` (Windows `%APPDATA%\Zed\settings.json`); `.zed/settings.json` | top key **`context_servers`** | Automatic |
-| JetBrains AI / Junie | UI: Settings → Tools → AI Assistant → MCP; Junie `~/.junie/mcp/mcp.json` | paste entry (STDIO) / `mcpServers` | Reconnect |
-| Kiro | `~/.kiro/settings/mcp.json`; `.kiro/settings/mcp.json` | `mcpServers` | Save reconnects |
-| OpenCode | `~/.config/opencode/opencode.json`; `opencode.json` | top key `mcp`, `"type": "local"`, **`command` is one array** (`["powershell", "-NoProfile", …]`), `"timeout": 120000` | Restart |
-| Goose | `~/.config/goose/config.yaml` (Windows `%APPDATA%\Block\goose\config\config.yaml`) | `extensions: mcp-hub: {type: stdio, cmd: powershell, args: [...], enabled: true, timeout: 300}` | New session |
-| Any other | its stdio/local server config | Map §2. Watch the top key (`mcpServers` / `servers` / `context_servers` / `mcp` / `extensions`), whether `type` is required, and whether command and args are one array | — |
+Every client file has the same sections: 1 MCP entry, 2 always-on rule, 3 `/mcp-hub` command, 4 reload and verify, 5 daily use, 6 logs and quirks. Shared templates are in [clients/templates/](clients/templates/).
 
 ---
 
@@ -197,7 +183,8 @@ A copy does not update itself. When `client-rules.md` changes, copy it again. Th
 | `mcp-hub` fails to start / no tools | Run `uv run python scripts/smoke.py` in `<P>`. Its FAIL line names the cause. Details are in `<P>/logs/mcp-hub.jsonl`. |
 | `Missing uv, Python 3.12…` (start.ps1) or `Missing prerequisites. Run bash scripts/start.sh…` (start.sh) in the client log | Prerequisites missing: have the user run step 3 in a terminal. If `uv` works in a terminal, the client starts with a different `PATH`; use the §2 fallback with the absolute `uv` path. |
 | `spawn powershell ENOENT` | Use `pwsh`, or the absolute path printed by `where powershell`, or the §2 fallback. |
-| Timeout on start | Run step 4 first (it finishes builds), then raise the client's startup timeout (§4). |
+| Timeout on start | Run step 4 first (it finishes builds), then raise the client's startup timeout (§1 of its file). |
 | A child's tools are missing | That child failed or a tool name is wrong. `smoke.py` shows which (`not connected` / `tool not found`). |
 | Every tool appears twice | An old direct entry is still configured. Redo step 5. |
-| Server not listed | Wrong file or top key (§4), invalid JSON, or client not reloaded. Restore the `.bak` if needed. |
+| `/mcp-hub` → "No matching results" (or similar) | The skill or command isn't installed, or the client wasn't reloaded. Redo step 7 with §3 of the client's file. Until then, type `mcp-hub:<server-id> <task>` without the leading `/`. |
+| Server not listed | Wrong file or top key (§1 of the client's file), invalid JSON, or client not reloaded. Restore the `.bak` if needed. |

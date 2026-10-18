@@ -27,13 +27,13 @@ When an MCP host launches the stdio server, it cannot answer an interactive prom
 To connect an AI client, paste this into the agent (replace `<MCP_HUB_PATH>` with this repo's absolute path). Other prompts (instructions only, rule refresh, daily use) are in [docs/connecting-a-client.md §0](docs/connecting-a-client.md#0-for-the-human-the-prompts).
 
 ```text
-Read <MCP_HUB_PATH>/docs/connecting-a-client.md and follow every step to connect yourself to mcp-hub:
-register one MCP server named mcp-hub, replace any old entries for its child MCPs, and install
-<MCP_HUB_PATH>/docs/client-rules.md as an always-on global rule (step 7). Ask me before writing
-global config or removing entries, and report what you changed at the end.
+Read <MCP_HUB_PATH>/docs/connecting-a-client.md and follow every step to connect yourself to mcp-hub,
+using the file for this client in <MCP_HUB_PATH>/docs/clients/: register one MCP server named mcp-hub,
+replace any old entries for its child MCPs, install the always-on rule and the /mcp-hub command.
+Ask me before writing global config or removing entries, and report what you changed at the end.
 ```
 
-Daily use after that: `mcp-hub:<server-id> <task>`, e.g. `mcp-hub:mcp-server-logs show the prod logs for service orders-api`.
+Daily use after that: `/mcp-hub <server-id> <task>` (Codex: `$mcp-hub …`), e.g. `/mcp-hub mcp-server-logs show the prod logs for service orders-api`. Without the command installed, type `mcp-hub:<server-id> <task>`.
 
 The Hub reads `config/private/hub.json` (or `MCP_HUB_CONFIG`, which must point inside `config/private/`). Child repositories sit next to this repo and are referenced as `../<repo>`.
 
@@ -69,6 +69,7 @@ A child without a `CHECKS` entry gets `PASS  N tools, connected (no read-only ch
 |------|------|
 | Rules for agents | [AGENTS.md](AGENTS.md) |
 | Connect an AI client (Antigravity, Claude Code, Cursor, …) to the Hub | [docs/connecting-a-client.md](docs/connecting-a-client.md) |
+| Per-client config: MCP entry, always-on rule, `/mcp-hub` command | [docs/clients/](docs/clients/) |
 | Rules a client's agent follows when using the Hub (`mcp-hub:<server-id> <task>`) | [docs/client-rules.md](docs/client-rules.md) |
 | Add or reconfigure a child MCP | [docs/adding-a-child-mcp.md](docs/adding-a-child-mcp.md) |
 | What a child MCP does, its tools and side effects | [docs/mcps/](docs/mcps/) |
