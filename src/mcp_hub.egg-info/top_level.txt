@@ -1,5 +1,0 @@
-clients
-config
-logging
-mcp_hub
-routing

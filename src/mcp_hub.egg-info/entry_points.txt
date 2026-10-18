@@ -1,2 +1,0 @@
-[console_scripts]
-mcp-hub = mcp_hub.server:main
