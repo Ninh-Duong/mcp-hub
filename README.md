@@ -24,13 +24,36 @@ If `uv` or Python 3.12 is missing, the launcher asks before installing. If neede
 
 When an MCP host launches the stdio server, it cannot answer an interactive prompt. Run the launcher once from a terminal first if prerequisites are missing. After setup, the launcher runs without prompting. Startup diagnostics go to stderr; stdout remains available to the MCP protocol.
 
+To connect an AI client, paste this into the agent (replace `<MCP_HUB_PATH>` with this repo's absolute path):
+
+```text
+Read <MCP_HUB_PATH>/docs/connecting-a-client.md and follow it to connect yourself to mcp-hub
+as one MCP server named mcp-hub. Replace any old entries for its child MCPs.
+```
+
 The Hub reads `config/private/hub.json` (or `MCP_HUB_CONFIG`, which must point inside `config/private/`). Child repositories sit next to this repo and are referenced as `../<repo>`.
+
+## Check connections
+
+```powershell
+uv run python scripts/smoke.py
+```
+
+It starts the Hub as an MCP host would and prints one line per enabled child MCP:
+
+```text
+jira-sync-ticket  PASS  3 tools, jira__check_connection ok
+mcp-server-logs   PASS  12 tools, logs__list_openobserve_organizations ok
+```
+
+A `FAIL` line names the cause: `not connected` (the child didn't start; check `cwd`/`command`), `tool not found` (wrong tool name in `hub.json`), or `<tool> failed` (the child is up but can't reach its upstream service; check its account). Exit code 0 means all PASS. Tool responses and error texts are never printed. Full details are in `logs/mcp-hub.jsonl`.
 
 ## Where to look
 
 | Need | File |
 |------|------|
 | Rules for agents | [AGENTS.md](AGENTS.md) |
+| Connect an AI client (Antigravity, Claude Code, Cursor, …) to the Hub | [docs/connecting-a-client.md](docs/connecting-a-client.md) |
 | Add or reconfigure a child MCP | [docs/adding-a-child-mcp.md](docs/adding-a-child-mcp.md) |
 | What a child MCP does, its tools and side effects | [docs/mcps/](docs/mcps/) |
 | Request flow, failure handling, prompts | [docs/architecture.md](docs/architecture.md) |
