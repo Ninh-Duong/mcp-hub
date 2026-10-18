@@ -1,8 +1,9 @@
 {
   "transport": "stdio",
-  "command": "<absolute-path-to-python-or-runtime>",
+  "command": ".venv/Scripts/python.exe",
   "args": ["server.py"],
-  "cwd": "<absolute-path-to-mcp-repository>",
+  "cwd": "../<mcp-repository>",
   "inheritEnv": ["PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE"],
+  "timeoutSeconds": 60,
   "env": {}
 }

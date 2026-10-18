@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./config/private/mcps/**)",
+      "Read(./.local/**)",
+      "Read(./.env)",
+      "Read(./.env.*)"
+    ]
+  }
+}

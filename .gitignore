@@ -3,6 +3,15 @@
 __pycache__/
 *.py[cod]
 .ruff_cache/
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# Editor and per-user agent settings (may contain machine paths)
+.vscode/
+.idea/
+.claude/settings.local.json
 
 # Local configuration and secrets
 .local/
@@ -11,7 +20,10 @@ config/**/*.local.json
 config/**/*.local.yaml
 .env
 .env.*
-!.env.example
+*.pem
+*.key
+*.pfx
+*.bak
 
 # Runtime logs
 logs/

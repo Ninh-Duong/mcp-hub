@@ -11,6 +11,7 @@ from typing import Any
 HUB_ROOT = Path(__file__).resolve().parents[2]
 PRIVATE_ROOT = (HUB_ROOT / "config" / "private").resolve()
 _DEFAULT_CONFIG = PRIVATE_ROOT / "hub.json"
+SECRET_PLACEHOLDER = "<SET_BY_USER>"
 _ALIAS_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _SENSITIVE_KEY_RE = re.compile(r"token|secret|password|authorization|email|credential", re.IGNORECASE)
 
@@ -27,6 +28,7 @@ class ServerConfig:
     cwd: Path
     env: dict[str, str]
     inherit_env: tuple[str, ...]
+    timeout_seconds: float = 60.0
     secret_values: tuple[str, ...] = field(default=(), repr=False)
 
 
@@ -111,21 +113,29 @@ def load_config(config_path: str | Path | None = None) -> HubConfig:
             continue
         server_config_path = _private_file(item.get("configFile"), f"server {server_id} configFile")
         local = _read_json(server_config_path, f"server {server_id} config")
+        if SECRET_PLACEHOLDER in json.dumps(local):
+            raise ConfigError(f"server {server_id} has unfilled {SECRET_PLACEHOLDER} values in its configFile")
         if local.get("transport") != "stdio":
             raise ConfigError(f"server {server_id} uses an unsupported transport")
         command = _string(local.get("command"), f"server {server_id} command")
         args_value = local.get("args", [])
         if not isinstance(args_value, list) or not all(isinstance(arg, str) for arg in args_value):
             raise ConfigError(f"server {server_id} args must be a list of strings")
-        cwd = Path(_string(local.get("cwd"), f"server {server_id} cwd")).expanduser().resolve()
+        cwd = HUB_ROOT / Path(_string(local.get("cwd"), f"server {server_id} cwd")).expanduser()
+        cwd = cwd.resolve()
         if not cwd.is_dir():
             raise ConfigError(f"server {server_id} cwd does not exist")
+        if not Path(command).is_absolute() and ("/" in command or "\\" in command):
+            command = str((cwd / command).resolve())
         env = _mapping(local.get("env", {}), f"server {server_id} env")
         if not all(isinstance(key, str) and isinstance(value, str) for key, value in env.items()):
             raise ConfigError(f"server {server_id} env must contain string values")
         inherit_env = local.get("inheritEnv", ["PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE"])
         if not isinstance(inherit_env, list) or not all(isinstance(name, str) for name in inherit_env):
             raise ConfigError(f"server {server_id} inheritEnv must be a list of names")
+        timeout = local.get("timeoutSeconds", 60)
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
+            raise ConfigError(f"server {server_id} timeoutSeconds must be a positive number")
         servers[server_id] = ServerConfig(
             server_id=server_id,
             command=command,
@@ -133,6 +143,7 @@ def load_config(config_path: str | Path | None = None) -> HubConfig:
             cwd=cwd,
             env=dict(env),
             inherit_env=tuple(inherit_env),
+            timeout_seconds=float(timeout),
             secret_values=tuple(_collect_sensitive_values(local)),
         )
 

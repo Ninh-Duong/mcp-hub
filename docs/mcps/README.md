@@ -1,11 +1,26 @@
 # Child MCP contracts
 
-Add one `<server-id>.md` file for every child MCP. Include:
+One `<server-id>.md` per child MCP. The Hub serves the file as the child's MCP prompt, alongside the list of that child's allowlisted Hub tools, so write it for an agent that is about to call those tools. Use repo-relative paths and env/config key names only, never values.
 
-- Purpose and owning repository.
-- How the Hub starts/connects to it.
-- Exposed tools and their input/output shape.
-- Read-only or write side effects for each tool.
-- Required environment variable names or private config path, never secret values.
-- Common errors and how to diagnose them using the Hub request ID.
-- Any access limits or operations requiring extra care.
+## Template
+
+```markdown
+# <Name> MCP contract
+
+- Repository: sibling `../<repo>`.
+- Transport: local stdio process launched by the Hub (`config/private/mcps/<server-id>.json`).
+- Configuration: env `<VAR_NAME>`, ... ; private keys `<block>.<key>`, ... (values set by the user).
+
+## Tools
+
+- `<exposed_name>`: <what it does>. Read-only | Writes <what, where>. Input: <key args>. Output: <shape>.
+
+## Care
+
+- <tools to avoid for smoke tests, rate limits, destructive operations, data boundaries>
+
+## Diagnostics
+
+- Child logs: `../<repo>/<log path>`. Hub events: `logs/mcp-hub.jsonl` (search by request ID).
+- <common errors and their fix>
+```

@@ -1,6 +1,8 @@
 # mcp-hub
 
-Local, config-driven MCP gateway for AI agents. The Hub connects to child MCP servers over stdio, discovers their tool schemas, exposes only configured allowlisted tools, routes calls, and writes audit events to `logs/mcp-hub.jsonl`.
+Local, config-driven MCP gateway for AI agents. The Hub launches child MCP servers over stdio, discovers their tools, exposes only allowlisted ones, routes calls, and writes audit events to `logs/mcp-hub.jsonl`.
+
+**Agents: read [AGENTS.md](AGENTS.md) first.** Its rules are mandatory.
 
 ## Run
 
@@ -11,24 +13,32 @@ uv sync
 uv run mcp-hub
 ```
 
-The default runtime config is `config/private/hub.json`. `config/hub.example.json` is the safe template. Each enabled server points to a private per-MCP config under `config/private/mcps/`.
+The Hub reads `config/private/hub.json` (or `MCP_HUB_CONFIG`, which must point inside `config/private/`). Child repositories sit next to this repo and are referenced as `../<repo>`.
 
-## Jira integration
+## Where to look
 
-The initial local config connects to `../jira_sync_ticket`. Jira credentials are in the ignored per-MCP file; the Hub passes its path to the Jira MCP using `CENTRAL_CONFIG_PATH`. The Jira repository's existing `.env` is unchanged for standalone use. See `docs/mcps/jira-sync-ticket.md` for each exposed tool and its side effects.
+| Need | File |
+|------|------|
+| Rules for agents | [AGENTS.md](AGENTS.md) |
+| Add or reconfigure a child MCP | [docs/adding-a-child-mcp.md](docs/adding-a-child-mcp.md) |
+| What a child MCP does, its tools and side effects | [docs/mcps/](docs/mcps/) |
+| Request flow, failure handling, prompts | [docs/architecture.md](docs/architecture.md) |
+| Secrets, audit events, diagnosing failures | [docs/security-and-logging.md](docs/security-and-logging.md) |
+| Safe config templates | [config/hub.example.json](config/hub.example.json), [config/mcps/](config/mcps/) |
 
-Run the read-only integration smoke check with:
+## Layout
 
-```powershell
-uv run python scripts/smoke_jira.py
-```
+- `src/mcp_hub/config.py`: validates the Hub manifest and per-server private configs, and resolves relative paths.
+- `src/mcp_hub/server.py`: starts child clients, exposes allowlisted tools and per-child prompts, routes calls, and writes audit events. It uses the MCP SDK's low-level server so child JSON Schemas and annotations are forwarded unchanged.
+- `src/mcp_hub/audit.py`: rotating JSONL audit log with secret redaction.
+- `scripts/private_config.py`: inspects or edits a private child config without printing secrets.
+- `scripts/check_leaks.py`: blocks machine paths, real emails, and private files from being committed.
+- `scripts/smoke.py`: read-only end-to-end check. For each enabled child it checks the Hub prompt and makes one read-only tool call (`CHECKS` table).
+- `tests/`: `uv run python -m unittest discover tests`.
 
-It verifies Hub tool discovery and calls `jira__check_connection`. It does not sync a ticket or print Jira account details. `jira__sync_ticket` writes files and is not needed to prove connectivity.
+## Security summary
 
-## Security
-
-- Never commit `config/private/`, `.env`, or `logs/`.
-- Tool arguments and successful results are not written to Hub logs.
-- The Hub passes only selected process environment variables to a child, plus values explicitly set in that child's private config.
-- Secret values found in private config are redacted from Hub error messages.
-- Stdio diagnostics go to stderr or the log file; stdout is reserved for MCP protocol frames.
+- `config/private/`, `.local/`, `.env*`, and `logs/` are gitignored and never committed.
+- Tool arguments and successful results are not logged. Known secret values are redacted from error logs.
+- A child receives only its `inheritEnv` variables plus its configured `env`.
+- stdout is reserved for MCP protocol frames.

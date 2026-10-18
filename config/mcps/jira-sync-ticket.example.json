@@ -1,14 +1,18 @@
 {
   "transport": "stdio",
-  "command": "<absolute-path-to-python-or-runtime>",
+  "command": "../mcp-hub/.venv/Scripts/python.exe",
   "args": ["server.py"],
-  "cwd": "<absolute-path-to-mcp-repository>",
+  "cwd": "../jira_sync_ticket",
   "inheritEnv": ["PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE"],
-  "env": {},
+  "timeoutSeconds": 60,
+  "env": {
+    "CENTRAL_CONFIG_PATH": "../mcp-hub/config/private/mcps/jira-sync-ticket.json",
+    "PYTHON_DOTENV_DISABLED": "1"
+  },
   "jira": {
     "base_url": "https://your-domain.atlassian.net",
-    "email": "user@example.com",
-    "api_token": "<SET_ONLY_IN_CONFIG_PRIVATE>",
+    "email": "<SET_BY_USER>",
+    "api_token": "<SET_BY_USER>",
     "max_asset_size_mb": 15
   }
 }

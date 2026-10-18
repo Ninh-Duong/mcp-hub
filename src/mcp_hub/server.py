@@ -6,21 +6,30 @@ from contextlib import AsyncExitStack
 from time import perf_counter
 from typing import Any
 
+import anyio
 from mcp import Client, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.stdio import stdio_server
+from mcp.shared.exceptions import MCPError
 from mcp.types import (
+    INVALID_PARAMS,
     CallToolRequestParams,
     CallToolResult,
+    GetPromptRequestParams,
+    GetPromptResult,
+    ListPromptsResult,
     ListToolsResult,
     PaginatedRequestParams,
+    Prompt,
+    PromptArgument,
+    PromptMessage,
     TextContent,
     Tool,
 )
 
 from .audit import AuditLog, redact
-from .config import HubConfig, ServerConfig, ToolRoute, load_config
+from .config import HUB_ROOT, HubConfig, ServerConfig, ToolRoute, load_config
 
 
 class HubRuntime:
@@ -28,17 +37,29 @@ class HubRuntime:
         self.config = config
         self.audit = audit
         self.clients: dict[str, Client] = {}
-        self.routes: dict[str, ToolRoute] = {route.exposed_name: route for route in config.routes}
+        self.routes: dict[str, ToolRoute] = {}
         self.public_tools: list[Tool] = []
 
     async def connect(self, stack: AsyncExitStack) -> None:
+        # A failing child is skipped so the remaining children stay usable.
         discovered: dict[str, dict[str, Tool]] = {}
         for server_id, server_config in self.config.servers.items():
             self.audit.add_secrets(server_config.env.values())
             self.audit.add_secrets(server_config.secret_values)
-            client = await self._connect_server(stack, server_config)
+            try:
+                client = await self._connect_server(stack, server_config)
+                discovered[server_id] = await self._list_all_tools(client)
+            except Exception as exc:
+                if not isinstance(exc, RuntimeError):
+                    self.audit.write(
+                        "server.list_tools.failed",
+                        level=logging.ERROR,
+                        server=server_id,
+                        error_type=type(exc).__name__,
+                        error=str(exc),
+                    )
+                continue
             self.clients[server_id] = client
-            discovered[server_id] = await self._list_all_tools(client)
             self.audit.write(
                 "server.connected",
                 server=server_id,
@@ -46,9 +67,18 @@ class HubRuntime:
             )
 
         for route in self.config.routes:
-            child_tool = discovered[route.server_id].get(route.tool_name)
+            child_tool = discovered.get(route.server_id, {}).get(route.tool_name)
             if child_tool is None:
-                raise RuntimeError(f"Configured tool was not found: {route.server_id}/{route.tool_name}")
+                self.audit.write(
+                    "route.skipped",
+                    level=logging.WARNING,
+                    feature=route.feature,
+                    server=route.server_id,
+                    tool=route.tool_name,
+                    reason="server unavailable" if route.server_id not in discovered else "tool not found",
+                )
+                continue
+            self.routes[route.exposed_name] = route
             description = child_tool.description or ""
             public_description = f"[{route.feature} via {route.server_id}] {description}".strip()
             fields: dict[str, Any] = {
@@ -64,6 +94,8 @@ class HubRuntime:
                     fields[field] = value
             self.public_tools.append(Tool(**fields))
 
+        if not self.public_tools:
+            raise RuntimeError("No configured tool is available; see logs/mcp-hub.jsonl")
         self.audit.write(
             "hub.tools.registered",
             tool_count=len(self.public_tools),
@@ -119,6 +151,44 @@ class HubRuntime:
         )
         return ListToolsResult(tools=self.public_tools)
 
+    def tools_by_server(self) -> dict[str, list[str]]:
+        grouped: dict[str, list[str]] = {}
+        for name, route in self.routes.items():
+            grouped.setdefault(route.server_id, []).append(name)
+        return grouped
+
+    async def list_prompts(
+        self,
+        ctx: ServerRequestContext,
+        params: PaginatedRequestParams | None,
+    ) -> ListPromptsResult:
+        return ListPromptsResult(
+            prompts=[
+                Prompt(
+                    name=server_id,
+                    description=f"Work with the {server_id} child MCP through mcp-hub ({len(tools)} tools)",
+                    arguments=[PromptArgument(name="task", description="What you want done", required=False)],
+                )
+                for server_id, tools in self.tools_by_server().items()
+            ]
+        )
+
+    async def get_prompt(self, ctx: ServerRequestContext, params: GetPromptRequestParams) -> GetPromptResult:
+        tools = self.tools_by_server().get(params.name)
+        if tools is None:
+            raise MCPError(INVALID_PARAMS, f"Unknown prompt: {params.name}")
+        parts = [f"Use only these mcp-hub tools from the '{params.name}' child MCP: {', '.join(tools)}."]
+        doc = HUB_ROOT / "docs" / "mcps" / f"{params.name}.md"
+        if doc.is_file():
+            parts.append(doc.read_text(encoding="utf-8"))
+        task = (params.arguments or {}).get("task")
+        if task:
+            parts.append(f"Task: {task}")
+        return GetPromptResult(
+            description=f"{params.name} via mcp-hub",
+            messages=[PromptMessage(role="user", content=TextContent(type="text", text="\n\n".join(parts)))],
+        )
+
     async def call_tool(self, ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         request_id = str(ctx.request_id) if ctx.request_id is not None else "unknown"
         route = self.routes.get(params.name)
@@ -143,7 +213,8 @@ class HubRuntime:
             tool=route.tool_name,
         )
         try:
-            result = await self.clients[route.server_id].call_tool(route.tool_name, params.arguments or {})
+            with anyio.fail_after(self.config.servers[route.server_id].timeout_seconds):
+                result = await self.clients[route.server_id].call_tool(route.tool_name, params.arguments or {})
         except Exception as exc:
             self.audit.write(
                 "tool.call.failed",
@@ -195,11 +266,17 @@ async def serve() -> None:
     runtime = HubRuntime(config, audit)
     async with AsyncExitStack() as stack:
         await runtime.connect(stack)
+        groups = "; ".join(f"{sid}: {', '.join(tools)}" for sid, tools in runtime.tools_by_server().items())
         server = Server(
             "mcp-hub",
-            instructions="Config-driven MCP hub. Only the listed, allowlisted child tools are available.",
+            instructions=(
+                "Config-driven MCP hub. Only the listed, allowlisted child tools are available. "
+                f"Tools by child MCP: {groups}. When the user names a child MCP, use only its tools."
+            ),
             on_list_tools=runtime.list_tools,
             on_call_tool=runtime.call_tool,
+            on_list_prompts=runtime.list_prompts,
+            on_get_prompt=runtime.get_prompt,
         )
         audit.write(
             "hub.started",

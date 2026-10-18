@@ -1,0 +1,9 @@
+{
+  "transport": "stdio",
+  "command": "node",
+  "args": ["start.mjs"],
+  "cwd": "../mcp-server-logs",
+  "inheritEnv": ["PATH", "PATHEXT", "COMSPEC", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE", "APPDATA", "LOCALAPPDATA"],
+  "timeoutSeconds": 600,
+  "env": {}
+}
