@@ -28,17 +28,27 @@ def _texts(result: CallToolResult) -> list[str]:
     return [block.text.strip() for block in result.content if isinstance(block, TextContent)]
 
 
-def _has_organizations(result: CallToolResult) -> bool:
+def _json_objects(result: CallToolResult) -> list[dict]:
+    """JSON-object text blocks of a successful result; [] for an error result."""
     if result.is_error:
-        return False
+        return []
+    objects = []
     for text in _texts(result):
         try:
             payload = json.loads(text)
         except json.JSONDecodeError:
             continue
-        if isinstance(payload, dict) and isinstance(payload.get("organizations"), list):
-            return True
-    return False
+        if isinstance(payload, dict):
+            objects.append(payload)
+    return objects
+
+
+def _has_organizations(result: CallToolResult) -> bool:
+    return any(isinstance(payload.get("organizations"), list) for payload in _json_objects(result))
+
+
+def _is_connected(result: CallToolResult) -> bool:
+    return any(payload.get("connected") is True for payload in _json_objects(result))
 
 
 # server ID -> (label, read-only Hub tool, arguments, success check). Add one or more checks per child.
@@ -49,6 +59,7 @@ CHECKS = {
         (env, "logs__list_openobserve_organizations", {"env": env}, _has_organizations)
         for env in ("dev", "stg", "prod")
     ),
+    "mcp-pr-companion": (("bitbucket", "pr__check_bitbucket_connection", {}, _is_connected),),
 }
 
 

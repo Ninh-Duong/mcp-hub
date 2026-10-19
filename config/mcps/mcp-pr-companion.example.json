@@ -1,0 +1,9 @@
+{
+  "transport": "stdio",
+  "command": "node",
+  "args": ["bin/cli.js", "server"],
+  "cwd": "../mcp-pr-companion",
+  "inheritEnv": ["PATH", "PATHEXT", "COMSPEC", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE", "APPDATA", "LOCALAPPDATA"],
+  "timeoutSeconds": 300,
+  "env": {}
+}

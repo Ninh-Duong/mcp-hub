@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, call, patch
 
 from mcp.types import CallToolResult, TextContent
 
-from scripts.smoke import CHECKS, _has_organizations, _probe, _report
+from scripts.smoke import CHECKS, _has_organizations, _is_connected, _probe, _report
 
 
 class SmokeChecksTest(unittest.TestCase):
@@ -49,6 +49,17 @@ class SmokeChecksTest(unittest.TestCase):
     def test_logs_check_rejects_error_result_even_with_valid_payload(self) -> None:
         result = CallToolResult(content=[TextContent(type="text", text='{"organizations":[]}')], isError=True)
         self.assertFalse(self.check(result))
+
+    def test_pr_companion_check_uses_the_bitbucket_health_tool(self) -> None:
+        self.assertEqual(CHECKS["mcp-pr-companion"], (("bitbucket", "pr__check_bitbucket_connection", {}, _is_connected),))
+
+    def test_pr_companion_check_requires_connected_true(self) -> None:
+        ok = CallToolResult(content=[TextContent(type="text", text='{"connected":true}')])
+        self.assertTrue(_is_connected(ok))
+        for text in ('{"connected":false}', '{"connected":"true"}', "{}", "not json"):
+            with self.subTest(text=text):
+                self.assertFalse(_is_connected(CallToolResult(content=[TextContent(type="text", text=text)])))
+        self.assertFalse(_is_connected(CallToolResult(content=[TextContent(type="text", text='{"connected":true}')], isError=True)))
 
     def test_report_shows_status_for_all_environments(self) -> None:
         ok, detail = _report(
