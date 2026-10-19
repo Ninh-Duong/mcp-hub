@@ -2,11 +2,11 @@
   "transport": "stdio",
   "command": "../mcp-hub/.venv/Scripts/python.exe",
   "args": ["server.py"],
-  "cwd": "../jira_sync_ticket",
+  "cwd": "../mcp-jira-sync",
   "inheritEnv": ["PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE"],
   "timeoutSeconds": 60,
   "env": {
-    "CENTRAL_CONFIG_PATH": "../mcp-hub/config/private/mcps/jira-sync-ticket.json",
+    "CENTRAL_CONFIG_PATH": "../mcp-hub/config/private/mcps/mcp-jira-sync.json",
     "PYTHON_DOTENV_DISABLED": "1"
   },
   "jira": {

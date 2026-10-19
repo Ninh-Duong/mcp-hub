@@ -36,7 +36,7 @@ Following sections 2 and 3 of the file for this client in <MCP_HUB_PATH>/docs/cl
 refresh the mcp-hub always-on rule and the /mcp-hub command. Replace old copies if there are any.
 ```
 
-**D. Daily use:** `/mcp-hub <server-id> <task>`, e.g. `/mcp-hub mcp-server-logs show the prod logs for service orders-api` or `/mcp-hub jira-sync-ticket check connection`. In Codex, use `$mcp-hub …`. Without the command, type `mcp-hub:<server-id> <task>`. Each client's file lists its exact forms. The rules are in [client-rules.md](client-rules.md).
+**D. Daily use:** `/mcp-hub <server-id> <task>`, e.g. `/mcp-hub mcp-server-logs show the prod logs for service orders-api` or `/mcp-hub mcp-jira-sync check connection`. In Codex, use `$mcp-hub …`. Without the command, type `mcp-hub:<server-id> <task>`. Each client's file lists its exact forms. The rules are in [client-rules.md](client-rules.md).
 
 ---
 
@@ -113,8 +113,8 @@ Expect one `PASS` line per child MCP. A `FAIL` line names the cause; report it t
 **Done when** every line is `PASS`.
 
 ### Step 5: Find old direct entries (migration)
-The Hub replaces direct connections to its children. Each child is described in `docs/mcps/<server-id>.md` (skip `README.md`, which is the template), and its `Repository:` line names the child repo (e.g. `../mcp-server-logs`, `../jira_sync_ticket`). In the client's config, find entries that either:
-- have `command`/`args` pointing into one of those repos (e.g. `…/mcp-server-logs/start.mjs`, `…/jira_sync_ticket/server.py`), or
+The Hub replaces direct connections to its children. Each child is described in `docs/mcps/<server-id>.md` (skip `README.md`, which is the template), and its `Repository:` line names the child repo (e.g. `../mcp-server-logs`, `../mcp-jira-sync`). In the client's config, find entries that either:
+- have `command`/`args` pointing into one of those repos (e.g. `…/mcp-server-logs/start.mjs`, `…/mcp-jira-sync/server.py`, or its old name `…/jira_sync_ticket/server.py`), or
 - are named after an old name of a child (`mcp-logs`, `log-hub*`, `mcp-server-log-hub`).
 
 Never remove an entry just because its name mentions a product (e.g. another Jira or Atlassian server). It must point into a child repo or carry one of the old names above.

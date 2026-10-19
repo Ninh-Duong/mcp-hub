@@ -8,7 +8,7 @@ argument-hint: "<server-id> <task>"
 
 The user's input after the command is `<server-id> <task>`. Clients that substitute arguments put it here: $ARGUMENTS. If that shows literally as `$ARGUMENTS`, read the input from the user's message.
 
-1. **Parse.** The first word is the child's server ID (e.g. `mcp-server-logs`, `jira-sync-ticket`). The rest is the task, in any language. If the input is empty or the ID is unknown, list the connected server IDs with one example each, then ask.
+1. **Parse.** The first word is the child's server ID (e.g. `mcp-server-logs`, `mcp-jira-sync`). The rest is the task, in any language. If the input is empty or the ID is unknown, list the connected server IDs with one example each, then ask.
 2. **Check the Hub.** Hub tools are named `<prefix>__<tool>`, and each description starts with `[<feature> via <server-id>]`. If there are none, tell the user that mcp-hub is not connected or not reloaded, and stop.
 3. **Load the child's rules.** Get the Hub prompt named `<server-id>` if this client supports MCP prompts. Otherwise read `docs/mcps/<server-id>.md` in the mcp-hub repo (its path is in this client's `mcp-hub` server entry).
 4. **Do the task with that child's tools only.**

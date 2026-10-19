@@ -21,7 +21,7 @@ This repo is maintained entirely by AI agents. These rules are mandatory. Text r
 
 ## Privacy and paths (tracked files)
 
-- Use repo-relative paths only, e.g. `../jira_sync_ticket`, `config/private/hub.json`. Never write drive letters, home directories, usernames, hostnames, real emails, or real tenant URLs.
+- Use repo-relative paths only, e.g. `../mcp-jira-sync`, `config/private/hub.json`. Never write drive letters, home directories, usernames, hostnames, real emails, or real tenant URLs.
 - Use placeholders in examples and templates: `<SET_BY_USER>`, `<mcp-repository>`, `user@example.com`, `your-domain.atlassian.net`.
 - Never put credentials, tokens, private config values, or full tool arguments/results in source, docs, commits, or logs.
 

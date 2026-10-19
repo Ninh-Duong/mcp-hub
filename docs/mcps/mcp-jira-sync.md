@@ -2,8 +2,8 @@
 
 - Hub implementation guidance: [child MCP compatibility contract](../child-mcp-compatibility.md).
 
-- Repository: sibling `../jira_sync_ticket`.
-- Transport: local stdio process launched by the Hub (`config/private/mcps/jira-sync-ticket.json`, template `config/mcps/jira-sync-ticket.example.json`).
+- Repository: sibling `../mcp-jira-sync`.
+- Transport: local stdio process launched by the Hub (`config/private/mcps/mcp-jira-sync.json`, template `config/mcps/mcp-jira-sync.example.json`).
 - Runtime: runs on the Hub's interpreter, `../mcp-hub/.venv/Scripts/python.exe` relative to the child repo (`../mcp-hub/.venv/bin/python` on macOS/Linux). That is why `pyproject.toml` lists `httpx` and `python-dotenv`. They are the child's dependencies; do not remove them as unused.
 - Configuration:
   - The private config's `env` sets `CENTRAL_CONFIG_PATH`, which points the child to that same file (relative to the child repo). The child reads its `jira` block: `base_url`, `email`, `api_token`, `max_asset_size_mb`.
@@ -22,5 +22,5 @@
 
 ## Diagnostics
 
-- Child logs: `../jira_sync_ticket/logs/app.log`. Hub events: `logs/mcp-hub.jsonl`.
+- Child logs: `../mcp-jira-sync/logs/app.log`. Hub events: `logs/mcp-hub.jsonl`.
 - End-to-end check: `uv run python scripts/smoke.py` (calls `jira__check_connection`, read-only).

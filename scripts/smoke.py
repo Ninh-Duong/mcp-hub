@@ -54,7 +54,7 @@ def _is_connected(result: CallToolResult) -> bool:
 # server ID -> (label, read-only Hub tool, arguments, success check). Add one or more checks per child.
 Check = tuple[str, str, dict[str, str], Callable[[CallToolResult], bool]]
 CHECKS = {
-    "jira-sync-ticket": (("default", "jira__check_connection", {}, lambda r: any(t.startswith("✅") for t in _texts(r))),),
+    "mcp-jira-sync": (("default", "jira__check_connection", {}, lambda r: any(t.startswith("✅") for t in _texts(r))),),
     "mcp-server-logs": tuple(
         (env, "logs__list_openobserve_organizations", {"env": env}, _has_organizations)
         for env in ("dev", "stg", "prod")

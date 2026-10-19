@@ -6,7 +6,7 @@ These rules apply in any workspace where the `mcp-hub` MCP server is connected. 
 
 ## What mcp-hub is
 
-- One MCP server, `mcp-hub`, that fronts several child MCPs. Each child has a server ID (e.g. `mcp-server-logs`, `jira-sync-ticket`).
+- One MCP server, `mcp-hub`, that fronts several child MCPs. Each child has a server ID (e.g. `mcp-server-logs`, `mcp-jira-sync`).
 - Tools are named `<prefix>__<tool>` (e.g. `logs__query_logs`, `jira__check_connection`). Each tool description starts with `[<feature> via <server-id>]`, which tells you its child.
 - Each child has a Hub prompt named after its server ID. The prompt lists that child's tools and its usage rules (the child's contract).
 

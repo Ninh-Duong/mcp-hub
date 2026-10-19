@@ -1,6 +1,6 @@
 # Adding a child MCP
 
-Agent runbook. No Hub code change is needed. Follow every step in order and obey [AGENTS.md](../AGENTS.md). Before changing child source for Hub compatibility, also follow [the child compatibility contract](child-mcp-compatibility.md). In the examples, `<id>` is the server ID: lowercase, kebab-case, matching the child repository (e.g. `jira-sync-ticket`).
+Agent runbook. No Hub code change is needed. Follow every step in order and obey [AGENTS.md](../AGENTS.md). Before changing child source for Hub compatibility, also follow [the child compatibility contract](child-mcp-compatibility.md). In the examples, `<id>` is the server ID: lowercase, kebab-case, matching the child repository (e.g. `mcp-jira-sync`).
 
 ## 1. Gather facts (from the child repo, not from private files)
 

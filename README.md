@@ -44,7 +44,7 @@ uv run python scripts/smoke.py
 It starts the Hub as an MCP host would and prints one line per enabled child MCP:
 
 ```text
-jira-sync-ticket  PASS  3 tools, jira__check_connection ok
+mcp-jira-sync  PASS  3 tools, jira__check_connection ok
 mcp-server-logs   PASS  12 tools, logs__list_openobserve_organizations dev=ok stg=ok prod=ok
 ```
 
