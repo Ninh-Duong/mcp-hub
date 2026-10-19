@@ -3,8 +3,8 @@
   uv run python scripts/smoke.py
 
 One line per child: PASS/FAIL plus the reason (from this run's Hub audit events). For children listed in CHECKS
-it also makes one read-only tool call that reaches the child's upstream service. Tool responses and error texts
-are never printed.
+it makes the configured read-only tool calls that reach the child's upstream service. Tool responses and error
+texts are never printed.
 """
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import asyncio
 import json
 import os
 import sys
+from collections.abc import Callable
 from datetime import datetime, timezone
 
 from mcp import Client, StdioServerParameters
@@ -40,26 +41,32 @@ def _has_organizations(result: CallToolResult) -> bool:
     return False
 
 
-# server ID -> (a read-only Hub tool to call, its arguments, success check). Add one line per child MCP.
+# server ID -> (label, read-only Hub tool, arguments, success check). Add one or more checks per child.
+Check = tuple[str, str, dict[str, str], Callable[[CallToolResult], bool]]
 CHECKS = {
-    "jira-sync-ticket": ("jira__check_connection", {}, lambda r: any(t.startswith("✅") for t in _texts(r))),
-    "mcp-server-logs": ("logs__list_openobserve_organizations", {}, _has_organizations),
+    "jira-sync-ticket": (("default", "jira__check_connection", {}, lambda r: any(t.startswith("✅") for t in _texts(r))),),
+    "mcp-server-logs": tuple(
+        (env, "logs__list_openobserve_organizations", {"env": env}, _has_organizations)
+        for env in ("dev", "stg", "prod")
+    ),
 }
 
 
-async def _probe(server_ids: list[str]) -> tuple[set[str], dict[str, bool]]:
-    """Return the servers that have a Hub prompt (= connected with tools) and each CHECKS call's outcome."""
+async def _probe(server_ids: list[str]) -> tuple[set[str], dict[str, dict[str, bool]]]:
+    """Return the connected servers and each configured check outcome, grouped by server and label."""
     params = StdioServerParameters(command=sys.executable, args=["-m", "mcp_hub"], cwd=str(HUB_ROOT), env=dict(os.environ))
     with open(os.devnull, "w", encoding="utf-8") as hub_stderr:
         async with Client(stdio_client(params, errlog=hub_stderr)) as client:
             tools = {tool.name for tool in (await client.list_tools()).tools}
             connected = {prompt.name for prompt in (await client.list_prompts()).prompts}
-            calls: dict[str, bool] = {}
+            calls: dict[str, dict[str, bool]] = {}
             for server_id in server_ids:
-                if server_id in CHECKS and server_id in connected and CHECKS[server_id][0] in tools:
-                    tool, args, check = CHECKS[server_id]
-                    result = await client.call_tool(tool, args)
-                    calls[server_id] = not result.is_error and check(result)
+                if server_id in connected:
+                    for label, tool, args, check in CHECKS.get(server_id, ()):
+                        if tool not in tools:
+                            continue
+                        result = await client.call_tool(tool, args)
+                        calls.setdefault(server_id, {})[label] = not result.is_error and check(result)
             return connected, calls
 
 
@@ -78,7 +85,12 @@ def _events_since(started: str) -> list[dict]:
     return events
 
 
-def _report(server_id: str, connected: set[str], calls: dict[str, bool], events: list[dict]) -> tuple[bool, str]:
+def _report(
+    server_id: str,
+    connected: set[str],
+    calls: dict[str, dict[str, bool]],
+    events: list[dict],
+) -> tuple[bool, str]:
     mine = [e for e in events if e.get("server") == server_id]
     for e in mine:
         if e["event"] in ("server.connect.failed", "server.list_tools.failed"):
@@ -90,12 +102,19 @@ def _report(server_id: str, connected: set[str], calls: dict[str, bool], events:
     detail = f"{count} tools"
     if skipped:
         return False, f"{detail}, tool not found: {', '.join(skipped)}"
-    if server_id not in CHECKS:
+    checks = CHECKS.get(server_id)
+    if checks is None:
         return True, f"{detail}, connected (no read-only check in CHECKS)"
-    tool = CHECKS[server_id][0]
-    if server_id not in calls:
-        return False, f"{detail}, check tool not exposed: {tool}"
-    return calls[server_id], f"{detail}, {tool} {'ok' if calls[server_id] else 'failed'}"
+    results = calls.get(server_id, {})
+    missing = next((tool for label, tool, _, _ in checks if label not in results), None)
+    if missing:
+        return False, f"{detail}, check tool not exposed: {missing}"
+    tool = checks[0][1]
+    if len(checks) == 1:
+        ok = results[checks[0][0]]
+        return ok, f"{detail}, {tool} {'ok' if ok else 'failed'}"
+    status = " ".join(f"{label}={'ok' if results[label] else 'failed'}" for label, _, _, _ in checks)
+    return all(results[label] for label, _, _, _ in checks), f"{detail}, {tool} {status}"
 
 
 def main() -> None:

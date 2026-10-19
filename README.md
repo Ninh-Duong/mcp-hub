@@ -45,7 +45,7 @@ It starts the Hub as an MCP host would and prints one line per enabled child MCP
 
 ```text
 jira-sync-ticket  PASS  3 tools, jira__check_connection ok
-mcp-server-logs   PASS  12 tools, logs__list_openobserve_organizations ok
+mcp-server-logs   PASS  12 tools, logs__list_openobserve_organizations dev=ok stg=ok prod=ok
 ```
 
 A `FAIL` line names the cause:
@@ -56,7 +56,7 @@ A `FAIL` line names the cause:
 | `not connected (no Hub events; see logs)` | No events from this run (rare, e.g. log rotation); rerun. |
 | `no exposed tools: <tools>` / `tool not found: <tools>` | Wrong tool names in `hub.json`. |
 | `check tool not exposed: <tool>` | The `CHECKS` tool in `scripts/smoke.py` is not allowlisted. |
-| `<tool> failed` | The child is up but can't reach its upstream service; check its account. |
+| `<tool> <env>=failed` | The child is up but can't reach that upstream environment; check its local account file. |
 | `smoke=FAIL (<type>: Hub config is invalid …)` | `hub.json` or a child config is invalid; see `config.load.failed` in the log. |
 
 A child without a `CHECKS` entry gets `PASS  N tools, connected (no read-only check in CHECKS)`. Exit code 0 means all PASS. Tool responses and error texts are never printed. Full details are in `logs/mcp-hub.jsonl`.

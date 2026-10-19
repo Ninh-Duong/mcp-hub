@@ -80,6 +80,6 @@ Check the newest events in `logs/mcp-hub.jsonl`:
 | `server.connect.failed` / `server.list_tools.failed` | Child didn't start or answer | Check `cwd`, `command`, `args`, and the child's own logs |
 | `route.skipped` with `tool not found` | Wrong tool name in the allowlist | Fix `name` in `hub.json` |
 
-Add one line for the child to `CHECKS` in `scripts/smoke.py`, using a read-only tool that proves the child reaches its upstream service. The success check must validate the tool's real response shape, not only the absence of an MCP error flag. Add unit tests for success and malformed/failure results, then run the definition-of-done commands in [AGENTS.md](../AGENTS.md). For an enabled child without an entry, `smoke.py` checks only the connection and prints `PASS  N tools, connected (no read-only check in CHECKS)`.
+Add one or more read-only checks for the child to `CHECKS` in `scripts/smoke.py`, using a tool that proves it reaches the required upstream service. The success check must validate each tool's real response shape, not only the absence of an MCP error flag. Add unit tests for successful, malformed, and error results, then run the definition-of-done commands in [AGENTS.md](../AGENTS.md). For an enabled child without an entry, `smoke.py` checks only the connection and prints `PASS  N tools, connected (no read-only check in CHECKS)`.
 
 If the child keeps its credentials in its own repo (as `mcp-server-logs` does), the Hub config has no `<SET_BY_USER>` fields and step 5.1 is skipped. Ask the user to fill the child's own account files instead.
