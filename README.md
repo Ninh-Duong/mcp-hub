@@ -6,9 +6,9 @@ Local, config-driven MCP gateway for AI agents. The Hub launches child MCP serve
 
 ## Run
 
-Python 3.12 is the default project runtime. The launcher checks for `uv` and Python 3.12 before starting.
+Python 3.12 is the project runtime. The launcher prepares the local prerequisites before starting.
 
-Run from an interactive terminal the first time:
+Run directly, including when an AI client starts the Hub over stdio:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start.ps1
@@ -20,9 +20,7 @@ On Linux or macOS:
 bash scripts/start.sh
 ```
 
-If `uv` or Python 3.12 is missing, the launcher asks before installing. If needed, it installs `uv` under the ignored `.tools/` directory, then uses `uv` to install Python and sync project dependencies. The first install needs internet access and write permission in the repository, plus write access to the current user's uv data directory. Answering No stops without installing anything.
-
-When an MCP host launches the stdio server, it cannot answer an interactive prompt. Run the launcher once from a terminal first if prerequisites are missing. After setup, the launcher runs without prompting. Startup diagnostics go to stderr; stdout remains available to the MCP protocol.
+If `uv` is missing, the launcher installs it under the ignored `.tools/` directory without changing the global `PATH`. It then installs Python from `.python-version` when needed and runs `uv run --locked`, which creates or synchronizes the project environment from `uv.lock`. The first run needs internet access and write access to the repository and uv-managed data/cache directories. If download or installation fails, the launcher exits with a diagnostic on stderr before starting the Hub. Stdout stays reserved for MCP protocol traffic.
 
 To connect an AI client, paste this into the agent (replace `<MCP_HUB_PATH>` with this repo's absolute path). Other prompts (instructions only, rule refresh, daily use) are in [docs/connecting-a-client.md §0](docs/connecting-a-client.md#0-for-the-human-the-prompts).
 
@@ -62,6 +60,16 @@ A `FAIL` line names the cause:
 | `smoke=FAIL (<type>: Hub config is invalid …)` | `hub.json` or a child config is invalid; see `config.load.failed` in the log. |
 
 A child without a `CHECKS` entry gets `PASS  N tools, connected (no read-only check in CHECKS)`. Exit code 0 means all PASS. Tool responses and error texts are never printed. Full details are in `logs/mcp-hub.jsonl`.
+
+## Package QC
+
+Run the offline package checks before using or releasing a checkout:
+
+```powershell
+uv run --locked --python 3.12 python scripts/package_qc.py
+```
+
+The command runs unit tests, the leak checker, and Python compile checks. It does not contact child MCPs or upstream services. Add `--live-smoke` only when private Hub configuration and required child credentials are available. See [Packaging and QC](docs/packaging-and-qc.md) for bootstrap behavior and CI details.
 
 ## Where to look
 

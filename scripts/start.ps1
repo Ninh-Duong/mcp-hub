@@ -53,34 +53,16 @@ function Test-PythonVersion {
     return $false
 }
 
-$missing = @()
-if (-not $uvPath) {
-    $missing += "uv"
-}
-if (-not (Test-PythonVersion -Version $pythonVersion -UvPath $uvPath -CheckCode $versionCheck)) {
-    $missing += "Python $pythonVersion"
-}
-
-if ($missing.Count -gt 0) {
-    if ([Console]::IsInputRedirected) {
-        [Console]::Error.WriteLine("Missing {0}. Run this launcher in an interactive terminal to install prerequisites.", ($missing -join ", "))
-        exit 2
-    }
-
-    $answer = Read-Host ("Missing {0}. Install and continue? [y/N]" -f ($missing -join ", "))
-    if ($answer -notmatch '^(?i:y|yes)$') {
-        [Console]::Error.WriteLine("Startup cancelled; nothing was installed.")
-        exit 1
-    }
-}
-
 try {
     if (-not $uvPath) {
         New-Item -ItemType Directory -Force -Path $uvDirectory | Out-Null
         $env:UV_INSTALL_DIR = $uvDirectory
         $env:UV_NO_MODIFY_PATH = "1"
         try {
-            Invoke-RestMethod -Uri "https://astral.sh/uv/install.ps1" | Invoke-Expression
+            [Console]::Error.WriteLine("[mcp-hub] Installing uv into the repository-local .tools directory.")
+            $installer = Invoke-RestMethod -Uri "https://astral.sh/uv/install.ps1"
+            $output = Invoke-Expression $installer 2>&1
+            foreach ($line in $output) { [Console]::Error.WriteLine([string]$line) }
         } finally {
             Remove-Item Env:UV_INSTALL_DIR -ErrorAction SilentlyContinue
             Remove-Item Env:UV_NO_MODIFY_PATH -ErrorAction SilentlyContinue
@@ -92,8 +74,11 @@ try {
     }
 
     if (-not (Test-PythonVersion -Version $pythonVersion -UvPath $uvPath -CheckCode $versionCheck)) {
-        & $uvPath python install $pythonVersion
-        if ($LASTEXITCODE -ne 0) {
+        [Console]::Error.WriteLine("[mcp-hub] Installing Python $pythonVersion through uv.")
+        $output = & $uvPath python install $pythonVersion 2>&1
+        $installExitCode = $LASTEXITCODE
+        foreach ($line in $output) { [Console]::Error.WriteLine([string]$line) }
+        if ($installExitCode -ne 0) {
             throw "Could not install Python $pythonVersion."
         }
     }

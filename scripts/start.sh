@@ -53,34 +53,22 @@ if (( need_uv )) && ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev
     exit 2
 fi
 
-if (( need_uv || need_python )); then
-    if [[ ! -t 0 ]]; then
-        printf 'Missing prerequisites. Run bash scripts/start.sh in an interactive terminal to install them.\n' >&2
-        exit 2
-    fi
-
-    printf 'Missing:'
-    (( need_uv )) && printf ' uv'
-    (( need_python )) && printf ' Python %s' "$python_version"
-    printf '\nInstall and continue? [y/N] '
-    IFS= read -r answer
-    case "$answer" in
-        y|Y|yes|YES|Yes) ;;
-        *)
-            printf '%s\n' "Startup cancelled; nothing was installed." >&2
-            exit 1
-            ;;
-    esac
-fi
-
 if (( need_uv )); then
     mkdir -p "$uv_directory"
     export UV_INSTALL_DIR="$uv_directory"
     export UV_NO_MODIFY_PATH=1
     if command -v curl >/dev/null 2>&1; then
-        curl -LsSf https://astral.sh/uv/install.sh | sh
+        printf '%s\n' "[mcp-hub] Installing uv into the repository-local .tools directory." >&2
+        if ! curl -LsSf https://astral.sh/uv/install.sh | sh >&2; then
+            printf '%s\n' "Bootstrap failed: could not install uv." >&2
+            exit 1
+        fi
     elif command -v wget >/dev/null 2>&1; then
-        wget -qO- https://astral.sh/uv/install.sh | sh
+        printf '%s\n' "[mcp-hub] Installing uv into the repository-local .tools directory." >&2
+        if ! wget -qO- https://astral.sh/uv/install.sh | sh >&2; then
+            printf '%s\n' "Bootstrap failed: could not install uv." >&2
+            exit 1
+        fi
     fi
     unset UV_INSTALL_DIR UV_NO_MODIFY_PATH
     if [[ ! -x "$local_uv" ]]; then
@@ -91,7 +79,11 @@ if (( need_uv )); then
 fi
 
 if ! python_version_available; then
-    "$uv_bin" python install "$python_version"
+    printf '[mcp-hub] Installing Python %s through uv.\n' "$python_version" >&2
+    if ! "$uv_bin" python install "$python_version" >&2; then
+        printf 'Bootstrap failed: could not install Python %s.\n' "$python_version" >&2
+        exit 1
+    fi
 fi
 
 set +e

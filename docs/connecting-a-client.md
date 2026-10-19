@@ -72,7 +72,7 @@ refresh the mcp-hub always-on rule and the /mcp-hub command. Replace old copies 
 }
 ```
 
-The launcher finds `uv` (on `PATH` or in the repo's `.tools/`), checks Python, and starts the Hub. When a client starts it (non-interactive), it never writes to stdout, which is reserved for MCP traffic. This entry has been tested end to end as a stdio server, including non-ASCII tool output.
+The launcher finds `uv` (on `PATH` or in the repo's `.tools/`), installs it locally if needed, prepares the Python version from `.python-version`, and starts the Hub with dependencies locked by `uv.lock`. It does not prompt when a client starts it. Bootstrap diagnostics go to stderr, while stdout is reserved for MCP traffic. This entry has been tested end to end as a stdio server, including non-ASCII tool output.
 
 **Fallback** if the client cannot run PowerShell/bash: `command` = the absolute path of `uv` (`where uv` / `which uv`, or `<MCP_HUB_PATH>/.tools/uv.exe`), `args` = `["--directory", "<MCP_HUB_PATH>", "run", "--locked", "mcp-hub"]`.
 
@@ -91,7 +91,7 @@ Find out which client you are running in (your system prompt or product name usu
 **Done when** `<MCP_HUB_PATH>/scripts/start.ps1` exists.
 
 ### Step 3: Prerequisites
-Check `uv --version`, or check whether `<MCP_HUB_PATH>/.tools/uv.exe` (`.tools/uv` on macOS/Linux) exists. If neither works, *ask* the user to run the launcher once in a terminal, because the client cannot answer its install prompt:
+The launcher installs `uv` into the repo's ignored `.tools/` directory when it is missing, and installs Python from `.python-version` through `uv` when needed. No manual prerequisite step is required. The first launch requires internet access and local write access; if bootstrap cannot complete, it exits with an error on stderr before the Hub starts:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File "<MCP_HUB_PATH>/scripts/start.ps1"
@@ -99,8 +99,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<MCP_HUB_PATH>/scripts/star
 
 On macOS/Linux: `bash "<MCP_HUB_PATH>/scripts/start.sh"`.
 
-It asks before installing `uv` / Python 3.12. When it then sits silently, the Hub is running: press Ctrl+C.
-**Done when** `uv` is found.
+When it then sits silently, the Hub is running: press Ctrl+C.
+**Done when** the launcher reaches the Hub without a bootstrap error.
 
 ### Step 4: Check the Hub and its children
 In `<MCP_HUB_PATH>`, run (use the `.tools` uv path if `uv` is not on `PATH`):
@@ -181,7 +181,7 @@ Every client file has the same sections: 1 MCP entry, 2 always-on rule, 3 `/mcp-
 | Symptom | Fix |
 |---|---|
 | `mcp-hub` fails to start / no tools | Run `uv run python scripts/smoke.py` in `<P>`. Its FAIL line names the cause. Details are in `<P>/logs/mcp-hub.jsonl`. |
-| `Missing uv, Python 3.12…` (start.ps1) or `Missing prerequisites. Run bash scripts/start.sh…` (start.sh) in the client log | Prerequisites missing: have the user run step 3 in a terminal. If `uv` works in a terminal, the client starts with a different `PATH`; use the §2 fallback with the absolute `uv` path. |
+| `Bootstrap failed: …` in the client log | The launcher could not download/install `uv`, Python, or locked dependencies. Check network access and write permissions, then retry. If `uv` works in a terminal but not in the client, use the §2 fallback with the absolute `uv` path. |
 | `spawn powershell ENOENT` | Use `pwsh`, or the absolute path printed by `where powershell`, or the §2 fallback. |
 | Timeout on start | Run step 4 first (it finishes builds), then raise the client's startup timeout (§1 of its file). |
 | A child's tools are missing | That child failed or a tool name is wrong. `smoke.py` shows which (`not connected` / `tool not found`). |
