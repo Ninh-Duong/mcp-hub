@@ -1,6 +1,6 @@
 # Adding a child MCP
 
-Agent runbook. No Hub code change is needed. Follow every step in order and obey [AGENTS.md](../AGENTS.md). In the examples, `<id>` is the server ID: lowercase, kebab-case, matching the child repository (e.g. `jira-sync-ticket`).
+Agent runbook. No Hub code change is needed. Follow every step in order and obey [AGENTS.md](../AGENTS.md). Before changing child source for Hub compatibility, also follow [the child compatibility contract](child-mcp-compatibility.md). In the examples, `<id>` is the server ID: lowercase, kebab-case, matching the child repository (e.g. `jira-sync-ticket`).
 
 ## 1. Gather facts (from the child repo, not from private files)
 
@@ -32,8 +32,10 @@ Never open the file after creating it. The `set` value is JSON, so strings need 
 | `args` | no | `[]` | A list of strings, passed verbatim. No secrets. |
 | `inheritEnv` | no | `PATH`, `SYSTEMROOT`, `WINDIR`, `TEMP`, `TMP`, `USERPROFILE` | Hub process env vars passed to the child, in addition to the MCP SDK's default safe set (e.g. `PATH`, `APPDATA`, `USERNAME`; POSIX: `HOME`, `USER`). No other Hub env vars reach the child. |
 | `env` | no | `{}` | String values passed verbatim. A path inside `env` is resolved by the child, normally against its `cwd`, so use a path relative to the child repo (e.g. `../mcp-hub/config/private/mcps/<id>.json`). All values are redacted from Hub error logs. |
-| `timeoutSeconds` | no | `60` | Limit for each tool call. |
-| any other key | no | none | Ignored by the Hub; children may read them (e.g. the `jira` block). Values under sensitive-looking keys are redacted from logs. |
+| `timeoutSeconds` | no | `60` | Positive finite number of seconds for each tool call. |
+| any other key | no | none | Ignored by the Hub; children may read them (e.g. the `jira` block). Values under a sensitive key, including nested string values, are redacted from Hub error logs. Sensitive keys include `api_key` and common token, password, authorization, email, and credential names. |
+
+The Hub config version must be the integer `1`. Values copied from names in `inheritEnv` are also added to the Hub's exact-value error redaction set.
 
 ## 3. Register it in `config/private/hub.json`
 
@@ -58,7 +60,7 @@ Add the server **disabled** and allowlist only the tools that are needed:
 
 ## 4. Write the contract
 
-Create `docs/mcps/<id>.md` from the template in [mcps/README.md](mcps/README.md). The Hub serves this file to clients as the `<id>` prompt, so write it for an agent that will call the tools.
+Create `docs/mcps/<id>.md` from the template in [mcps/README.md](mcps/README.md). The Hub serves this file to clients as the `<id>` prompt, so write it for an agent that will call the tools. Include the read-only smoke tool and its expected success behavior.
 
 ## 5. Hand off secrets, then enable
 
@@ -78,6 +80,6 @@ Check the newest events in `logs/mcp-hub.jsonl`:
 | `server.connect.failed` / `server.list_tools.failed` | Child didn't start or answer | Check `cwd`, `command`, `args`, and the child's own logs |
 | `route.skipped` with `tool not found` | Wrong tool name in the allowlist | Fix `name` in `hub.json` |
 
-Add one line for the child to `CHECKS` in `scripts/smoke.py`, using a read-only tool that proves the child reaches its upstream service. Then run the definition-of-done commands in [AGENTS.md](../AGENTS.md). For an enabled child without an entry, `smoke.py` checks only the connection and prints `PASS  N tools, connected (no read-only check in CHECKS)`.
+Add one line for the child to `CHECKS` in `scripts/smoke.py`, using a read-only tool that proves the child reaches its upstream service. The success check must validate the tool's real response shape, not only the absence of an MCP error flag. Add unit tests for success and malformed/failure results, then run the definition-of-done commands in [AGENTS.md](../AGENTS.md). For an enabled child without an entry, `smoke.py` checks only the connection and prints `PASS  N tools, connected (no read-only check in CHECKS)`.
 
 If the child keeps its credentials in its own repo (as `mcp-server-logs` does), the Hub config has no `<SET_BY_USER>` fields and step 5.1 is skipped. Ask the user to fill the child's own account files instead.

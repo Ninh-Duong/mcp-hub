@@ -36,9 +36,10 @@ def main(argv: list[str]) -> None:
             print(f"{key} = {shown}")
         return
 
-    *parents, leaf = argv[2].split(".")
+    key_path = argv[2].split(".")
+    *parents, leaf = key_path
     value = json.loads(argv[3])
-    if _SENSITIVE_KEY_RE.search(leaf) and value != SECRET_PLACEHOLDER:
+    if any(_SENSITIVE_KEY_RE.search(key) for key in key_path) and value != SECRET_PLACEHOLDER:
         raise SystemExit(f"'{leaf}' looks sensitive; agents may only set it to {SECRET_PLACEHOLDER}")
     target = data
     for key in parents:

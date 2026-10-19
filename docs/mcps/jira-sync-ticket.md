@@ -1,5 +1,7 @@
 # Jira Ticket Sync MCP contract
 
+- Hub implementation guidance: [child MCP compatibility contract](../child-mcp-compatibility.md).
+
 - Repository: sibling `../jira_sync_ticket`.
 - Transport: local stdio process launched by the Hub (`config/private/mcps/jira-sync-ticket.json`, template `config/mcps/jira-sync-ticket.example.json`).
 - Runtime: runs on the Hub's interpreter, `../mcp-hub/.venv/Scripts/python.exe` relative to the child repo (`../mcp-hub/.venv/bin/python` on macOS/Linux). That is why `pyproject.toml` lists `httpx` and `python-dotenv`. They are the child's dependencies; do not remove them as unused.
@@ -12,6 +14,11 @@
 - `jira__check_connection`: read-only Jira profile/connection check. Use it for smoke tests.
 - `jira__list_synced`: read-only. Lists the local `.ai-context` ticket catalog.
 - `jira__sync_ticket`: **writes** ticket Markdown, changelog, catalog, and downloaded assets under `.ai-context`. Never use it for a connectivity test.
+
+## Hub integration
+
+- Read-only smoke check: `jira__check_connection`; its successful text begins with `✅`. If its output changes, update `scripts/smoke.py` and `tests/test_smoke.py`.
+- Preserve the child tool names and read/write annotations; the Hub exposes only the aliases allowlisted in `config/private/hub.json`.
 
 ## Diagnostics
 

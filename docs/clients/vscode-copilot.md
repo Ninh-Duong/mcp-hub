@@ -30,6 +30,6 @@ Do the general procedure in [../connecting-a-client.md](../connecting-a-client.m
 
 ## 6. Logs and quirks
 - **MCP: List Servers** → `mcp-hub` → **Show Output**. For more detail, run **Developer: Set Log Level** → Trace. The Chat Debug view shows what the model received.
-- The limit is 128 tools per request. The Hub's 15 tools are well under it.
+- The limit is 128 tools per request. Check the currently allowlisted Hub tools if the child set changes.
 
 Sources: [MCP servers](https://code.visualstudio.com/docs/copilot/customization/mcp-servers), [MCP config reference](https://code.visualstudio.com/docs/agents/reference/mcp-configuration), [Custom instructions](https://code.visualstudio.com/docs/copilot/customization/custom-instructions), [Agent skills](https://code.visualstudio.com/docs/copilot/customization/agent-skills), [Release 1.104](https://code.visualstudio.com/updates/v1_104), [Troubleshooting](https://code.visualstudio.com/docs/agents/agent-troubleshooting/troubleshooting).

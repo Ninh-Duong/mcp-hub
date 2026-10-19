@@ -41,3 +41,14 @@ Reload as the table below says. Then check that tools named `<prefix>__<tool>` a
 | Kiro | `~/.kiro/settings/mcp.json`; `.kiro/settings/mcp.json` | `mcpServers` | Save reconnects |
 | OpenCode | `~/.config/opencode/opencode.json`; `opencode.json` | top key `mcp`, `"type": "local"`, **`command` is one array** (`["powershell", "-NoProfile", …]`), `"timeout": 120000` | Restart |
 | Goose | `~/.config/goose/config.yaml` (Windows `%APPDATA%\Block\goose\config\config.yaml`) | `extensions: mcp-hub: {type: stdio, cmd: powershell, args: [...], enabled: true, timeout: 300}` | New session |
+
+## 5. Daily use
+
+- Use `/mcp-hub <server-id> <task>` or the client's equivalent. If it does not support custom commands, type `mcp-hub:<server-id> <task>` as plain text.
+- Start with the child prompt named after the server ID when prompts are supported. Use only the Hub tools listed for that child; tool names are `<prefix>__<child-tool>`.
+
+## 6. Logs and quirks
+
+- Client configuration shapes and reload steps vary; verify the current client documentation if a row above is stale.
+- If the Hub or a child is missing, run `uv run python scripts/smoke.py` from `<P>` and inspect `<P>/logs/mcp-hub.jsonl`.
+- Raise the client's startup timeout to 60–120 seconds when supported. `timeoutSeconds` in a child config controls routed tool calls, not client startup.

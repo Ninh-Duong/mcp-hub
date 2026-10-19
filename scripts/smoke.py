@@ -27,10 +27,23 @@ def _texts(result: CallToolResult) -> list[str]:
     return [block.text.strip() for block in result.content if isinstance(block, TextContent)]
 
 
+def _has_organizations(result: CallToolResult) -> bool:
+    if result.is_error:
+        return False
+    for text in _texts(result):
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict) and isinstance(payload.get("organizations"), list):
+            return True
+    return False
+
+
 # server ID -> (a read-only Hub tool to call, its arguments, success check). Add one line per child MCP.
 CHECKS = {
     "jira-sync-ticket": ("jira__check_connection", {}, lambda r: any(t.startswith("✅") for t in _texts(r))),
-    "mcp-server-logs": ("logs__list_openobserve_organizations", {}, lambda r: True),
+    "mcp-server-logs": ("logs__list_openobserve_organizations", {}, _has_organizations),
 }
 
 

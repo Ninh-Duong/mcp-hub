@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 from dataclasses import dataclass, field
@@ -13,7 +14,7 @@ PRIVATE_ROOT = (HUB_ROOT / "config" / "private").resolve()
 _DEFAULT_CONFIG = PRIVATE_ROOT / "hub.json"
 SECRET_PLACEHOLDER = "<SET_BY_USER>"
 _ALIAS_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
-_SENSITIVE_KEY_RE = re.compile(r"token|secret|password|authorization|email|credential", re.IGNORECASE)
+_SENSITIVE_KEY_RE = re.compile(r"token|secret|password|authorization|email|credential|api[_-]?key", re.IGNORECASE)
 
 
 class ConfigError(ValueError):
@@ -59,17 +60,17 @@ def _string(value: Any, label: str) -> str:
     return value.strip()
 
 
-def _collect_sensitive_values(value: Any, parent_key: str = "") -> list[str]:
+def _collect_sensitive_values(value: Any, sensitive_parent: bool = False) -> list[str]:
     found: list[str] = []
     if isinstance(value, dict):
         for key, child in value.items():
-            if _SENSITIVE_KEY_RE.search(str(key)) and isinstance(child, str) and child:
-                found.append(child)
-            else:
-                found.extend(_collect_sensitive_values(child, str(key)))
+            sensitive = sensitive_parent or bool(_SENSITIVE_KEY_RE.search(str(key)))
+            found.extend(_collect_sensitive_values(child, sensitive))
     elif isinstance(value, list):
         for child in value:
-            found.extend(_collect_sensitive_values(child, parent_key))
+            found.extend(_collect_sensitive_values(child, sensitive_parent))
+    elif sensitive_parent and isinstance(value, str) and value:
+        found.append(value)
     return found
 
 
@@ -100,7 +101,7 @@ def load_config(config_path: str | Path | None = None) -> HubConfig:
     if not path.is_relative_to(PRIVATE_ROOT):
         raise ConfigError("Hub config must be inside config/private/")
     raw = _read_json(path, "Hub config")
-    if raw.get("version") != 1:
+    if type(raw.get("version")) is not int or raw["version"] != 1:
         raise ConfigError("Unsupported Hub config version")
 
     raw_servers = _mapping(raw.get("servers"), "servers")
@@ -134,8 +135,14 @@ def load_config(config_path: str | Path | None = None) -> HubConfig:
         if not isinstance(inherit_env, list) or not all(isinstance(name, str) for name in inherit_env):
             raise ConfigError(f"server {server_id} inheritEnv must be a list of names")
         timeout = local.get("timeoutSeconds", 60)
-        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
             raise ConfigError(f"server {server_id} timeoutSeconds must be a positive number")
+        try:
+            timeout_seconds = float(timeout)
+        except OverflowError as exc:
+            raise ConfigError(f"server {server_id} timeoutSeconds must be a positive finite number") from exc
+        if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+            raise ConfigError(f"server {server_id} timeoutSeconds must be a positive finite number")
         servers[server_id] = ServerConfig(
             server_id=server_id,
             command=command,
@@ -143,7 +150,7 @@ def load_config(config_path: str | Path | None = None) -> HubConfig:
             cwd=cwd,
             env=dict(env),
             inherit_env=tuple(inherit_env),
-            timeout_seconds=float(timeout),
+            timeout_seconds=timeout_seconds,
             secret_values=tuple(_collect_sensitive_values(local)),
         )
 

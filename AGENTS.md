@@ -15,6 +15,7 @@ This repo is maintained entirely by AI agents. These rules are mandatory. Text r
 ## Before you change anything
 
 - Read `README.md` and, for a child MCP, its contract `docs/mcps/<server-id>.md`.
+- When changing child code for Hub compatibility, also follow [docs/child-mcp-compatibility.md](docs/child-mcp-compatibility.md) and the child repository's own agent rules.
 - To add or reconfigure a child MCP, follow `docs/adding-a-child-mcp.md` step by step.
 - Use only servers and tools enabled in the Hub config and allowlist, and only for their documented purpose. Respect each tool's side effects.
 
@@ -43,7 +44,7 @@ uv run python scripts/smoke.py
 uv run python scripts/check_leaks.py
 ```
 
-All three must pass. `check_leaks.py` scans every committable file (tracked, plus untracked files not ignored) for drive/home paths, non-`example.com` emails, and tracked private files. It reports file and line, never the matched text.
+All three must pass. `check_leaks.py` scans tracked files and untracked files not ignored (including `uv.lock`) for drive/home paths, non-`example.com` emails, and private path components (`config/private/`, `.local/`, `logs/`, `.env`, `.env.*`). It skips only its own source because that file contains the patterns being checked. It reports file and line, never the matched text.
 
 ## Reporting failures
 

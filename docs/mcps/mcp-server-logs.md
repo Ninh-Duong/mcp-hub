@@ -1,5 +1,7 @@
 # Server Logs MCP contract
 
+- Hub implementation guidance: [child MCP compatibility contract](../child-mcp-compatibility.md).
+
 - Repository: sibling `../mcp-server-logs` (Node 22+). Its own rules: `../mcp-server-logs/AGENTS.md`.
 - Transport: local stdio process launched by the Hub as `node start.mjs` in the child repo (`config/private/mcps/mcp-server-logs.json`, template `config/mcps/mcp-server-logs.example.json`). `start.mjs` runs `npm ci` / `npm run build` when needed, so the first start can take a minute; `inheritEnv` includes `APPDATA`, `LOCALAPPDATA`, `PATHEXT`, and `COMSPEC` for npm on Windows.
 - Configuration: the Hub passes no secrets. The child reads its accounts from its own `config/openobserve.<dev|stg|prod>.env` and `config/seq.env` (`OPENOBSERVE_URL`, `OPENOBSERVE_EMAIL`, `OPENOBSERVE_TOKEN`, `SEQ_SERVER_URL`, `SEQ_API_KEY`). The user fills those files; agents never read them. Optional `env.OPENOBSERVE_ENV` sets the default environment (`dev` otherwise).
@@ -26,6 +28,11 @@ All are read-only except `logs__export_openobserve_logs`. The OpenObserve tools,
 - Diagnose by comparing the logs with the source code of the workspace you are in, and cite log lines and source files.
 - The child's own prompts (`investigate_api_bug`, `analyze_ai_context`) are not exposed through the Hub; this contract is the Hub's `mcp-server-logs` prompt.
 - Never write log content or organization identifiers into this repo's tracked files.
+
+## Hub integration
+
+- Read-only smoke check: `logs__list_openobserve_organizations`; its successful result is JSON with an `organizations` array. If that response shape changes, update `scripts/smoke.py` and `tests/test_smoke.py`.
+- Preserve the child tool names and read/write annotations; the Hub exposes only the aliases allowlisted in `config/private/hub.json`.
 
 ## Diagnostics
 

@@ -46,6 +46,7 @@ class HubRuntime:
         for server_id, server_config in self.config.servers.items():
             self.audit.add_secrets(server_config.env.values())
             self.audit.add_secrets(server_config.secret_values)
+            self.audit.add_secrets(os.environ.get(name, "") for name in server_config.inherit_env)
             try:
                 client = await self._connect_server(stack, server_config)
                 discovered[server_id] = await self._list_all_tools(client)

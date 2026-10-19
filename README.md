@@ -72,6 +72,7 @@ A child without a `CHECKS` entry gets `PASS  N tools, connected (no read-only ch
 | Per-client config: MCP entry, always-on rule, `/mcp-hub` command | [docs/clients/](docs/clients/) |
 | Rules a client's agent follows when using the Hub (`mcp-hub:<server-id> <task>`) | [docs/client-rules.md](docs/client-rules.md) |
 | Add or reconfigure a child MCP | [docs/adding-a-child-mcp.md](docs/adding-a-child-mcp.md) |
+| Change child MCP code and keep it compatible with the Hub | [docs/child-mcp-compatibility.md](docs/child-mcp-compatibility.md) |
 | What a child MCP does, its tools and side effects | [docs/mcps/](docs/mcps/) |
 | Request flow, failure handling, prompts | [docs/architecture.md](docs/architecture.md) |
 | Secrets, audit events, diagnosing failures | [docs/security-and-logging.md](docs/security-and-logging.md) |
@@ -89,7 +90,7 @@ A child without a `CHECKS` entry gets `PASS  N tools, connected (no read-only ch
 
 ## Security summary
 
-- `config/private/`, `.local/`, `.env*`, and `logs/` are gitignored and never committed.
-- Tool arguments and successful results are not logged. Known secret values are redacted from error logs.
+- `config/private/`, `.local/`, `.env`, `.env.*`, and `logs/` are gitignored and never committed.
+- Tool arguments and successful results are not logged. Configured values, inherited environment values, and values under sensitive config keys are redacted from Hub error logs.
 - A child receives only the MCP SDK's default safe variables (e.g. `PATH`, `APPDATA`, `USERNAME`; on POSIX, `HOME`, `USER`), its `inheritEnv` variables, and its configured `env`.
 - stdout is reserved for MCP protocol frames.
