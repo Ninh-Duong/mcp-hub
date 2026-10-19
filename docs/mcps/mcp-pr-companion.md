@@ -14,12 +14,17 @@ The PR tools take `pr_url` (`https://bitbucket.org/<workspace>/<repo>/pull-reque
 - `pr__get_pr_file_context`: read-only, local. Markdown for one `file_id` (`file_0001` or `1`) with the sanitized diff, paged by `offset` / `max_chars` (default 16000). A page that does not reach the end finishes with `continue with offset N.`
 - `pr__get_pr_file_changes`: read-only, local. JSON for one `file_id`: classification and evidence, risk level/tags/evidence, symbols, and `patch: {text, total_chars, next_offset}` (`include_patch`, `offset`, `max_chars`).
 - `pr__get_pr_sync_status`: read-only, local. Whether the PR is cached, its revision, sync time and commits. Never contacts Bitbucket.
+- `pr__get_pr_comments`: read-only, fetched live from Bitbucket (comments change without new commits). Review comments with sanitized text; inline ones carry `file_id`, `path`, `line` when the PR is synced. Input: `include_resolved` (default true), `offset`, `limit` (default 50, max 200). Output: JSON `{total, complete, comments, next_offset}`.
+- `pr__list_my_open_prs`: read-only. Open PRs authored by the child's Bitbucket account in `repository` (`workspace/repo`) or every repository in the child's `BITBUCKET_REPOSITORY`. Output: JSON `{total, prs:[{pr_url, title, …, local}]}`; pass a `pr_url` straight to the other tools.
 - `pr__check_bitbucket_connection`: read-only. One Bitbucket request that verifies the child's credentials (and `ALLOWED_EMAILS`). No input. Output: `{"connected": true}`; otherwise an error naming the cause (HTTP 401 credentials, HTTP 403 missing `read:user`, unreachable). Returns no account data.
 
 ## Care
 
 - The file tools fail with `Error: PR is not synced yet…` until `pr__get_pr_context_pack` has run for that `pr_url`.
 - Follow the Read Strategy: open the `Read next` ids, then `Optional` if needed. Do not page through every file of a large PR.
+- Re-review: when the pack has "Changed since last sync (rev_…)", open only the listed file ids.
+- Addressing review feedback: `pr__get_pr_comments` with `include_resolved: false`, then open each comment's `file_id`.
+- When the pack's `Ticket` is not `N/A` and the `mcp-jira-sync` child is enabled, `jira__list_synced` shows whether that ticket's requirements are already in the local catalog. `jira__sync_ticket` writes files, so call it only when the user asks for the ticket.
 - Keep paging with `next_offset` / `continue with offset N` instead of raising `max_chars` to the maximum.
 - Paths, emails, UUIDs and secrets are sanitized by design. Never try to recover the real values, and do not ask the user for them.
 - A pack that starts with `Note: could not check Bitbucket…` is cached data that may be stale. Say so when you rely on it.
@@ -29,7 +34,7 @@ The PR tools take `pr_url` (`https://bitbucket.org/<workspace>/<repo>/pull-reque
 ## Hub integration
 
 - Read-only smoke check: `pr__check_bitbucket_connection`; success means a non-error result whose JSON has `"connected": true`. If the payload changes, update `scripts/smoke.py` (`_is_connected`) and `tests/test_smoke.py`.
-- Compatibility notes: preserve the six child tool names, their read/write annotations, and the launch command `node bin/cli.js server`. The child's own rules (`../mcp-pr-companion/AGENTS.md`) list which docs to update when a tool changes.
+- Compatibility notes: preserve the eight child tool names, their read/write annotations, and the launch command `node bin/cli.js server`. The child's own rules (`../mcp-pr-companion/AGENTS.md`) list which docs to update when a tool changes.
 
 ## Diagnostics
 
