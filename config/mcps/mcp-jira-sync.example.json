@@ -13,6 +13,7 @@
     "base_url": "https://your-domain.atlassian.net",
     "email": "<SET_BY_USER>",
     "api_token": "<SET_BY_USER>",
+    "ai_context_key": "<SET_BY_USER>",
     "max_asset_size_mb": 15
   }
 }

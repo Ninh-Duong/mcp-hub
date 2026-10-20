@@ -35,6 +35,35 @@ Daily use after that: `/mcp-hub <server-id> <task>` (Codex: `$mcp-hub …`), e.g
 
 The Hub reads `config/private/hub.json` (or `MCP_HUB_CONFIG`, which must point inside `config/private/`). Child repositories sit next to this repo and are referenced as `../<repo>`.
 
+## Default setup
+
+The default children are mapped in [config/hub.example.json](config/hub.example.json) and [config/mcps/](config/mcps/). Every template uses `../<repo>` paths, so clone all four repos into one parent folder, keeping the repo names as the folder names:
+
+```text
+<parent>/
+  mcp-hub/
+  mcp-server-logs/
+  mcp-jira-sync/
+  mcp-pr-companion/
+```
+
+```powershell
+cd <parent>
+foreach ($repo in "mcp-hub", "mcp-server-logs", "mcp-jira-sync", "mcp-pr-companion") { git clone "<GIT_BASE>/$repo.git" }
+cd mcp-hub
+New-Item -ItemType Directory -Force config/private/mcps | Out-Null
+Copy-Item config/hub.example.json config/private/hub.json
+foreach ($id in "mcp-server-logs", "mcp-jira-sync", "mcp-pr-companion") { Copy-Item "config/mcps/$id.example.json" "config/private/mcps/$id.json" }
+```
+
+| Server ID | Repo | Exposed tools | Where the user fills credentials | Contract |
+|---|---|---|---|---|
+| `mcp-server-logs` | `../mcp-server-logs` | `logs__*` | The child's `config/openobserve.<env>.env` and `config/seq.env` | [docs/mcps/mcp-server-logs.md](docs/mcps/mcp-server-logs.md) |
+| `mcp-jira-sync` | `../mcp-jira-sync` | `jira__*` | `<SET_BY_USER>` fields in `config/private/mcps/mcp-jira-sync.json` | [docs/mcps/mcp-jira-sync.md](docs/mcps/mcp-jira-sync.md) |
+| `mcp-pr-companion` | `../mcp-pr-companion` | `pr__*` | The child's `.env` | [docs/mcps/mcp-pr-companion.md](docs/mcps/mcp-pr-companion.md) |
+
+Then set up each child repo per its own README, fill its credentials, set `"enabled": true` for its server and feature in `config/private/hub.json`, and run `uv run python scripts/smoke.py`. Everything starts disabled. The `mcp-jira-sync` template runs on this repo's venv (`../mcp-hub/.venv/Scripts/python.exe`); on macOS/Linux set `command` to `../mcp-hub/.venv/bin/python` with `scripts/private_config.py set`.
+
 ## Check connections
 
 ```powershell
@@ -44,7 +73,7 @@ uv run python scripts/smoke.py
 It starts the Hub as an MCP host would and prints one line per enabled child MCP:
 
 ```text
-mcp-jira-sync  PASS  3 tools, jira__check_connection ok
+mcp-jira-sync  PASS  5 tools, jira__check_connection ok
 mcp-server-logs   PASS  12 tools, logs__list_openobserve_organizations dev=ok stg=ok prod=ok
 ```
 
