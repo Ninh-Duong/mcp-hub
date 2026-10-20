@@ -22,7 +22,7 @@ uv run python scripts/private_config.py set <id> env.SOME_API_TOKEN '"<SET_BY_US
 uv run python scripts/private_config.py keys <id>
 ```
 
-Never open the file after creating it. The `set` value is JSON, so strings need inner quotes. `set` refuses a real value for any key that looks sensitive (`token`, `secret`, `password`, `authorization`, `email`, `credential`). If a child-specific template exists in `config/mcps/`, copy that one instead.
+Never open the file after creating it. The `set` value is JSON, so strings need inner quotes. `set` refuses a real value for any key that looks sensitive (`token`, `secret`, `password`, `authorization`, `email`, `credential`, `api_key`, or ending in `key`/`_key`). If a child-specific template exists in `config/mcps/`, copy that one instead.
 
 | Key | Required | Default | Notes |
 |-----|----------|---------|-------|
@@ -33,7 +33,7 @@ Never open the file after creating it. The `set` value is JSON, so strings need 
 | `inheritEnv` | no | `PATH`, `SYSTEMROOT`, `WINDIR`, `TEMP`, `TMP`, `USERPROFILE` | Hub process env vars passed to the child, in addition to the MCP SDK's default safe set (e.g. `PATH`, `APPDATA`, `USERNAME`; POSIX: `HOME`, `USER`). No other Hub env vars reach the child. |
 | `env` | no | `{}` | String values passed verbatim. A path inside `env` is resolved by the child, normally against its `cwd`, so use a path relative to the child repo (e.g. `../mcp-hub/config/private/mcps/<id>.json`). All values are redacted from Hub error logs. |
 | `timeoutSeconds` | no | `60` | Positive finite number of seconds for each tool call. |
-| any other key | no | none | Ignored by the Hub; children may read them (e.g. the `jira` block). Values under a sensitive key, including nested string values, are redacted from Hub error logs. Sensitive keys include `api_key` and common token, password, authorization, email, and credential names. |
+| any other key | no | none | Ignored by the Hub; children may read them (e.g. the `jira` block). Values under a sensitive key, including nested string values, are redacted from Hub error logs. Sensitive keys include `api_key`, keys ending in `_key` (e.g. `ai_context_key`), and common token, password, authorization, email, and credential names. |
 
 The Hub config version must be the integer `1`. Values copied from names in `inheritEnv` are also added to the Hub's exact-value error redaction set.
 

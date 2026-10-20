@@ -62,7 +62,13 @@ foreach ($id in "mcp-server-logs", "mcp-jira-sync", "mcp-pr-companion") { Copy-I
 | `mcp-jira-sync` | `../mcp-jira-sync` | `jira__*` | `<SET_BY_USER>` fields in `config/private/mcps/mcp-jira-sync.json` | [docs/mcps/mcp-jira-sync.md](docs/mcps/mcp-jira-sync.md) |
 | `mcp-pr-companion` | `../mcp-pr-companion` | `pr__*` | The child's `.env` | [docs/mcps/mcp-pr-companion.md](docs/mcps/mcp-pr-companion.md) |
 
-Then set up each child repo per its own README, fill its credentials, set `"enabled": true` for its server and feature in `config/private/hub.json`, and run `uv run python scripts/smoke.py`. Everything starts disabled. The `mcp-jira-sync` template runs on this repo's venv (`../mcp-hub/.venv/Scripts/python.exe`); on macOS/Linux set `command` to `../mcp-hub/.venv/bin/python` with `scripts/private_config.py set`.
+Prepare each child once:
+
+- `mcp-server-logs`: `node start.mjs --preflight` in the child repo (Node 22+; installs, builds, creates the account files).
+- `mcp-jira-sync`: nothing to install there; it runs on this repo's venv, so `uv sync` here covers its dependencies. Do not `pip install` into another Python.
+- `mcp-pr-companion`: `node bin/cli.js prepare` in the child repo (Node 20.12+).
+
+Then fill each child's credentials, set `"enabled": true` for its server and feature in `config/private/hub.json`, and run `uv run python scripts/smoke.py`. Everything starts disabled. The `mcp-jira-sync` template runs on this repo's venv (`../mcp-hub/.venv/Scripts/python.exe`); on macOS/Linux set `command` to `../mcp-hub/.venv/bin/python` with `scripts/private_config.py set`.
 
 ## Check connections
 

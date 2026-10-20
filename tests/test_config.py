@@ -64,6 +64,10 @@ class LoadConfigTest(unittest.TestCase):
         child = self.load(self.server(api_key="test-api-key-value"))
         self.assertIn("test-api-key-value", child.secret_values)
 
+    def test_key_suffix_value_is_collected_for_redaction(self) -> None:
+        child = self.load(self.server(jira={"ai_context_key": "test-context-key-value", "max_asset_size_mb": 15}))
+        self.assertIn("test-context-key-value", child.secret_values)
+
     def test_nested_sensitive_parent_collects_all_string_values(self) -> None:
         child = self.load(self.server(credentials={"username": "nested-user-value", "items": ["nested-token-value"]}))
         self.assertIn("nested-user-value", child.secret_values)

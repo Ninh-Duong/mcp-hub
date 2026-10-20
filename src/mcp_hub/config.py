@@ -14,7 +14,7 @@ PRIVATE_ROOT = (HUB_ROOT / "config" / "private").resolve()
 _DEFAULT_CONFIG = PRIVATE_ROOT / "hub.json"
 SECRET_PLACEHOLDER = "<SET_BY_USER>"
 _ALIAS_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
-_SENSITIVE_KEY_RE = re.compile(r"token|secret|password|authorization|email|credential|api[_-]?key", re.IGNORECASE)
+_SENSITIVE_KEY_RE = re.compile(r"token|secret|password|authorization|email|credential|api[_-]?key|(?:^|[_-])key$", re.IGNORECASE)
 
 
 class ConfigError(ValueError):
