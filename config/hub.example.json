@@ -140,6 +140,11 @@
         },
         {
           "server": "mcp-pr-companion",
+          "name": "list_synced_prs",
+          "exposeAs": "pr__list_synced_prs"
+        },
+        {
+          "server": "mcp-pr-companion",
           "name": "check_bitbucket_connection",
           "exposeAs": "pr__check_bitbucket_connection"
         },
