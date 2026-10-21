@@ -3,8 +3,9 @@
 - Hub implementation guidance: [child MCP compatibility contract](../child-mcp-compatibility.md).
 
 - Repository: sibling `../mcp-jira-sync`.
+- Hub detects this supported sibling automatically. Until its private child config has credentials, `hub__status` reports `credentials required` and Jira tools are unavailable; other children remain usable.
 - Transport: local stdio process launched by the Hub (`config/private/mcps/mcp-jira-sync.json`, template `config/mcps/mcp-jira-sync.example.json`).
-- Runtime: runs on the Hub's interpreter, `../mcp-hub/.venv/Scripts/python.exe` relative to the child repo (`../mcp-hub/.venv/bin/python` on macOS/Linux). That is why `pyproject.toml` lists `httpx`, `python-dotenv`, and `cryptography`. They are the child's dependencies; do not remove them as unused.
+- Runtime: runs on the Hub's interpreter, `../mcp-hub/.venv/Scripts/python.exe` relative to the child repo (`../mcp-hub/.venv/bin/python` on macOS/Linux); automatic configuration selects the platform path. That is why `pyproject.toml` lists `httpx`, `python-dotenv`, and `cryptography`. They are the child's dependencies; do not remove them as unused.
 - Configuration:
   - The private config's `env` sets `CENTRAL_CONFIG_PATH`, which points the child to that same file (relative to the child repo). The child reads its `jira` block: `base_url`, `email`, `api_token`, `ai_context_key`, `max_asset_size_mb`.
   - It also sets `PYTHON_DOTENV_DISABLED`, so the Jira repo's own `.env` is ignored when the Hub launches it (including `AI_CONTEXT_DIR` and `CENTRAL_CONFIG_PATH` set there). That `.env` is left unchanged for standalone use.

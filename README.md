@@ -33,11 +33,11 @@ Ask me before writing global config or removing entries, and report what you cha
 
 Daily use after that: `/mcp-hub <server-id> <task>` (Codex: `$mcp-hub …`), e.g. `/mcp-hub mcp-server-logs show the prod logs for service orders-api`. Without the command installed, type `mcp-hub:<server-id> <task>`.
 
-The Hub reads `config/private/hub.json` (or `MCP_HUB_CONFIG`, which must point inside `config/private/`). Child repositories sit next to this repo and are referenced as `../<repo>`.
+The Hub discovers its three supported child repositories next to this repo at startup. Paths in Hub configuration are relative to this repo, such as `../mcp-server-logs`; they are resolved only in memory. Optional `config/private/hub.json` and per-child private configs override defaults. `MCP_HUB_CONFIG` still selects an explicit private manifest.
 
 ## Default setup
 
-The default children are mapped in [config/hub.example.json](config/hub.example.json) and [config/mcps/](config/mcps/). Every template uses `../<repo>` paths, so clone all four repos into one parent folder, keeping the repo names as the folder names:
+The supported children and exposed tools are mapped in [config/hub.example.json](config/hub.example.json) and [config/mcps/](config/mcps/). Clone the repos you want into one parent folder, keeping these folder names:
 
 ```text
 <parent>/
@@ -50,16 +50,14 @@ The default children are mapped in [config/hub.example.json](config/hub.example.
 ```powershell
 cd <parent>
 foreach ($repo in "mcp-hub", "mcp-server-logs", "mcp-jira-sync", "mcp-pr-companion") { git clone "<GIT_BASE>/$repo.git" }
-cd mcp-hub
-New-Item -ItemType Directory -Force config/private/mcps | Out-Null
-Copy-Item config/hub.example.json config/private/hub.json
-foreach ($id in "mcp-server-logs", "mcp-jira-sync", "mcp-pr-companion") { Copy-Item "config/mcps/$id.example.json" "config/private/mcps/$id.json" }
 ```
+
+Connect your client to `mcp-hub` using [the client guide](docs/connecting-a-client.md). No Hub config copy or enable step is needed for a fresh clone. Call `hub__status` to see how many child repos were detected and which are connected, disabled, or need credentials. A child without credentials may remain unavailable while the others work; the Hub does not expose a child's tools until it supplies their schemas. The client still needs a path to the Hub launcher because it can start from any working directory.
 
 | Server ID | Repo | Exposed tools | Where the user fills credentials | Contract |
 |---|---|---|---|---|
 | `mcp-server-logs` | `../mcp-server-logs` | `logs__*` | The child's `config/openobserve.<env>.env` and `config/seq.env` | [docs/mcps/mcp-server-logs.md](docs/mcps/mcp-server-logs.md) |
-| `mcp-jira-sync` | `../mcp-jira-sync` | `jira__*` | `<SET_BY_USER>` fields in `config/private/mcps/mcp-jira-sync.json` | [docs/mcps/mcp-jira-sync.md](docs/mcps/mcp-jira-sync.md) |
+| `mcp-jira-sync` | `../mcp-jira-sync` | `jira__*` | Copy its template to `config/private/mcps/mcp-jira-sync.json`, then fill `<SET_BY_USER>` fields locally | [docs/mcps/mcp-jira-sync.md](docs/mcps/mcp-jira-sync.md) |
 | `mcp-pr-companion` | `../mcp-pr-companion` | `pr__*` | The child's `.env` | [docs/mcps/mcp-pr-companion.md](docs/mcps/mcp-pr-companion.md) |
 
 Prepare each child once:
@@ -68,7 +66,7 @@ Prepare each child once:
 - `mcp-jira-sync`: nothing to install there; it runs on this repo's venv, so `uv sync` here covers its dependencies. Do not `pip install` into another Python.
 - `mcp-pr-companion`: `node bin/cli.js prepare` in the child repo (Node 20.12+).
 
-Then fill each child's credentials, set `"enabled": true` for its server and feature in `config/private/hub.json`, and run `uv run python scripts/smoke.py`. Everything starts disabled. The `mcp-jira-sync` template runs on this repo's venv (`../mcp-hub/.venv/Scripts/python.exe`); on macOS/Linux set `command` to `../mcp-hub/.venv/bin/python` with `scripts/private_config.py set`.
+Then fill each child's credentials and run `uv run python scripts/smoke.py`. Jira needs a private child config before its tools can appear; copy its template and fill the placeholders without printing secrets. In automatic mode, the Hub selects this repo's `.venv` Python for Jira on each platform. To disable a detected child, create a minimal `config/private/hub.json` such as `{"version":1,"servers":{"mcp-jira-sync":{"enabled":false}},"features":{}}`. Private fields override defaults; `enabled: false` wins over discovery. Private configuration is never generated automatically.
 
 ## Check connections
 
@@ -76,7 +74,7 @@ Then fill each child's credentials, set `"enabled": true` for its server and fea
 uv run python scripts/smoke.py
 ```
 
-It starts the Hub as an MCP host would and prints one line per enabled child MCP:
+It starts the Hub as an MCP host would and prints one line per enabled child MCP. `hub__status` also lists detected children that are disabled or need credentials:
 
 ```text
 mcp-jira-sync  PASS  5 tools, jira__check_connection ok
@@ -94,7 +92,7 @@ A `FAIL` line names the cause:
 | `<tool> <env>=failed` | The child is up but can't reach that upstream environment; check its local account file. |
 | `smoke=FAIL (<type>: Hub config is invalid …)` | `hub.json` or a child config is invalid; see `config.load.failed` in the log. |
 
-A child without a `CHECKS` entry gets `PASS  N tools, connected (no read-only check in CHECKS)`. Exit code 0 means all PASS. Tool responses and error texts are never printed. Full details are in `logs/mcp-hub.jsonl`.
+A child without a `CHECKS` entry gets `PASS  N tools, connected (no read-only check in CHECKS)`. With no ready children, smoke exits successfully and the Hub still exposes `hub__status`. For checked children, exit code 0 means all checks passed; a failed upstream credential check means that child is not ready, not that sibling discovery failed. Tool responses and error texts are never printed. Full details are in `logs/mcp-hub.jsonl`.
 
 ## Package QC
 
@@ -123,7 +121,7 @@ The command runs unit tests, the leak checker, and Python compile checks. It doe
 
 ## Layout
 
-- `src/mcp_hub/config.py`: validates the Hub manifest and per-server private configs, and resolves relative paths.
+- `src/mcp_hub/config.py`: discovers known sibling repos, merges private overrides, validates child configs, and resolves relative paths.
 - `src/mcp_hub/server.py`: starts child clients, exposes allowlisted tools and per-child prompts, routes calls, and writes audit events. It uses the MCP SDK's low-level server so child JSON Schemas and annotations are forwarded unchanged.
 - `src/mcp_hub/audit.py`: rotating JSONL audit log with secret redaction.
 - `scripts/private_config.py`: inspects or edits a private child config without printing secrets.

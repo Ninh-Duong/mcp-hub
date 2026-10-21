@@ -1,9 +1,13 @@
 import logging
+import json
 import tempfile
 import unittest
 from contextlib import AsyncExitStack
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
+from types import SimpleNamespace
+
+from mcp.types import CallToolRequestParams
 
 from mcp_hub.audit import AuditLog
 from mcp_hub.config import HubConfig, ServerConfig, ToolRoute
@@ -56,14 +60,25 @@ class InheritedEnvironmentRedactionTest(unittest.IsolatedAsyncioTestCase):
         runtime._connect_server = AsyncMock(side_effect=ValueError(f"child echoed {env_secret} and {config_secret}"))
 
         with patch.dict("os.environ", {"MCP_HUB_TEST_API_KEY": env_secret}):
-            with self.assertRaisesRegex(RuntimeError, "No configured tool"):
-                async with AsyncExitStack() as stack:
-                    await runtime.connect(stack)
+            async with AsyncExitStack() as stack:
+                await runtime.connect(stack)
+        self.assertEqual([tool.name for tool in runtime.public_tools], ["hub__status"])
 
         log = (self.tmp / "audit.jsonl").read_text(encoding="utf-8")
         self.assertNotIn(env_secret, log)
         self.assertNotIn(config_secret, log)
         self.assertEqual(log.count("[REDACTED]"), 2)
+
+    async def test_status_reports_detected_and_unavailable_children(self) -> None:
+        config = HubConfig(self.tmp / "hub.json", {}, (), ("mcp-jira-sync",), {"mcp-jira-sync": "credentials required"})
+        runtime = HubRuntime(config, AuditLog(self.tmp / "audit.jsonl"))
+        async with AsyncExitStack() as stack:
+            await runtime.connect(stack)
+        result = await runtime.call_tool(SimpleNamespace(request_id="status"), CallToolRequestParams(name="hub__status", arguments={}))
+        self.assertEqual(json.loads(result.content[0].text), {
+            "detected": 1, "connected": 0, "children": {"mcp-jira-sync": "credentials required"},
+        })
+        self.assertIn('"event": "tool.call.succeeded"', (self.tmp / "audit.jsonl").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

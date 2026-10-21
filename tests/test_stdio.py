@@ -60,7 +60,11 @@ class StdioCompatibilityTest(unittest.TestCase):
         async with asyncio.timeout(90):
             async with Client(stdio_client(params)) as client:
                 tools = await client.list_tools()
-                self.assertEqual([tool.name for tool in tools.tools], ["fake__echo_unicode"])
+                self.assertEqual([tool.name for tool in tools.tools], ["hub__status", "fake__echo_unicode"])
+                self.assertTrue(tools.tools[0].annotations.read_only_hint)
+                status = await client.call_tool("hub__status", {})
+                self.assertFalse(status.is_error)
+                self.assertEqual(json.loads(status.content[0].text)["children"]["fake-child"], "connected")
 
                 prompts = await client.list_prompts()
                 self.assertEqual([prompt.name for prompt in prompts.prompts], ["fake-child"])

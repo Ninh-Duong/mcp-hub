@@ -1,6 +1,6 @@
 # Adding a child MCP
 
-Agent runbook. No Hub code change is needed. Follow every step in order and obey [AGENTS.md](../AGENTS.md). Before changing child source for Hub compatibility, also follow [the child compatibility contract](child-mcp-compatibility.md). In the examples, `<id>` is the server ID: lowercase, kebab-case, matching the child repository (e.g. `mcp-jira-sync`).
+Agent runbook. The three built-in children are discovered automatically when cloned as siblings; this procedure is for adding another child or overriding a built-in child. A new child needs a curated Hub entry and tool allowlist; directory scanning alone does not register arbitrary MCPs. Follow every step in order and obey [AGENTS.md](../AGENTS.md). Before changing child source for Hub compatibility, also follow [the child compatibility contract](child-mcp-compatibility.md). In the examples, `<id>` is the server ID: lowercase, kebab-case, matching the child repository (e.g. `mcp-jira-sync`).
 
 ## 1. Gather facts (from the child repo, not from private files)
 
@@ -39,7 +39,7 @@ The Hub config version must be the integer `1`. Values copied from names in `inh
 
 ## 3. Register it in `config/private/hub.json`
 
-Add the server **disabled** and allowlist only the tools that are needed:
+Add a new server **disabled** and allowlist only the tools that are needed. For a built-in child, copy the example only when you want to override its default settings; an explicit `enabled: false` disables automatic discovery:
 
 ```json
 "servers": {

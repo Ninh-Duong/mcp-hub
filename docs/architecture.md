@@ -2,7 +2,7 @@
 
 ## Responsibilities
 
-- **Hub config** declares child MCP connection details, enabled features, and the tool allowlist.
+- **Hub config** defaults to the three curated child MCPs and their tool allowlist. Known sibling repos are discovered at startup; private config overrides defaults, including explicit disables.
 - **Per-MCP private config** holds local settings or references to credentials needed by one child MCP.
 - **Hub runtime** validates config, connects to child MCPs, exposes allowlisted tools, routes calls, and writes audit events.
 - **Child MCP** owns its domain logic, credentials, and upstream service behavior.
@@ -16,13 +16,14 @@ Every exposed tool should map to exactly one child server and tool name. Use nam
 
 ## Failure handling and child selection
 
-- A child that fails to start, or a configured tool the child does not list, is logged (`server.connect.failed`, `route.skipped`) and skipped; the Hub starts with the remaining tools and fails only when none are available.
+- A child that fails to start, or a configured tool the child does not list, is logged (`server.connect.failed`, `route.skipped`) and skipped; the Hub starts with the remaining tools. With no available child tools, it still exposes `hub__status`.
+- `hub__status` reports detected sibling count, connected count, and each known child's state. A child with unfilled private credential placeholders is marked `credentials required`; its tools are not exposed. Startup failures are marked `unavailable`; detailed diagnostics remain in the Hub log.
 - Each call is limited by the child's `timeoutSeconds` (default 60); a timeout is logged as `tool.call.failed` with `error_type=TimeoutError`.
 - The Hub exposes one MCP prompt per connected child, named after its server ID. Clients that support prompts show it as a slash command (the exact format is client-defined); it tells the Agent which Hub tools belong to that child and includes `docs/mcps/<server-id>.md`.
 - On connect, the Hub sends server instructions, essentials first: a summary under 512 characters (`INSTRUCTIONS_SUMMARY` in `server.py`), the tool list per child, and then [client-rules.md](client-rules.md), read at startup. Clients may truncate them (Claude Code cuts at 4,096 characters), so only the tail of the rules can be lost. Clients that ignore server instructions get the same rules from the always-on rule installed by [connecting-a-client.md](connecting-a-client.md) step 7.
 
 ## Local child servers
 
-Children run over `stdio`. The Hub launches each one with an argument array (never a shell string) in the child's `cwd`, passing only the MCP SDK's default safe variables, the `inheritEnv` names, and the child's `env` values. Child repositories are expected to sit next to this repo, so configs reference them as `../<repo>`.
+Children run over `stdio`. The Hub launches each one with an argument array (never a shell string) in the child's `cwd`, passing only the MCP SDK's default safe variables, the `inheritEnv` names, and the child's `env` values. Child repositories are expected to sit next to this repo, so configs reference them as `../<repo>`. The Hub resolves relative paths in memory; tracked config never contains machine paths. A private Hub manifest can override each known child or feature, and `enabled: false` takes precedence over discovery. An explicit `MCP_HUB_CONFIG` retains the private-manifest-only behavior.
 
 Each child MCP has a contract at `docs/mcps/<server-id>.md`; see [mcps/README.md](mcps/README.md). To add one, follow [adding-a-child-mcp.md](adding-a-child-mcp.md).

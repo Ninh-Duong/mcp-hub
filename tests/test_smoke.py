@@ -5,12 +5,19 @@ from unittest.mock import AsyncMock, call, patch
 
 from mcp.types import CallToolResult, TextContent
 
-from scripts.smoke import CHECKS, _has_organizations, _is_connected, _probe, _report
+from scripts.smoke import CHECKS, _has_organizations, _is_connected, _probe, _report, main
 
 
 class SmokeChecksTest(unittest.TestCase):
     def setUp(self) -> None:
         self.check = _has_organizations
+
+    def test_no_ready_children_is_a_valid_hub_startup(self) -> None:
+        with patch("scripts.smoke.load_config", return_value=SimpleNamespace(servers={})), patch("builtins.print") as output:
+            with self.assertRaises(SystemExit) as result:
+                main()
+        self.assertEqual(result.exception.code, 0)
+        output.assert_called_once()
 
     def test_logs_check_runs_for_each_openobserve_environment(self) -> None:
         checks = CHECKS["mcp-server-logs"]

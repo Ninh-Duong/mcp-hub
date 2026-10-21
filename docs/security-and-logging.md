@@ -14,6 +14,8 @@
 
 The Hub writes JSON Lines records for startup/shutdown, config validation, child connection, tool discovery, and every tool call. Fields: `timestamp`, `event`, and when relevant `request_id`, `feature`, `server`, `tool`, `duration_ms`, `error_type`, and redacted `error` / `error_summary`. The full list is in the event reference below.
 
+`hub__status` reports only child IDs, counts, and states; it does not expose config paths or credentials. Its calls use the same `tool.call.started` and `tool.call.succeeded` audit events as child tools.
+
 Do not log credentials, full environment maps, complete tool arguments, or complete tool results by default. Log only safe metadata or explicitly reviewed, redacted fields. Keep logs local under `logs/`, restrict access, and rotate them to avoid unbounded growth.
 
 `scripts/check_leaks.py` scans tracked and non-ignored untracked files, including `uv.lock`, for machine paths, non-`example.com` email domains, and `config/private/`, `.local/`, `logs/`, `.env`, or `.env.*` path components. It skips only its own source and reports locations without printing matched text.

@@ -170,6 +170,12 @@ class LoadConfigTest(unittest.TestCase):
             with self.subTest(error=error), self.assertRaisesRegex(ConfigError, error):
                 self.load(self.server(), features=features)
 
+    def test_status_tool_name_is_reserved(self) -> None:
+        with self.assertRaisesRegex(ConfigError, "reserved"):
+            self.load(self.server(), features={"f": {"enabled": True, "tools": [
+                {"server": "child", "name": "t", "exposeAs": "hub__status"},
+            ]}})
+
 
 if __name__ == "__main__":
     unittest.main()

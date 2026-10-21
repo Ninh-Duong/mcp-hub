@@ -30,6 +30,7 @@ Do the general procedure in [../connecting-a-client.md](../connecting-a-client.m
 3. `/mcp-hub mcp-server-logs list the services in dev` uses only `logs__*` tools, with `env: "dev"`.
 
 ## 5. Daily use
+- Call `hub__status` to see the automatically detected sibling MCPs and readiness before choosing a child.
 - `/mcp-hub <server-id> <task>` (skill).
 - `/mcp-hub:<server-id> <one-word-task>` (native MCP prompt).
 - `mcp-hub:<server-id> <task>` (plain text).

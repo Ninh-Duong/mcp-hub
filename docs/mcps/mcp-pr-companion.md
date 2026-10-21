@@ -1,6 +1,7 @@
 # PR Companion MCP contract
 
 - Repository: sibling `../mcp-pr-companion` (Node 20.12+). Its own rules: `../mcp-pr-companion/AGENTS.md`.
+- Hub discovers this supported sibling automatically from the relative path. No private Hub config is needed unless overriding or disabling it; `hub__status` reports detection and connection.
 - Transport: local stdio process launched by the Hub as `node bin/cli.js server` in the child repo (`config/private/mcps/mcp-pr-companion.json`, template `config/mcps/mcp-pr-companion.example.json`). `bin/cli.js` runs `npm ci` / `npm run build` when needed, so the first start can take a minute; `inheritEnv` includes `APPDATA`, `LOCALAPPDATA`, `PATHEXT`, and `COMSPEC` for npm on Windows.
 - Configuration: the Hub passes no secrets. The child reads its own `.env` (`BITBUCKET_EMAIL`, `BITBUCKET_API_TOKEN`; optional `BITBUCKET_WORKSPACE`, `BITBUCKET_REPOSITORY`, `TICKET_PREFIXES`, `ALLOWED_EMAILS`, `AUTO_SYNC_ON_START`, `PRIVACY_*`, `AI_CONTEXT_*`, `DEBUG`). The user fills it; agents never read it. `BITBUCKET_REPOSITORY` is needed only for `pr__list_my_open_prs` / `pr__sync_my_open_prs` without a `repository` argument, for `AUTO_SYNC_ON_START`, and for `node bin/cli.js check`. Optional non-secret overrides go in the child config's `env`, e.g. `env.PRIVACY_FILE_PATH_MODE`; never set it to `full` under the Hub, which would return real paths.
 - `timeoutSeconds` is 300 because the first sync of a large PR downloads the full diff, and `pr__sync_my_open_prs` syncs several PRs in one call.

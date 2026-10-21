@@ -44,6 +44,7 @@ Reload as the table below says. Then check that tools named `<prefix>__<tool>` a
 
 ## 5. Daily use
 
+- Call `hub__status` to see the automatically detected sibling MCPs and readiness before choosing a child.
 - Use `/mcp-hub <server-id> <task>` or the client's equivalent. If it does not support custom commands, type `mcp-hub:<server-id> <task>` as plain text.
 - Start with the child prompt named after the server ID when prompts are supported. Use only the Hub tools listed for that child; tool names are `<prefix>__<child-tool>`.
 

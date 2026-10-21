@@ -109,8 +109,8 @@ In `<MCP_HUB_PATH>`, run (use the `.tools` uv path if `uv` is not on `PATH`):
 uv run python scripts/smoke.py
 ```
 
-Expect one `PASS` line per child MCP. A `FAIL` line names the cause; report it to the user and stop. Fixing children belongs to [adding-a-child-mcp.md](adding-a-child-mcp.md). This run also finishes any first-time install or build, so the client won't time out on its first start.
-**Done when** every line is `PASS`.
+The Hub automatically detects its three supported sibling repositories; do not copy or enable Hub config for a fresh clone. Smoke prints one line per configured child. A missing credential may make a child's upstream check fail while the Hub and other children remain usable. Report that child as unavailable and continue connecting the client. Stop only if the launcher or Hub itself cannot start. This run also finishes any first-time install or build, so the client won't time out on its first start.
+**Done when** the Hub starts; report each child's smoke result and later confirm the discovered count with `hub__status`.
 
 ### Step 5: Find old direct entries (migration)
 The Hub replaces direct connections to its children. Each child is described in `docs/mcps/<server-id>.md` (skip `README.md`, which is the template), and its `Repository:` line names the child repo (e.g. `../mcp-server-logs`, `../mcp-jira-sync`). In the client's config, find entries that either:
@@ -142,12 +142,12 @@ A copied rule does not update itself; when `client-rules.md` or a template chang
 
 ### Step 8: Reload and verify
 1. Reload and verify as §4 of the client's file says. If the user must restart the app, tell them exactly what to do and continue after they confirm.
-2. The client should list tools named `<prefix>__<tool>` (e.g. `jira__check_connection`, `logs__query_logs`).
-3. For each child, call its read-only check tool from the `CHECKS` table in `scripts/smoke.py` (today `jira__check_connection` and `logs__list_openobserve_organizations`).
-4. Test the command: `/mcp-hub mcp-server-logs list the services in dev` (or the client's form from §5 of its file). The agent should use only `logs__*` tools, with `env: "dev"`.
+2. Call `hub__status` and report the detected, connected, disabled, and credentials-required children. Available child tools are named `<prefix>__<tool>` (e.g. `jira__check_connection`, `logs__query_logs`).
+3. For each connected child, call its read-only check tool from the `CHECKS` table in `scripts/smoke.py` (today `jira__check_connection`, `pr__check_bitbucket_connection`, and `logs__list_openobserve_organizations`). Report missing credentials as child readiness work.
+4. If logs is connected and its dev account is ready, test the command: `/mcp-hub mcp-server-logs list the services in dev` (or the client's form from §5 of its file). The agent should use only `logs__*` tools, with `env: "dev"`.
 5. Report to the user: the config file you changed, the entries you removed, where the rule and command were installed, and the tool calls that worked.
 
-**Done when** the read-only calls succeed.
+**Done when** `hub__status` works and every connected child's check result has been reported; credentials can be configured later.
 
 ---
 
@@ -172,7 +172,7 @@ Every client file has the same sections: 1 MCP entry, 2 always-on rule, 3 `/mcp-
 - **Tool names change.** Hub tools are `<prefix>__<child tool>`. The mapping for each child is in `docs/mcps/<server-id>.md`. Rules or prompts in other repos that use the old names (e.g. `query_logs`, `jira_check_connection`) should be updated to `logs__query_logs`, `jira__check_connection`.
 - **Prompts:** each child has a Hub prompt named after its server ID (e.g. `mcp-server-logs`). It lists that child's tools and its usage rules. Start there when working with one child.
 - **Child prompts are not forwarded**, e.g. `investigate_api_bug` from mcp-server-logs. Use the Hub prompt instead.
-- **Config is read at startup.** After the Hub's `hub.json` changes (a child added or removed), restart the `mcp-hub` server in the client. The client entry itself never changes.
+- **Discovery runs at startup.** Supported child repos must be siblings of `mcp-hub`; Hub config keeps paths relative to its repo. Restart `mcp-hub` after adding/removing a sibling or changing private config. The client entry itself never changes.
 
 ---
 
@@ -184,7 +184,7 @@ Every client file has the same sections: 1 MCP entry, 2 always-on rule, 3 `/mcp-
 | `Bootstrap failed: …` in the client log | The launcher could not download/install `uv`, Python, or locked dependencies. Check network access and write permissions, then retry. If `uv` works in a terminal but not in the client, use the §2 fallback with the absolute `uv` path. |
 | `spawn powershell ENOENT` | Use `pwsh`, or the absolute path printed by `where powershell`, or the §2 fallback. |
 | Timeout on start | Run step 4 first (it finishes builds), then raise the client's startup timeout (§1 of its file). |
-| A child's tools are missing | That child failed or a tool name is wrong. `smoke.py` shows which (`not connected` / `tool not found`). |
+| A child's tools are missing | Call `hub__status` first. A missing credential or disabled child has no tools; `smoke.py` and the Hub log diagnose connected children and startup failures. |
 | Every tool appears twice | An old direct entry is still configured. Redo step 5. |
 | `/mcp-hub` → "No matching results" (or similar) | The skill or command isn't installed, or the client wasn't reloaded. Redo step 7 with §3 of the client's file. Until then, type `mcp-hub:<server-id> <task>` without the leading `/`. |
 | Server not listed | Wrong file or top key (§1 of the client's file), invalid JSON, or client not reloaded. Restore the `.bak` if needed. |

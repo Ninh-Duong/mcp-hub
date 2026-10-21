@@ -135,6 +135,10 @@ def main() -> None:
         print(f"smoke=FAIL ({type(exc).__name__}: Hub config is invalid; see logs/mcp-hub.jsonl)")
         raise SystemExit(1)
 
+    if not enabled:
+        print("No enabled child MCPs; Hub exposes hub__status.")
+        raise SystemExit(0)
+
     started = datetime.now(timezone.utc).isoformat()
     try:
         connected, calls = asyncio.run(_probe(enabled))

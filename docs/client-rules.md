@@ -1,14 +1,15 @@
 # Rules for agents using mcp-hub
 
-Version: 2026-10-19. A copy with an older version, or without this line, is stale; refresh it (connecting-a-client.md, prompt C).
+Version: 2026-10-21. A copy with an older version, or without this line, is stale; refresh it (connecting-a-client.md, prompt C).
 
 These rules apply in any workspace where the `mcp-hub` MCP server is connected. The Hub also sends them as its server instructions. Step 7 of `docs/connecting-a-client.md` in the mcp-hub repo installs them as an always-on client rule. This file has no machine paths or relative links, so it can be copied as-is.
 
 ## What mcp-hub is
 
 - One MCP server, `mcp-hub`, that fronts several child MCPs. Each child has a server ID (e.g. `mcp-server-logs`, `mcp-jira-sync`).
-- Tools are named `<prefix>__<tool>` (e.g. `logs__query_logs`, `jira__check_connection`). Each tool description starts with `[<feature> via <server-id>]`, which tells you its child.
+- Child tools are named `<prefix>__<tool>` (e.g. `logs__query_logs`, `jira__check_connection`). Each child tool description starts with `[<feature> via <server-id>]`, which tells you its child. `hub__status` is the Hub's own read-only tool.
 - Each child has a Hub prompt named after its server ID. The prompt lists that child's tools and its usage rules (the child's contract).
+- Call `hub__status` to see the detected sibling count and which children are connected, disabled, or need credentials. A child without tools may still be detected; report its state to the user.
 
 ## How the user calls a child
 
