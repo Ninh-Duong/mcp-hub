@@ -12,7 +12,7 @@ from mcp_hub import config
 class DefaultConfigTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.parent = Path(self.tmp.name)
+        self.parent = Path(self.tmp.name).resolve()
         self.root = self.parent / "mcp-hub"
         (self.root / "config" / "mcps").mkdir(parents=True)
         (self.root / "config" / "private" / "mcps").mkdir(parents=True)
