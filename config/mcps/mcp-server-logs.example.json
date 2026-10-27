@@ -5,5 +5,17 @@
   "cwd": "../mcp-server-logs",
   "inheritEnv": ["PATH", "PATHEXT", "COMSPEC", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE", "APPDATA", "LOCALAPPDATA"],
   "timeoutSeconds": 600,
-  "env": {}
+  "env": {
+    "CENTRAL_CONFIG_PATH": "../mcp-hub/config/private/mcps/mcp-server-logs.json"
+  },
+  "openobserve": {
+    "default_env": "",
+    "dev": { "url": "", "email": "", "token": "" },
+    "stg": { "url": "", "email": "", "token": "" },
+    "prod": { "url": "", "email": "", "token": "" }
+  },
+  "seq": {
+    "server_url": "",
+    "api_key": ""
+  }
 }

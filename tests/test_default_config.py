@@ -42,6 +42,13 @@ class DefaultConfigTest(unittest.TestCase):
         self.assertEqual(loaded.unavailable["mcp-jira-sync"], "credentials required")
         self.assertIn("logs__query_logs", {route.exposed_name for route in loaded.routes})
 
+    def test_logs_template_points_the_child_at_the_hub_accounts(self):
+        (self.parent / "mcp-server-logs").mkdir()
+        loaded = config.load_config()
+        self.assertEqual(loaded.servers["mcp-server-logs"].env["CENTRAL_CONFIG_PATH"],
+                         "../mcp-hub/config/private/mcps/mcp-server-logs.json")
+        self.assertNotIn("mcp-server-logs", loaded.unavailable)
+
     def test_private_disable_wins_over_sibling_discovery(self):
         (self.parent / "mcp-server-logs").mkdir()
         private = self.root / "config" / "private" / "hub.json"
