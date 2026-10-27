@@ -64,7 +64,7 @@ Create `docs/mcps/<id>.md` from the template in [mcps/README.md](mcps/README.md)
 
 ## 5. Hand off secrets, then enable
 
-1. Ask the user to replace every `<SET_BY_USER>` in `config/private/mcps/<id>.json`, and list the key names (from `keys <id>`). Never ask for the values in chat.
+1. Ask the user to fill the child's section in `config/private/mcps/<id>.json` (and replace any `<SET_BY_USER>`), listing the key names (from `keys <id>`), or to keep the accounts in the child's own files. Never ask for the values in chat.
 2. After the user confirms, set `"enabled": true` for the server and the feature in `hub.json`.
 3. Restart the MCP client that runs the Hub (`scripts/start.ps1` / `scripts/start.sh`, see README → Run). Config is read only at startup.
 
@@ -82,4 +82,4 @@ Check the newest events in `logs/mcp-hub.jsonl`:
 
 Add one or more read-only checks for the child to `CHECKS` in `scripts/smoke.py`, using a tool that proves it reaches the required upstream service. The success check must validate each tool's real response shape, not only the absence of an MCP error flag. Add unit tests for successful, malformed, and error results, then run the definition-of-done commands in [AGENTS.md](../AGENTS.md). For an enabled child without an entry, `smoke.py` checks only the connection and prints `PASS  N tools, connected (no read-only check in CHECKS)`.
 
-If the child keeps its credentials in its own repo (as `mcp-server-logs` does), the Hub config has no `<SET_BY_USER>` fields and step 5.1 is skipped. Ask the user to fill the child's own account files instead.
+A new child should follow [Configuration sources](child-mcp-compatibility.md#configuration-sources): set `env.CENTRAL_CONFIG_PATH` to `../mcp-hub/config/private/mcps/<id>.json`, put its account keys in one section with empty values, and have the child fall back to its own files and report the source in its check tool. All three built-in children work this way.

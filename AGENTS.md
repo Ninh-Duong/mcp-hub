@@ -33,8 +33,8 @@ This repo is maintained entirely by AI agents. These rules are mandatory. Text r
 | `config/private/mcps/<id>.json` | Create by copying a template. Never open, print, or cat it afterwards; inspect and change it only with `uv run python scripts/private_config.py keys\|set ...`. |
 | `.local/`, `.env`, `.env.*` | Nothing. Never read. |
 
-- Every secret field is written as `<SET_BY_USER>`. Only the user replaces it with a real value. Never ask the user to paste a secret into the chat.
-- The Hub refuses to start an enabled server that still has `<SET_BY_USER>`; keep a new server `"enabled": false` until the user confirms the values are filled.
+- Account values in a child's section (`openobserve`/`seq`, `jira`, `bitbucket`) are written as empty strings: the child then falls back to its own local files ([Configuration sources](docs/child-mcp-compatibility.md#configuration-sources)). Only the user fills in real values. Never ask the user to paste a secret into the chat.
+- Use `<SET_BY_USER>` only for a secret the child cannot run without and has no local fallback for. The Hub refuses to start an enabled server that still has `<SET_BY_USER>`; keep such a server `"enabled": false` until the user confirms the values are filled.
 
 ## Definition of done (run before every commit)
 

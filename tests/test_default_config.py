@@ -38,16 +38,16 @@ class DefaultConfigTest(unittest.TestCase):
             (self.parent / name).mkdir()
         loaded = config.load_config()
         self.assertEqual(set(loaded.detected), {"mcp-server-logs", "mcp-jira-sync", "mcp-pr-companion"})
-        self.assertEqual(set(loaded.servers), {"mcp-server-logs", "mcp-pr-companion"})
-        self.assertEqual(loaded.unavailable["mcp-jira-sync"], "credentials required")
+        self.assertEqual(set(loaded.servers), {"mcp-server-logs", "mcp-jira-sync", "mcp-pr-companion"})
+        self.assertEqual(loaded.unavailable, {})
         self.assertIn("logs__query_logs", {route.exposed_name for route in loaded.routes})
 
-    def test_logs_template_points_the_child_at_the_hub_accounts(self):
-        (self.parent / "mcp-server-logs").mkdir()
+    def test_templates_point_every_child_at_its_hub_section(self):
+        for name in ("mcp-server-logs", "mcp-jira-sync", "mcp-pr-companion"):
+            (self.parent / name).mkdir()
         loaded = config.load_config()
-        self.assertEqual(loaded.servers["mcp-server-logs"].env["CENTRAL_CONFIG_PATH"],
-                         "../mcp-hub/config/private/mcps/mcp-server-logs.json")
-        self.assertNotIn("mcp-server-logs", loaded.unavailable)
+        for name in ("mcp-server-logs", "mcp-jira-sync", "mcp-pr-companion"):
+            self.assertEqual(loaded.servers[name].env, {"CENTRAL_CONFIG_PATH": f"../mcp-hub/config/private/mcps/{name}.json"}, name)
 
     def test_private_disable_wins_over_sibling_discovery(self):
         (self.parent / "mcp-server-logs").mkdir()

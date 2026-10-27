@@ -6,14 +6,13 @@
   "inheritEnv": ["PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE"],
   "timeoutSeconds": 60,
   "env": {
-    "CENTRAL_CONFIG_PATH": "../mcp-hub/config/private/mcps/mcp-jira-sync.json",
-    "PYTHON_DOTENV_DISABLED": "1"
+    "CENTRAL_CONFIG_PATH": "../mcp-hub/config/private/mcps/mcp-jira-sync.json"
   },
   "jira": {
-    "base_url": "https://your-domain.atlassian.net",
-    "email": "<SET_BY_USER>",
-    "api_token": "<SET_BY_USER>",
-    "ai_context_key": "<SET_BY_USER>",
+    "base_url": "",
+    "email": "",
+    "api_token": "",
+    "ai_context_key": "",
     "max_asset_size_mb": 15
   }
 }

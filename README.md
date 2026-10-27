@@ -56,9 +56,11 @@ Connect your client to `mcp-hub` using [the client guide](docs/connecting-a-clie
 
 | Server ID | Repo | Exposed tools | Where the user fills credentials | Contract |
 |---|---|---|---|---|
-| `mcp-server-logs` | `../mcp-server-logs` | `logs__*` | The child's `config/openobserve.<env>.env` and `config/seq.env` | [docs/mcps/mcp-server-logs.md](docs/mcps/mcp-server-logs.md) |
-| `mcp-jira-sync` | `../mcp-jira-sync` | `jira__*` | Copy its template to `config/private/mcps/mcp-jira-sync.json`, then fill `<SET_BY_USER>` fields locally | [docs/mcps/mcp-jira-sync.md](docs/mcps/mcp-jira-sync.md) |
-| `mcp-pr-companion` | `../mcp-pr-companion` | `pr__*` | The child's `.env` | [docs/mcps/mcp-pr-companion.md](docs/mcps/mcp-pr-companion.md) |
+| `mcp-server-logs` | `../mcp-server-logs` | `logs__*` | `openobserve` / `seq` in `config/private/mcps/mcp-server-logs.json`, else the child's `config/openobserve.<env>.env` and `config/seq.env` | [docs/mcps/mcp-server-logs.md](docs/mcps/mcp-server-logs.md) |
+| `mcp-jira-sync` | `../mcp-jira-sync` | `jira__*` | `jira` in `config/private/mcps/mcp-jira-sync.json`, else the child's `.env` | [docs/mcps/mcp-jira-sync.md](docs/mcps/mcp-jira-sync.md) |
+| `mcp-pr-companion` | `../mcp-pr-companion` | `pr__*` | `bitbucket` in `config/private/mcps/mcp-pr-companion.json`, else the child's `.env` | [docs/mcps/mcp-pr-companion.md](docs/mcps/mcp-pr-companion.md) |
+
+Each value is taken from the first place that has it: the child config's `env`, then the Hub section (copy the template to `config/private/mcps/<id>.json` and fill it by hand), then the child's own files. Every child's check tool reports which one it used; see [Configuration sources](docs/child-mcp-compatibility.md#configuration-sources).
 
 Prepare each child once:
 
