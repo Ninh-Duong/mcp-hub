@@ -30,7 +30,7 @@ Copy-Item ../mcp-read-source/config/projects.example.json ../mcp-read-source/con
 
 - In the Hub's `config/private/agents.json`, set a provider (`openai`, `gemini`, or `anthropic`), model, and API key independently for `coordinator`, `logs`, `source`, `jira`, and `pr`. The key is read only inside the Hub process. Check readiness with `uv run python scripts/private_config.py agent-status`.
 - In the Hub's `config/private/projects.json`, register each project alias, optional `default_env`, and allowed environments (`dev`, `stg`, `prod`). Run `uv run python scripts/private_config.py project-status` to validate the aliases and environments.
-- In the source child's private `config/projects.json`, map the same alias to a local repository root. The source child reads the root mapping; the Hub's project config contains only the alias and environment choices.
+- In the source child's `config/private/projects.json`, map the same alias to a local repository root. The source child reads the root mapping; the Hub's project config contains only the alias and environment choices.
 - Copy and fill the private MCP configs for logs/Jira/PR as described in their contracts under `docs/mcps/`. Their existing local fallbacks still work.
 
 The examples start with empty `projects` maps so a copied file is valid before the user adds a repo. A matching entry pair looks like this:

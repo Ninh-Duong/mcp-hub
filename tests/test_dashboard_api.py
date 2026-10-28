@@ -26,7 +26,7 @@ class FakeJobRunner:
         if job_id != "pending-job":
             return None
         return {
-            "tool_name": "jira__jira_sync_ticket",
+            "tool_name": "jira__sync_ticket",
             "expires_at": "2026-10-28T00:10:00+00:00",
             "arguments_preview": '{"issue_key":"EX-1","token":"[REDACTED]"}',
         }
@@ -99,7 +99,7 @@ class DashboardAPITest(unittest.TestCase):
                 headers={"Host": "127.0.0.1:8765"},
             )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["tool_name"], "jira__jira_sync_ticket")
+        self.assertEqual(response.json()["tool_name"], "jira__sync_ticket")
         self.assertIn("[REDACTED]", response.json()["arguments_preview"])
         self.assertNotIn(self.token, response.text)
 

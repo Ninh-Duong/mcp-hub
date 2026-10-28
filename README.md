@@ -6,7 +6,7 @@ Local, config-driven MCP gateway for AI agents. It can run as one shared Windows
 
 ## Run
 
-Python 3.12 is the project runtime. The launcher prepares the local prerequisites before starting.
+Python 3.12 is the project runtime (`.python-version`; 3.11+ is required). The launcher prepares the local prerequisites before starting.
 
 Run directly, including when an AI client starts the Hub over stdio:
 
@@ -43,9 +43,9 @@ replace any old entries for its child MCPs, install the always-on rule and the /
 Ask me before writing global config or removing entries, and report what you changed at the end.
 ```
 
-Daily use after that: `/mcp-hub <server-id> <task>` (Codex: `$mcp-hub …`), e.g. `/mcp-hub mcp-server-logs show the prod logs for service orders-api`. For a cross-system issue, use `/mcp-hub investigate <project-alias> <task>`; the Hub routes a bounded asynchronous job. Without the command installed, type `mcp-hub:<server-id> <task>` or ask for the investigation in plain language.
+Daily use after that: `/mcp-hub <server-id> <task>` (Codex: `$mcp-hub …`), e.g. `/mcp-hub mcp-server-logs show the prod logs for service orders-api`. For a cross-system issue, use `/mcp-hub investigate <project-alias> <task>`; the Hub routes a bounded asynchronous job (shared service only, see [docs/operations/shared-agent-hub.md](docs/operations/shared-agent-hub.md)). Without the command installed, type `mcp-hub:<server-id> <task>` or ask for the investigation in plain language.
 
-The Hub discovers four supported child repositories next to this repo at startup. `mcp-read-source` is the new separate sibling repository described in this change. Paths in Hub configuration are relative to this repo, such as `../mcp-server-logs`; they are resolved only in memory. Optional `config/private/hub.json` and per-child private configs override defaults. `MCP_HUB_CONFIG` still selects an explicit private manifest.
+The Hub discovers four supported child repositories next to this repo at startup. `mcp-read-source` is a separate sibling repository. Paths in Hub configuration are relative to this repo, such as `../mcp-server-logs`; they are resolved only in memory. Optional `config/private/hub.json` and per-child private configs override defaults. `MCP_HUB_CONFIG` still selects an explicit private manifest.
 
 ## Default setup
 
@@ -65,7 +65,7 @@ cd <parent>
 foreach ($repo in "mcp-hub", "mcp-server-logs", "mcp-jira-sync", "mcp-pr-companion") { git clone "<GIT_BASE>/$repo.git" }
 ```
 
-Place the separate `mcp-read-source` repository beside the other four. It is created as part of this implementation; a remote clone URL depends on where the user chooses to host it.
+Place the separate `mcp-read-source` repository beside the other four. Its clone URL depends on where the user hosts it.
 
 Connect your client to `mcp-hub` using [the client guide](docs/connecting-a-client.md). No Hub config copy or enable step is needed for a fresh clone. Call `hub__status` to see how many child repos were detected and which are connected, disabled, or need credentials. A child without credentials may remain unavailable while the others work; the Hub does not expose a child's tools until it supplies their schemas. The client still needs a path to the Hub launcher because it can start from any working directory.
 
@@ -85,7 +85,7 @@ Prepare each child once:
 - `mcp-pr-companion`: `node bin/cli.js prepare` in the child repo (Node 20.12+).
 - `mcp-read-source`: no upstream account or build step; register local roots by alias in its private config as described in its contract.
 
-Then fill each child's credentials and run `uv run python scripts/smoke.py`. Jira needs a private child config before its tools can appear; copy its template and fill the placeholders without printing secrets. In automatic mode, the Hub selects this repo's `.venv` Python for Jira on each platform. To disable a detected child, create a minimal `config/private/hub.json` such as `{"version":1,"servers":{"mcp-jira-sync":{"enabled":false}},"features":{}}`. Private fields override defaults; `enabled: false` wins over discovery. Private configuration is never generated automatically.
+Then fill each child's credentials and run `uv run python scripts/smoke.py`. Without a private child config, Jira starts from its template and falls back to the child's own local files; copy the template only to override them, without printing secrets. In automatic mode, the Hub selects this repo's `.venv` Python for Jira on each platform. To disable a detected child, create a minimal `config/private/hub.json` such as `{"version":1,"servers":{"mcp-jira-sync":{"enabled":false}},"features":{}}`. Private fields override defaults; `enabled: false` wins over discovery. Private configuration is never generated automatically.
 
 ## Check connections
 

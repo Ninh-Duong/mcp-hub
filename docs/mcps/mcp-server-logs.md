@@ -35,7 +35,7 @@ All are read-only except `logs__export_openobserve_logs`. The OpenObserve tools,
 ## Hub integration
 
 - Read-only smoke check: `logs__list_openobserve_organizations` runs with `env: dev`, `stg`, and `prod`; every result must be JSON with an `organizations` array. A smoke PASS means all three accounts reached OpenObserve. If the result shape changes, update `scripts/smoke.py` and `tests/test_smoke.py`.
-- Preserve the child tool names and read/write annotations; the Hub exposes only the aliases allowlisted in `config/private/hub.json`.
+- Preserve the child tool names and read/write annotations; the Hub exposes only the aliases allowlisted in `config/hub.example.json` plus overrides in `config/private/hub.json`.
 
 ## Diagnostics
 

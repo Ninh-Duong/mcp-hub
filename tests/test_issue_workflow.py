@@ -70,7 +70,7 @@ class IssueWorkflowTest(unittest.TestCase):
             job_id = store.create_job(project="orders", question="sync ticket", env="dev")
             store.transition_job(job_id, "running", event="job.started")
             store.create_pending_call(
-                job_id, "jira__jira_sync_ticket", {"issue_key": "EX-1", "summary": "approved"}, agent="jira",
+                job_id, "jira__sync_ticket", {"issue_key": "EX-1", "summary": "approved"}, agent="jira",
             )
             runtime = Runtime()
             agents = {role: AgentConfig(role, None, None) for role in AGENT_ROLES}
@@ -85,7 +85,7 @@ class IssueWorkflowTest(unittest.TestCase):
 
                 asyncio.run(wait_for_approved_write())
                 self.assertEqual(runtime.calls, [(
-                    "jira__jira_sync_ticket", {"issue_key": "EX-1", "summary": "approved"}, f"job:{job_id}",
+                    "jira__sync_ticket", {"issue_key": "EX-1", "summary": "approved"}, f"job:{job_id}",
                 )])
                 self.assertEqual(store.get_job(job_id)["state"], "partial")
                 self.assertIsNotNone(store.get_detail_page(job_id, "approved-write", offset=0, limit=100)["content"])

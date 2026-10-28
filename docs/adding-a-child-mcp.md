@@ -1,6 +1,6 @@
 # Adding a child MCP
 
-Agent runbook. The three built-in children are discovered automatically when cloned as siblings; this procedure is for adding another child or overriding a built-in child. A new child needs a curated Hub entry and tool allowlist; directory scanning alone does not register arbitrary MCPs. Follow every step in order and obey [AGENTS.md](../AGENTS.md). Before changing child source for Hub compatibility, also follow [the child compatibility contract](child-mcp-compatibility.md). In the examples, `<id>` is the server ID: lowercase, kebab-case, matching the child repository (e.g. `mcp-jira-sync`).
+Agent runbook. The four built-in children are discovered automatically when cloned as siblings; this procedure is for adding another child or overriding a built-in child. A new child needs a curated Hub entry and tool allowlist; directory scanning alone does not register arbitrary MCPs. Follow every step in order and obey [AGENTS.md](../AGENTS.md). Before changing child source for Hub compatibility, also follow [the child compatibility contract](child-mcp-compatibility.md). In the examples, `<id>` is the server ID: lowercase, kebab-case, matching the child repository (e.g. `mcp-jira-sync`).
 
 ## 1. Gather facts (from the child repo, not from private files)
 
@@ -75,11 +75,11 @@ Check the newest events in `logs/mcp-hub.jsonl`:
 | You see | Meaning | Fix |
 |---------|---------|-----|
 | `server.connected` (server `<id>`) + `hub.tools.registered` listing your tools | Working | Done |
-| `config.load.failed` with "unfilled `<SET_BY_USER>`" | Secrets not filled | Back to step 5.1 |
+| `hub__status` lists the child as `credentials required` (or `config.load.failed` with "unfilled `<SET_BY_USER>`" when `MCP_HUB_CONFIG` is set) | Secrets not filled | Back to step 5.1 |
 | `config.load.failed` with other text | Invalid config (message names the key) | Fix it with `private_config.py set` or in `hub.json` |
 | `server.connect.failed` / `server.list_tools.failed` | Child didn't start or answer | Check `cwd`, `command`, `args`, and the child's own logs |
 | `route.skipped` with `tool not found` | Wrong tool name in the allowlist | Fix `name` in `hub.json` |
 
 Add one or more read-only checks for the child to `CHECKS` in `scripts/smoke.py`, using a tool that proves it reaches the required upstream service. The success check must validate each tool's real response shape, not only the absence of an MCP error flag. Add unit tests for successful, malformed, and error results, then run the definition-of-done commands in [AGENTS.md](../AGENTS.md). For an enabled child without an entry, `smoke.py` checks only the connection and prints `PASS  N tools, connected (no read-only check in CHECKS)`.
 
-A new child should follow [Configuration sources](child-mcp-compatibility.md#configuration-sources): set `env.CENTRAL_CONFIG_PATH` to `../mcp-hub/config/private/mcps/<id>.json`, put its account keys in one section with empty values, and have the child fall back to its own files and report the source in its check tool. All three built-in children work this way.
+A new child should follow [Configuration sources](child-mcp-compatibility.md#configuration-sources): set `env.CENTRAL_CONFIG_PATH` to `../mcp-hub/config/private/mcps/<id>.json`, put its account keys in one section with empty values, and have the child fall back to its own files and report the source in its check tool. All built-in children with an upstream account work this way.

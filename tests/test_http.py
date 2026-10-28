@@ -51,6 +51,16 @@ class SharedHTTPAuthenticationTest(unittest.TestCase):
 
         self.assertNotEqual(response.status_code, 401)
 
+    def test_non_ascii_bearer_token_is_rejected_not_crashed(self) -> None:
+        with TestClient(self.app) as client:
+            response = client.post(
+                "/mcp",
+                headers=[(b"host", b"127.0.0.1:8765"), (b"authorization", "Bearer tést".encode("latin-1"))],
+                content=b"{}",
+            )
+
+        self.assertEqual(response.status_code, 401)
+
     def test_health_endpoint_only_reports_liveness_without_token(self) -> None:
         with TestClient(self.app) as client:
             response = client.get("/health", headers={"Host": "127.0.0.1:8765"})

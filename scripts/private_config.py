@@ -3,6 +3,7 @@
   uv run python scripts/private_config.py keys <id>
   uv run python scripts/private_config.py set <id> <dotted.key> <json-value>
   uv run python scripts/private_config.py project-status
+  uv run python scripts/private_config.py agent-status
 """
 from __future__ import annotations
 

@@ -15,9 +15,11 @@
 
 ## Audit events
 
-The Hub writes JSON Lines records for startup/shutdown, config validation, child connection, tool discovery, and every tool call. Fields: `timestamp`, `event`, and when relevant `request_id`, `feature`, `server`, `tool`, `duration_ms`, `error_type`, and redacted `error` / `error_summary`. The full list is in the event reference below.
+The Hub writes JSON Lines records for startup/shutdown, config validation, child connection, tool discovery, and every child or `hub__status` call. Job tools (`hub__submit_issue`, `hub__approve_job`, …) record their state changes in the job store timeline instead. Fields: `timestamp`, `event`, and when relevant `request_id`, `feature`, `server`, `tool`, `duration_ms`, `error_type`, and redacted `error` / `error_summary`. The full list is in the event reference below.
 
 `hub__status` reports only child IDs, counts, and states; it does not expose config paths or credentials. Its calls use the same `tool.call.started` and `tool.call.succeeded` audit events as child tools.
+
+On Windows, `chmod` does not restrict files, and a repo under a shared drive often inherits `Authenticated Users` write access. `hubctl install` therefore limits `config/private/` to the current user and SYSTEM. Keep the checkout itself in a folder other accounts cannot write, because the logon task runs `scripts/start.ps1` from it. Any process running as the same user can read the bearer token and act as the Hub; that is the trust boundary.
 
 The shared HTTP endpoint binds only to `127.0.0.1`, checks `Host` and `Origin`, and requires the local bearer token. `/health` returns only liveness. Dashboard pairing tokens are single-use and short-lived; browser sessions are `HttpOnly`, same-site cookies. HTTP access logs are disabled. Dashboard previews mask secret-like fields before they reach the browser. Pending arguments are encrypted at rest and never included in metadata events.
 

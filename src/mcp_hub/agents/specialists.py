@@ -9,16 +9,14 @@ from typing import Any, Awaitable, Callable
 from jsonschema import Draft202012Validator
 from mcp.types import CallToolResult, TextContent
 
-from ..audit import redact
+from ..audit import SENSITIVE_FIELD_RE, redact
 from ..config import HUB_ROOT
 from .providers import ModelProvider, ModelToolCall, ProviderError
 
 
 ROLE_PREFIXES = {"logs": "logs__", "source": "source__", "jira": "jira__", "pr": "pr__"}
 MAX_TOOL_RESULT_CHARS = 6000
-_SENSITIVE_FIELD = re.compile(r"(?i)(?:token|secret|password|authorization|api[_-]?key|credential|email|user(?:name|_id)?)")
 _EMAIL = re.compile(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b")
-_TOKEN_SHAPE = re.compile(r"(?i)\b(?:sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|AKIA[A-Z0-9]{16})\b")
 
 
 class SpecialistError(RuntimeError):
@@ -84,7 +82,6 @@ def minimize_model_content(
         text = json.dumps(_filter_sensitive_fields(parsed), ensure_ascii=False, separators=(",", ":"))
     text = redactor(text) if redactor else redact(text, limit=limit)
     text = _EMAIL.sub("[REDACTED_EMAIL]", text)
-    text = _TOKEN_SHAPE.sub("[REDACTED_TOKEN]", text)
     return text[:limit]
 
 
@@ -93,7 +90,7 @@ def _filter_sensitive_fields(value: Any) -> Any:
         return {
             key: _filter_sensitive_fields(child)
             for key, child in value.items()
-            if not _SENSITIVE_FIELD.search(str(key))
+            if not SENSITIVE_FIELD_RE.search(str(key))
         }
     if isinstance(value, list):
         return [_filter_sensitive_fields(item) for item in value]

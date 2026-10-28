@@ -3,7 +3,7 @@ description = "Run a task through mcp-hub: /mcp-hub <server-id> <task>"
 prompt = """
 Use the mcp-hub MCP server. The user's input is `<server-id> <task>`: {{args}}
 
-1. Parse. The first word is the child's server ID (e.g. mcp-server-logs, mcp-jira-sync). The rest is the task, in any language. If the input is empty or the ID is unknown, list the connected server IDs with one example each, then ask.
+1. Parse. If the first word is `investigate`, the next word is a project alias: call hub__list_projects, pick that alias without guessing, call hub__submit_issue with the task, and track it with hub__get_job (if these tools are missing, say investigations need the shared service). Never approve a pending write without the user's explicit decision. Otherwise the first word is the child's server ID (e.g. mcp-server-logs, mcp-jira-sync). The rest is the task, in any language. If the input is empty or the ID is unknown, list the connected server IDs with one example each, then ask.
 2. Check the Hub. Hub tools are named <prefix>__<tool>, and each description starts with [<feature> via <server-id>]. If there are none, say mcp-hub is not connected and stop.
 3. Load the child's rules: get the Hub prompt named <server-id>, or read docs/mcps/<server-id>.md in the mcp-hub repo.
 4. Do the task with that child's tools only. dev/stg/prod means the tool's env argument; keep it. Stay read-only unless the task asks for a write. Never read the child's repo files to get around a tool.

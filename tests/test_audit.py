@@ -81,5 +81,24 @@ class InheritedEnvironmentRedactionTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn('"event": "tool.call.succeeded"', (self.tmp / "audit.jsonl").read_text(encoding="utf-8"))
 
 
+class RedactPatternTest(unittest.TestCase):
+    def test_common_credential_shapes_are_redacted(self) -> None:
+        from mcp_hub.audit import redact
+
+        samples = {
+            "token=plain-value-1": "plain-value-1",
+            '{\\"password\\":\\"escaped-value-2\\"}': "escaped-value-2",
+            "Cookie: session-value-3": "session-value-3",
+            "https://user:url-pass-4@example.com/x": "url-pass-4",
+            "key ATATT3xFfGF0abcdefghijklmnopqrstuv": "ATATT3xFfGF0abcdefghijklmnopqrstuv",
+            "jwt eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0.SflKxwRJSMeKKF2QT4": "SflKxwRJSMeKKF2QT4",
+            "-----BEGIN RSA PRIVATE KEY-----\nMIIEpkey5\n-----END RSA PRIVATE KEY-----": "MIIEpkey5",
+        }
+        for text, secret in samples.items():
+            with self.subTest(text=text[:12]):
+                self.assertNotIn(secret, redact(text))
+        self.assertEqual(redact("max_tokens=100 token_count=5"), "max_tokens=100 token_count=5")
+
+
 if __name__ == "__main__":
     unittest.main()

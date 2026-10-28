@@ -70,6 +70,11 @@ switch ($Command) {
         $arguments = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File $quotedScript -Service"
         $action = New-ScheduledTaskAction -Execute $powershell -Argument $arguments -WorkingDirectory $repoRoot
         $userId = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+        # Private files hold tokens and API keys; restrict them to this user and SYSTEM.
+        $privateRoot = Join-Path $repoRoot "config\private"
+        New-Item -ItemType Directory -Force -Path $privateRoot | Out-Null
+        icacls $privateRoot /inheritance:r /grant:r "${userId}:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Could not restrict access to config\private." }
         $trigger = New-ScheduledTaskTrigger -AtLogOn -User $userId
         $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Limited
         $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero)

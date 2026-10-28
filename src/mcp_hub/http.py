@@ -56,9 +56,7 @@ class LocalBearerMiddleware:
             await self.app(scope, receive, secured_send)
             return
         else:
-            authorization = headers.get(b"authorization", b"").decode("latin-1")
-            supplied = authorization[7:] if authorization.startswith("Bearer ") else ""
-            if not supplied or not hmac.compare_digest(supplied, self.token):
+            if not self._bearer_authorized(headers):
                 response = PlainTextResponse(
                     "Unauthorized",
                     status_code=401,
@@ -70,12 +68,15 @@ class LocalBearerMiddleware:
 
         await response(scope, receive, secured_send)
 
+    def _bearer_authorized(self, headers: dict[bytes, bytes]) -> bool:
+        authorization = headers.get(b"authorization", b"")
+        supplied = authorization[7:] if authorization.startswith(b"Bearer ") else b""
+        return bool(supplied) and hmac.compare_digest(supplied, self.token.encode("utf-8"))
+
     def _dashboard_session_authorized(self, scope: Scope, headers: dict[bytes, bytes]) -> bool:
         if not scope.get("path", "").startswith("/dashboard") or self.sessions is None:
             return False
-        authorization = headers.get(b"authorization", b"").decode("latin-1")
-        supplied = authorization[7:] if authorization.startswith("Bearer ") else ""
-        if supplied and hmac.compare_digest(supplied, self.token):
+        if self._bearer_authorized(headers):
             return True
         cookies = SimpleCookie()
         try:

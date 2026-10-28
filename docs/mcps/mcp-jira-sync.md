@@ -34,7 +34,7 @@
 ## Hub integration
 
 - Read-only smoke check: `jira__check_connection`; its successful text begins with `✅`. If its output changes, update `scripts/smoke.py` and `tests/test_smoke.py`.
-- Preserve the child tool names and read/write annotations; the Hub exposes only the aliases allowlisted in `config/private/hub.json`.
+- Preserve the child tool names and read/write annotations; the Hub exposes only the aliases allowlisted in `config/hub.example.json` plus overrides in `config/private/hub.json`.
 
 ## Diagnostics
 

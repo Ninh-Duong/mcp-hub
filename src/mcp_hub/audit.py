@@ -13,16 +13,28 @@ from .config import HUB_ROOT
 
 _BEARER_RE = re.compile(r"(?i)((?:authorization\s*[:=]\s*)?(?:basic|bearer)\s+)[^\s,;]+")
 _KEY_VALUE_RE = re.compile(
-    r"(?i)([\"']?(?:api[_-]?token|access[_-]?token|refresh[_-]?token|password|secret|api[_-]?key)[\"']?\s*[:=]\s*[\"']?)[^\"'\s,;}]+"
+    r"(?i)([\"']?(?:[\w-]*token|password|passwd|pwd|secret|api[_-]?key|cookie)\\?[\"']?\s*[:=]\s*\\?[\"']?)[^\"'\\\s,;}]+"
 )
+# Well-known credential shapes: OpenAI/Anthropic, GitHub, AWS, Atlassian, Slack, Google, JWT.
+_TOKEN_SHAPE_RE = re.compile(
+    r"\b(?:sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[A-Z0-9]{16}"
+    r"|ATATT[A-Za-z0-9_=-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AIza[A-Za-z0-9_-]{30,}"
+    r"|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})"
+)
+_PRIVATE_KEY_RE = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)", re.DOTALL)
+_URL_CREDENTIALS_RE = re.compile(r"(://)[^/\s:@]+:[^/\s@]+@")
+SENSITIVE_FIELD_RE = re.compile(r"(?i)(?:token|secret|password|authorization|api[_-]?key|credential|email|user(?:name|_id)?)")
 
 
 def redact(value: str, secrets: Iterable[str] = (), *, limit: int = 1000) -> str:
     result = value
     for secret in sorted((item for item in secrets if item), key=len, reverse=True):
         result = result.replace(secret, "[REDACTED]")
+    result = _PRIVATE_KEY_RE.sub("[REDACTED_PRIVATE_KEY]", result)
+    result = _URL_CREDENTIALS_RE.sub(r"\1[REDACTED]@", result)
     result = _BEARER_RE.sub(r"\1[REDACTED]", result)
     result = _KEY_VALUE_RE.sub(r"\1[REDACTED]", result)
+    result = _TOKEN_SHAPE_RE.sub("[REDACTED_TOKEN]", result)
     return result[:limit]
 
 

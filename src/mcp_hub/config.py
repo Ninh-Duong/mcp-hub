@@ -215,8 +215,8 @@ def load_config(config_path: str | Path | None = None) -> HubConfig:
             server_id = _string(tool.get("server"), f"feature {feature} server")
             tool_name = _string(tool.get("name"), f"feature {feature} tool name")
             exposed_name = str(tool.get("exposeAs") or f"{server_id}__{tool_name}")
-            if exposed_name == "hub__status":
-                raise ConfigError("hub__status is reserved for the Hub")
+            if exposed_name.startswith("hub__"):
+                raise ConfigError("The hub__ prefix is reserved for the Hub")
             if not _ALIAS_RE.fullmatch(exposed_name):
                 raise ConfigError(f"Invalid exposed tool name in feature {feature}")
             if exposed_name in exposed_names:

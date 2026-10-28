@@ -1,5 +1,7 @@
 # Add Jira Sync and PR Companion Child Configs Implementation Plan
 
+> **Superseded.** Automatic sibling discovery replaced the enable flags, and the templates now use empty account values. The current behavior is in `docs/mcps/` and `config/mcps/*.example.json`; do not execute this plan.
+
 > **For agentic workers:** Use `subagent-driven-development` or `executing-plans` to implement this plan task by task.
 
 **Goal:** Add disabled private Hub configurations for Jira Sync and PR Companion, keeping their launch settings, tool aliases, and documentation aligned with the existing child repos.

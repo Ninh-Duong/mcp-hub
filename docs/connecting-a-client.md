@@ -154,7 +154,7 @@ A copied rule does not update itself; when `client-rules.md` or a template chang
 ### Step 8: Reload and verify
 1. Reload and verify as §4 of the client's file says. If the user must restart the app, tell them exactly what to do and continue after they confirm.
 2. Call `hub__status` and report the detected, connected, disabled, and credentials-required children. Available child tools are named `<prefix>__<tool>` (e.g. `jira__check_connection`, `logs__query_logs`).
-3. For each connected child, call its read-only check tool from the `CHECKS` table in `scripts/smoke.py` (today `jira__check_connection`, `pr__check_bitbucket_connection`, and `logs__list_openobserve_organizations`). Report missing credentials as child readiness work.
+3. For each connected child, call its read-only check tool from the `CHECKS` table in `scripts/smoke.py` (today `jira__check_connection`, `pr__check_bitbucket_connection`, `source__check_connection`, and `logs__list_openobserve_organizations`). Report missing credentials as child readiness work.
 4. If logs is connected and its dev account is ready, test the command: `/mcp-hub mcp-server-logs list the services in dev` (or the client's form from §5 of its file). The agent should use only `logs__*` tools, with `env: "dev"`.
 5. Report to the user: the config file you changed, the entries you removed, where the rule and command were installed, and the tool calls that worked.
 

@@ -176,7 +176,7 @@ Automated and integration checks on 2026-10-28:
 
 Code-review follow-up: search filters both the requested path and its resolved in-root target before reading; specialist and coordinator prompts pass through the provider redaction pipeline, with configured provider keys registered for exact-value redaction; and service stop uses an authenticated shutdown request, a 20-second Uvicorn drain deadline, and a 45-second `hubctl` wait so the Hub can cancel slow requests and close jobs/child connections before its scheduled task exits. Unit tests cover these changes. Windows Task Scheduler, two-client, approval, and end-to-end restart acceptance still require a configured local setup.
 
-The source child starts and completes its MCP handshake after adding the `python -m` entry point. Before production use, configure the private provider/project files described in the runbook, run `uv run python scripts/check_leaks.py`, rerun smoke after configuring STG if that environment is expected, then run `hubctl install` and complete the two-client Windows acceptance. This change has not installed a scheduled task, edited user-level AI client settings, or committed files.
+The source child starts and completes its MCP handshake after adding the `python -m` entry point. Before production use, configure the private provider/project files described in the runbook, run `uv run python scripts/check_leaks.py`, rerun smoke after configuring STG if that environment is expected, then run `hubctl install` and complete the two-client Windows acceptance. This change has not installed a scheduled task, or edited user-level AI client settings. The code was committed in a9751e6; the manual Windows acceptance steps remain open.
 
 ## Execution order
 

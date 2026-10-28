@@ -2,6 +2,10 @@
   "permissions": {
     "deny": [
       "Read(./config/private/mcps/**)",
+      "Read(./config/private/agents.json)",
+      "Read(./config/private/projects.json)",
+      "Read(./config/private/service.json)",
+      "Read(./config/private/jobs.sqlite3*)",
       "Read(./.local/**)",
       "Read(./.env)",
       "Read(./.env.*)"

@@ -12,7 +12,7 @@ from ..agents.config import AGENT_ROLES, AgentConfig
 from ..agents.coordinator import synthesize
 from ..agents.providers import AnthropicProvider, GeminiProvider, ModelProvider, OpenAIProvider
 from ..agents.specialists import SpecialistExecutor, SpecialistResult, SpecialistError, minimize_model_content
-from ..audit import redact
+from ..audit import SENSITIVE_FIELD_RE, redact
 from .policy import SideEffectPolicy
 from .projects import ProjectConfig, validate_project_env
 from .store import JobStore, TERMINAL_STATES
@@ -21,7 +21,6 @@ from .store import JobStore, TERMINAL_STATES
 MAX_ACTIVE_JOBS = 2
 MAX_JOB_SECONDS = 15 * 60
 MAX_CHILD_CALLS = 30
-_SENSITIVE_ARGUMENT = re.compile(r"(?i)(?:token|secret|password|authorization|api[_-]?key|credential|email|user(?:name|_id)?)")
 
 
 def create_provider(config: AgentConfig) -> ModelProvider:
@@ -530,7 +529,7 @@ def _fallback_summary(findings: list[SpecialistResult], additional: str | None =
 def _redact_approval_arguments(value: Any, redact_text: Callable[[str], str]) -> Any:
     if isinstance(value, dict):
         return {
-            str(key): "[REDACTED]" if _SENSITIVE_ARGUMENT.search(str(key)) else _redact_approval_arguments(child, redact_text)
+            str(key): "[REDACTED]" if SENSITIVE_FIELD_RE.search(str(key)) else _redact_approval_arguments(child, redact_text)
             for key, child in value.items()
         }
     if isinstance(value, list):

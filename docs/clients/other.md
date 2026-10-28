@@ -7,7 +7,7 @@ For the Windows shared service, first check whether the client supports Streamab
 
 Find the client's stdio/local server config. If you can't, *ask* the user or check the client's current MCP docs. Then map the standard entry (connecting-a-client.md §2) onto it:
 - name `mcp-hub`;
-- command `powershell` with args `["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "<P>/scripts/start.ps1", "-Bridge"]`, or on macOS/Linux the legacy `bash` launcher;
+- command `powershell` with args `["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "<P>/scripts/start.ps1"]`, or on macOS/Linux the legacy `bash` launcher;
 - no env.
 
 Watch three variations:

@@ -40,7 +40,7 @@ class ApprovalStoreTest(unittest.TestCase):
         ))
 
     def test_expired_code_is_not_accepted_but_dashboard_can_approve(self) -> None:
-        code = self.store.create_pending_call(self.job_id, "jira__jira_sync_ticket", {"issue_key": "EX-1"})
+        code = self.store.create_pending_call(self.job_id, "jira__sync_ticket", {"issue_key": "EX-1"})
         self.now += timedelta(minutes=11)
         self.assertFalse(self.store.approve_pending_call(self.job_id, code))
         self.assertTrue(self.store.approve_pending_call(self.job_id, dashboard=True))
@@ -55,7 +55,7 @@ class ApprovalStoreTest(unittest.TestCase):
             audit = type("Audit", (), {"redact_content": staticmethod(lambda value, limit=2000: value[:limit])})()
 
         self.store.create_pending_call(
-            self.job_id, "jira__jira_sync_ticket", {"issue_key": "EX-1", "email": "private@example.com"}, agent="jira",
+            self.job_id, "jira__sync_ticket", {"issue_key": "EX-1", "email": "private@example.com"}, agent="jira",
         )
         agents = {role: AgentConfig(role, None, None) for role in AGENT_ROLES}
         runner = JobRunner(
