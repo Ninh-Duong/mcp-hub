@@ -2,15 +2,20 @@
 
 ## Responsibilities
 
-- **Hub config** defaults to the three curated child MCPs and their tool allowlist. Known sibling repos are discovered at startup; private config overrides defaults, including explicit disables.
+- **Hub config** defaults to the four curated child MCPs and their tool allowlist. Known sibling repos are discovered at startup; private config overrides defaults, including explicit disables.
 - **Per-MCP private config** holds local settings or references to credentials needed by one child MCP.
 - **Hub runtime** validates config, connects to child MCPs, exposes allowlisted tools, routes calls, and writes audit events.
+- **Shared service** keeps one Hub runtime and one connection per child alive for the signed-in Windows user. It exposes authenticated Streamable HTTP and retains the legacy stdio endpoint; a thin stdio bridge lets clients share the service.
+- **Issue jobs** coordinate bounded logs, source, Jira, and PR specialists. Job details are encrypted with Windows DPAPI in SQLite and retained for 30 days.
+- **Dashboard** reports child and agent readiness, lists shared jobs, shows redacted pending-write previews, and controls the per-user scheduled task.
 - **Child MCP** owns its domain logic, credentials, and upstream service behavior.
 - **Agent docs** explain tool purpose and operational rules; they do not enforce access control. The Hub must enforce the configured allowlist.
 
 ## Request path
 
-`Agent → Hub tool allowlist → child MCP client → child MCP tool → Hub audit log`
+Direct call: `AI client → authenticated shared Hub → child MCP client → child MCP tool → metadata-only Hub audit log`
+
+Investigation call: `AI client → job queue → fixed specialist roles → allowlisted child MCP tools → encrypted job result → coordinator summary`
 
 Every exposed tool should map to exactly one child server and tool name. Use namespaced exposed names such as `serverId__toolName` to avoid collisions. A feature may expose tools from multiple child MCPs. Keep the initial design as a curated proxy; add cross-server composite tools only when a real workflow needs them.
 
@@ -24,6 +29,12 @@ Every exposed tool should map to exactly one child server and tool name. Use nam
 
 ## Local child servers
 
-Children run over `stdio`. The Hub launches each one with an argument array (never a shell string) in the child's `cwd`, passing only the MCP SDK's default safe variables, the `inheritEnv` names, and the child's `env` values. Child repositories are expected to sit next to this repo, so configs reference them as `../<repo>`. The Hub resolves relative paths in memory; tracked config never contains machine paths. A private Hub manifest can override each known child or feature, and `enabled: false` takes precedence over discovery. An explicit `MCP_HUB_CONFIG` retains the private-manifest-only behavior.
+Children run over `stdio`. The Hub launches each one with an argument array (never a shell string) in the child's `cwd`, passing only the MCP SDK's default safe variables, the `inheritEnv` names, and the child's `env` values. Child repositories are expected to sit next to this repo, so configs reference them as `../<repo>`. The Hub resolves relative paths in memory; tracked config never contains machine paths. A private Hub manifest can override each known child or feature, and `enabled: false` takes precedence over discovery. The source reader is a separate child repo; it reads only project roots registered by alias in its own private configuration. The Hub separately validates those aliases and environments for job requests. An explicit `MCP_HUB_CONFIG` retains the private-manifest-only behavior.
+
+## Shared Windows service
+
+`scripts/hubctl.ps1 install` registers a per-user Task Scheduler task with limited privileges and starts `mcp-hub-service`. The service binds only to loopback (`127.0.0.1:8765`), requires a bearer token for MCP, and keeps the original per-client stdio launcher. HTTP-capable clients can use `scripts/http_headers.ps1`; other clients use `scripts/start.ps1 -Bridge`, which forwards stdio MCP messages to the shared service. Setup and migration are in [the shared-service runbook](operations/shared-agent-hub.md).
+
+The job runner allows two active jobs, a 15-minute lifetime, and 30 child-tool calls per job. Jobs missing an environment wait for validated input. On restart, active investigation state is marked interrupted and never replayed. A pending write can remain awaiting approval; once approved, the exact stored operation is executed once and the job reports partial because its model investigation is not replayed. Dashboard approval uses a session cookie; the MCP alternative requires a one-time code visible in the dashboard.
 
 Each child MCP has a contract at `docs/mcps/<server-id>.md`; see [mcps/README.md](mcps/README.md). To add one, follow [adding-a-child-mcp.md](adding-a-child-mcp.md).

@@ -12,10 +12,20 @@ dependencies = [
     "httpx>=0.27",
     "python-dotenv>=1.0",
     "cryptography>=42",
+    "openai>=1.75",
+    "anthropic>=0.45",
+    "google-genai>=1.0",
+    "jsonschema>=4.0",
+    "uvicorn>=0.30",
 ]
 
 [project.scripts]
 mcp-hub = "mcp_hub.server:main"
+mcp-hub-service = "mcp_hub.service:main"
+mcp-hub-bridge = "mcp_hub.bridge:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+mcp_hub = ["dashboard/*.html", "dashboard/*.js", "dashboard/*.css"]

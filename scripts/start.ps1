@@ -1,3 +1,8 @@
+param(
+    [switch]$Service,
+    [switch]$Bridge
+)
+
 $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -88,5 +93,6 @@ try {
 }
 
 Set-Location -LiteralPath $repoRoot
-& $uvPath run --locked --python $pythonVersion mcp-hub
+$entrypoint = if ($Service) { "mcp-hub-service" } elseif ($Bridge) { "mcp-hub-bridge" } else { "mcp-hub" }
+& $uvPath run --locked --python $pythonVersion $entrypoint
 exit $LASTEXITCODE

@@ -51,6 +51,14 @@ def _is_connected(result: CallToolResult) -> bool:
     return any(payload.get("connected") is True for payload in _json_objects(result))
 
 
+def _has_project_aliases(result: CallToolResult) -> bool:
+    return any(
+        isinstance(payload.get("configured_projects"), list)
+        and all(isinstance(alias, str) for alias in payload["configured_projects"])
+        for payload in _json_objects(result)
+    )
+
+
 # server ID -> (label, read-only Hub tool, arguments, success check). Add one or more checks per child.
 Check = tuple[str, str, dict[str, str], Callable[[CallToolResult], bool]]
 CHECKS = {
@@ -60,6 +68,7 @@ CHECKS = {
         for env in ("dev", "stg", "prod")
     ),
     "mcp-pr-companion": (("bitbucket", "pr__check_bitbucket_connection", {}, _is_connected),),
+    "mcp-read-source": (("projects", "source__check_connection", {}, _has_project_aliases),),
 }
 
 

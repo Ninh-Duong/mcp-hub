@@ -21,12 +21,32 @@ class BootstrapScriptsTest(unittest.TestCase):
         self.assertIn("sh >&2", unix)
         self.assertIn('"$uv_bin" python install "$python_version" >&2', unix)
         self.assertIn('if ! curl -LsSf https://astral.sh/uv/install.sh | sh >&2; then', unix)
+        self.assertIn('[switch]$Service', windows)
+        self.assertIn('[switch]$Bridge', windows)
+        self.assertIn('"mcp-hub-service"', windows)
+        self.assertIn('"mcp-hub-bridge"', windows)
         for script in (windows, unix):
             with self.subTest(script=script[:30]):
                 self.assertIn("UV_INSTALL_DIR", script)
                 self.assertIn("UV_NO_MODIFY_PATH", script)
                 self.assertIn("python install", script)
                 self.assertIn("run --locked", script)
+
+    def test_shared_service_control_uses_per_user_task_and_local_health(self) -> None:
+        script = (HUB_ROOT / "scripts" / "hubctl.ps1").read_text(encoding="utf-8")
+        self.assertIn('"install", "status", "start", "stop", "restart", "open"', script)
+        self.assertIn("New-ScheduledTaskTrigger -AtLogOn", script)
+        self.assertIn("-RunLevel Limited", script)
+        self.assertIn("-WindowStyle Hidden", script)
+        self.assertIn('"$url/health"', script)
+        self.assertIn('http://127.0.0.1:8765', script)
+        self.assertIn('"$url/dashboard/pair"', script)
+        self.assertIn('Start-Process "$url/dashboard/?pair=$pair"', script)
+        self.assertIn('"$url/dashboard/api/service/shutdown"', script)
+        self.assertNotIn("Stop-ScheduledTask", script)
+        self.assertIn("Get-Content -LiteralPath $serviceConfigPath -Raw", script)
+        self.assertIn("return [string]$serviceConfig.token", script)
+        self.assertIn('"Bearer $(Get-ServiceToken)"', script)
 
 
 if __name__ == "__main__":

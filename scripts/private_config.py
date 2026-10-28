@@ -2,6 +2,7 @@
 
   uv run python scripts/private_config.py keys <id>
   uv run python scripts/private_config.py set <id> <dotted.key> <json-value>
+  uv run python scripts/private_config.py project-status
 """
 from __future__ import annotations
 
@@ -23,6 +24,26 @@ def _walk(value: Any, prefix: str = ""):
 
 
 def main(argv: list[str]) -> None:
+    if argv == ["agent-status"]:
+        from mcp_hub.agents.config import load_agent_configs
+
+        configs = load_agent_configs(path=PRIVATE_ROOT / "agents.json", private_root=PRIVATE_ROOT)
+        for role, config in configs.items():
+            provider = config.provider or "<unset>"
+            model = config.model or "<unset>"
+            print(f"{role}: provider={provider}, model={model}, state={'configured' if config.configured else 'not configured'}")
+        return
+    if argv == ["project-status"]:
+        from mcp_hub.jobs.projects import load_projects
+
+        projects = load_projects(path=PRIVATE_ROOT / "projects.json", private_root=PRIVATE_ROOT)
+        if not projects:
+            print("No projects registered.")
+            return
+        for alias, project in projects.items():
+            default = project.default_env or "<ask per job>"
+            print(f"{alias}: default_env={default}, allowed_envs={','.join(project.allowed_envs)}")
+        return
     if len(argv) < 2 or argv[0] not in {"keys", "set"} or (argv[0] == "set" and len(argv) != 4):
         raise SystemExit(__doc__)
     path = (PRIVATE_ROOT / "mcps" / f"{argv[1]}.json").resolve()

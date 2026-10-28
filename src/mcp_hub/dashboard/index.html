@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>mcp-hub · Bảng điều khiển</title>
+  <link rel="stylesheet" href="/dashboard/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">LOCAL AGENT RUNTIME</p>
+      <h1>mcp-hub</h1>
+    </div>
+    <div class="controls">
+      <span id="health" class="health"><i></i><span>Đang kiểm tra…</span></span>
+      <button id="restart" class="button secondary">Khởi động lại</button>
+      <button id="stop" class="button danger">Dừng Hub</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="overview">
+      <article class="panel">
+        <div class="panel-heading"><div><p class="eyebrow">KẾT NỐI</p><h2>MCP con</h2></div></div>
+        <div id="children" class="chips"><span class="muted">Đang tải…</span></div>
+      </article>
+      <article class="panel">
+        <div class="panel-heading"><div><p class="eyebrow">ĐIỀU TRA</p><h2>Sub-agent</h2></div></div>
+        <div id="agents" class="agent-list"><span class="muted">Đang tải…</span></div>
+      </article>
+      <article class="panel">
+        <div class="panel-heading"><div><p class="eyebrow">PHẠM VI</p><h2>Project alias</h2></div></div>
+        <div id="projects" class="chips"><span class="muted">Đang tải…</span></div>
+      </article>
+    </section>
+
+    <section class="workspace">
+      <article class="panel jobs-panel">
+        <div class="panel-heading">
+          <div><p class="eyebrow">DANH SÁCH CHUNG</p><h2>Investigation jobs</h2></div>
+          <button id="refresh" class="button quiet">Làm mới</button>
+        </div>
+        <div id="jobs" class="job-list"><p class="muted">Đang tải job…</p></div>
+      </article>
+
+      <article class="panel detail-panel">
+        <div class="panel-heading"><div><p class="eyebrow">CHI TIẾT</p><h2 id="detail-title">Chọn một job</h2></div></div>
+        <div id="detail" class="empty-state">Job, bằng chứng và timeline sẽ xuất hiện ở đây.</div>
+      </article>
+    </section>
+    <p id="notice" class="notice" role="status" aria-live="polite"></p>
+  </main>
+
+  <script src="/dashboard/app.js" defer></script>
+</body>
+</html>

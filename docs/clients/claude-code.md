@@ -1,8 +1,19 @@
 # Claude Code (CLI, VS Code and JetBrains extensions)
 
-Do the general procedure in [../connecting-a-client.md](../connecting-a-client.md), and use this file for steps 6–8. `<P>` = the mcp-hub repo's absolute path, with forward slashes. Facts were checked against the official docs on 2026-10-19.
+Do the general procedure in [../connecting-a-client.md](../connecting-a-client.md), and use this file for steps 6–8. `<P>` = the mcp-hub repo's absolute path, with forward slashes. Facts were checked against the official docs on 2026-10-28.
 
 ## 1. MCP entry
+- **Shared Windows service (HTTP):** after `scripts/hubctl.ps1 install`, add a user-scope HTTP entry in `~/.claude.json` (or use `claude mcp add-json`). Claude Code's `headersHelper` runs locally and reads the private service token at connection time:
+  ```json
+  {
+    "type": "http",
+    "url": "http://127.0.0.1:8765/mcp",
+    "headersHelper": "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"<P>/scripts/http_headers.ps1\""
+  }
+  ```
+  If the installed Claude Code version does not support `headersHelper`, use the stdio bridge.
+- **Shared stdio bridge:** use the existing command with `-Bridge` appended: `powershell -NoProfile -ExecutionPolicy Bypass -File "<P>/scripts/start.ps1" -Bridge`.
+- **Legacy per-client stdio:** the existing command below stays available for development or isolated use.
 - **Command (user scope, all projects):**
   ```bash
   claude mcp add --transport stdio --scope user mcp-hub -- powershell -NoProfile -ExecutionPolicy Bypass -File "<P>/scripts/start.ps1"

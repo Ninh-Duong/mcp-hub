@@ -3,6 +3,9 @@
 ## Credential handling
 
 - Keep real local config in `config/private/`; never commit it.
+- The shared-service bearer token is generated in `config/private/service.json`. `scripts/http_headers.ps1` emits a JSON `Authorization` header only to the requesting client helper process; it never writes the token to Hub logs or MCP tool content. The stdio bridge reads the same token in process.
+- SQLite stores job IDs, timestamps, states, role/tool names, and event metadata unencrypted. Requests, summaries, pending write arguments, and full child results are protected with Windows user-scope DPAPI before storage. Details are purged after 30 days. A database copied to another Windows account cannot be decrypted there.
+- Agent keys live in `config/private/agents.json`. Job project aliases and allowed environments live in `config/private/projects.json`; the independent source child maps those aliases to local roots in its own ignored `config/private/projects.json`. Status commands report models/readiness or aliases only.
 - Prefer OS credential storage or environment variables for tokens. If a child requires a token in a file, restrict access to that file and keep it in the ignored private directory.
 - The Hub may load credentials only to start or call the child MCP. Never expose them as tools, resources, prompts, errors, or logs.
 - Hub error-log redaction includes configured child `env` values, the actual values copied from `inheritEnv`, and string values anywhere below a sensitive key in the child config. Key matching includes `api_key`/`api-key`, keys ending in `_key`/`-key` (e.g. `ai_context_key`), tokens, secrets, passwords, authorization, email, and credentials.
@@ -15,6 +18,12 @@
 The Hub writes JSON Lines records for startup/shutdown, config validation, child connection, tool discovery, and every tool call. Fields: `timestamp`, `event`, and when relevant `request_id`, `feature`, `server`, `tool`, `duration_ms`, `error_type`, and redacted `error` / `error_summary`. The full list is in the event reference below.
 
 `hub__status` reports only child IDs, counts, and states; it does not expose config paths or credentials. Its calls use the same `tool.call.started` and `tool.call.succeeded` audit events as child tools.
+
+The shared HTTP endpoint binds only to `127.0.0.1`, checks `Host` and `Origin`, and requires the local bearer token. `/health` returns only liveness. Dashboard pairing tokens are single-use and short-lived; browser sessions are `HttpOnly`, same-site cookies. HTTP access logs are disabled. Dashboard previews mask secret-like fields before they reach the browser. Pending arguments are encrypted at rest and never included in metadata events.
+
+Before an agent-originated child write runs, the Hub stores the exact tool and arguments, then waits in `awaiting_approval`. The dashboard shows the tool and a redacted argument preview. A user can approve there, or copy a single-use code into an AI client. Approval codes last 10 minutes; the pending write is bounded by the 15-minute job window. Documented encrypted cache updates are allowed during investigation. Direct child calls still follow each child's existing contract and annotations.
+
+Investigation timeline events live in the SQLite job store, not in `logs/mcp-hub.jsonl`. They contain state changes, agent/child tool names, timing, and evidence IDs only. Requests, tool arguments, full tool results, and summaries are stored in protected blobs. Job rows and their timeline are deleted at the 30-day expiry.
 
 Do not log credentials, full environment maps, complete tool arguments, or complete tool results by default. Log only safe metadata or explicitly reviewed, redacted fields. Keep logs local under `logs/`, restrict access, and rotate them to avoid unbounded growth.
 

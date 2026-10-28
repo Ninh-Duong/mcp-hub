@@ -49,6 +49,38 @@ class PrivateConfigTest(unittest.TestCase):
         self.assertNotIn("test-secret-value", output.getvalue())
         self.assertIn("<set>", output.getvalue())
 
+    def test_agent_status_reports_models_without_printing_api_keys(self) -> None:
+        agents = self.tmp / "agents.json"
+        agents.write_text(json.dumps({
+            "version": 1,
+            "agents": {
+                "coordinator": {
+                    "provider": "openai",
+                    "model": "example-model",
+                    "api_key": "test-only-secret-value",
+                },
+            },
+        }), encoding="utf-8")
+        from unittest.mock import patch
+        output = io.StringIO()
+        with patch.object(private_config, "PRIVATE_ROOT", self.tmp), contextlib.redirect_stdout(output):
+            private_config.main(["agent-status"])
+
+        self.assertIn("coordinator: provider=openai, model=example-model, state=configured", output.getvalue())
+        self.assertNotIn("test-only-secret-value", output.getvalue())
+
+    def test_project_status_reports_aliases_and_envs_without_local_roots(self) -> None:
+        projects = self.tmp / "projects.json"
+        projects.write_text(json.dumps({
+            "version": 1,
+            "projects": {"orders": {"default_env": "dev", "allowed_envs": ["dev", "stg"]}},
+        }), encoding="utf-8")
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            private_config.main(["project-status"])
+        self.assertIn("orders: default_env=dev, allowed_envs=dev,stg", output.getvalue())
+        self.assertNotIn(str(self.tmp), output.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

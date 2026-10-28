@@ -13,7 +13,8 @@ Paste one of these into any agent. Replace `<MCP_HUB_PATH>` with this repo's abs
 ```text
 Read <MCP_HUB_PATH>/docs/connecting-a-client.md and follow every step to connect yourself to mcp-hub,
 using the file for this client in <MCP_HUB_PATH>/docs/clients/: register one MCP server named mcp-hub,
-replace any old entries for its child MCPs, install the always-on rule and the /mcp-hub command.
+use the shared Windows Hub over authenticated HTTP when this client supports the documented local header helper,
+or use its stdio bridge; replace any old entries for its child MCPs, install the always-on rule and the /mcp-hub command.
 Ask me before writing global config or removing entries, and report what you changed at the end.
 ```
 
@@ -36,7 +37,7 @@ Following sections 2 and 3 of the file for this client in <MCP_HUB_PATH>/docs/cl
 refresh the mcp-hub always-on rule and the /mcp-hub command. Replace old copies if there are any.
 ```
 
-**D. Daily use:** `/mcp-hub <server-id> <task>`, e.g. `/mcp-hub mcp-server-logs show the prod logs for service orders-api` or `/mcp-hub mcp-jira-sync check connection`. In Codex, use `$mcp-hub …`. Without the command, type `mcp-hub:<server-id> <task>`. Each client's file lists its exact forms. The rules are in [client-rules.md](client-rules.md).
+**D. Daily use:** `/mcp-hub <server-id> <task>`, e.g. `/mcp-hub mcp-server-logs show the prod logs for service orders-api` or `/mcp-hub mcp-jira-sync check connection`. For cross-system issue work use `/mcp-hub investigate <project-alias> <task>` (Codex: `$mcp-hub investigate …`). Without the command, type `mcp-hub:<server-id> <task>` or ask a plain-language investigation request. Each client's file lists its exact forms. The rules are in [client-rules.md](client-rules.md).
 
 ---
 
@@ -47,7 +48,7 @@ refresh the mcp-hub always-on rule and the /mcp-hub command. Replace old copies 
 - **Merge, don't overwrite.** Client configs usually hold other servers. Back the file up as `<file>.mcp-hub.bak` (never overwrite an existing `.bak`), add or replace only the entries named here, and keep the file valid JSON/TOML/YAML.
 - **"Project" config means the user's own workspace**, never this repo.
 - **Ask** before writing a global/user config, and before removing an existing entry.
-- Never print, copy, or ask for credentials. The Hub's clients need none; each child MCP keeps its own.
+- Never print, copy, or ask for provider or child credentials. Client entries use the local HTTP header helper or bridge; each child MCP keeps its own account settings.
 
 ---
 
@@ -56,7 +57,7 @@ refresh the mcp-hub always-on rule and the /mcp-hub command. Replace old copies 
 | Field | Windows | macOS / Linux |
 |---|---|---|
 | name | `mcp-hub` | `mcp-hub` |
-| transport | stdio | stdio |
+| transport | stdio (legacy) | stdio (legacy) |
 | command | `powershell` | `bash` |
 | args | `["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "<MCP_HUB_PATH>/scripts/start.ps1"]` | `["<MCP_HUB_PATH>/scripts/start.sh"]` |
 | env | none | none |
@@ -74,6 +75,16 @@ refresh the mcp-hub always-on rule and the /mcp-hub command. Replace old copies 
 
 The launcher finds `uv` (on `PATH` or in the repo's `.tools/`), installs it locally if needed, prepares the Python version from `.python-version`, and starts the Hub with dependencies locked by `uv.lock`. It does not prompt when a client starts it. Bootstrap diagnostics go to stderr, while stdout is reserved for MCP traffic. This entry has been tested end to end as a stdio server, including non-ASCII tool output.
 
+### Shared Windows service options
+
+After the user installs the service with `scripts/hubctl.ps1 install`, configure one of these entries instead of the legacy launcher above:
+
+- **Streamable HTTP:** `http://127.0.0.1:8765/mcp`, with an `Authorization: Bearer …` header. The local header helper `scripts/http_headers.ps1` reads the private service token on demand and returns it only to the client. Use this only when the client supports a dynamic local header helper; the Codex and Claude Code guides show working formats.
+- **Stdio bridge:** use the same `scripts/start.ps1` launcher with `-Bridge` in its arguments. The bridge forwards to the shared service and reads the token locally. Use it when the client cannot safely provide an HTTP header.
+- **Legacy stdio:** keep the launcher without `-Bridge` only for development or if the user intentionally wants an isolated per-client Hub process.
+
+The shared modes expose the same direct child tools plus the shared issue-job tools. Service setup, configuration, approvals, retention, and recovery are documented in [the operator runbook](operations/shared-agent-hub.md). This repo task does not modify the user's client settings; the connecting agent must ask before changing them.
+
 **Fallback** if the client cannot run PowerShell/bash: `command` = the absolute path of `uv` (`where uv` / `which uv`, or `<MCP_HUB_PATH>/.tools/uv.exe`), `args` = `["--directory", "<MCP_HUB_PATH>", "run", "--locked", "mcp-hub"]`.
 
 ---
@@ -90,8 +101,8 @@ Find out which client you are running in (your system prompt or product name usu
 `<MCP_HUB_PATH>` is the folder that contains `scripts/start.ps1` and this file. Record it as an absolute path with forward slashes.
 **Done when** `<MCP_HUB_PATH>/scripts/start.ps1` exists.
 
-### Step 3: Prerequisites
-The launcher installs `uv` into the repo's ignored `.tools/` directory when it is missing, and installs Python from `.python-version` through `uv` when needed. No manual prerequisite step is required. The first launch requires internet access and local write access; if bootstrap cannot complete, it exits with an error on stderr before the Hub starts:
+### Step 3: Prerequisites and service mode
+The launcher installs `uv` into the repo's ignored `.tools/` directory when it is missing, and installs Python from `.python-version` through `uv` when needed. No manual prerequisite step is required. The first launch requires internet access and local write access; if bootstrap cannot complete, it exits with an error on stderr before the Hub starts. For shared Windows mode, follow [the runbook](operations/shared-agent-hub.md) and install its scheduled task only after the user agrees; otherwise use the stdio command below for a one-time setup check:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File "<MCP_HUB_PATH>/scripts/start.ps1"
@@ -99,8 +110,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<MCP_HUB_PATH>/scripts/star
 
 On macOS/Linux: `bash "<MCP_HUB_PATH>/scripts/start.sh"`.
 
-When it then sits silently, the Hub is running: press Ctrl+C.
-**Done when** the launcher reaches the Hub without a bootstrap error.
+When it then sits silently, the legacy stdio Hub is running: press Ctrl+C. In shared mode, `hubctl status` confirms the service; do not leave this second instance running.
+**Done when** prerequisites are installed and either the shared service or one-time stdio check starts without a Hub config error.
 
 ### Step 4: Check the Hub and its children
 In `<MCP_HUB_PATH>`, run (use the `.tools` uv path if `uv` is not on `PATH`):
@@ -109,7 +120,7 @@ In `<MCP_HUB_PATH>`, run (use the `.tools` uv path if `uv` is not on `PATH`):
 uv run python scripts/smoke.py
 ```
 
-The Hub automatically detects its three supported sibling repositories; do not copy or enable Hub config for a fresh clone. Smoke prints one line per configured child. A missing credential may make a child's upstream check fail while the Hub and other children remain usable. Report that child as unavailable and continue connecting the client. Stop only if the launcher or Hub itself cannot start. This run also finishes any first-time install or build, so the client won't time out on its first start.
+The Hub automatically detects its supported sibling repositories; do not copy or enable Hub config for a fresh clone. Smoke prints one line per configured child. A missing credential may make a child's upstream check fail while the Hub and other children remain usable. Report that child as unavailable and continue connecting the client. Stop only if the launcher or Hub itself cannot start. This run also finishes any first-time install or build, so the client won't time out on its first start.
 **Done when** the Hub starts; report each child's smoke result and later confirm the discovered count with `hub__status`.
 
 ### Step 5: Find old direct entries (migration)

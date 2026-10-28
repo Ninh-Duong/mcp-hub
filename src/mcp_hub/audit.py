@@ -17,13 +17,13 @@ _KEY_VALUE_RE = re.compile(
 )
 
 
-def redact(value: str, secrets: Iterable[str] = ()) -> str:
+def redact(value: str, secrets: Iterable[str] = (), *, limit: int = 1000) -> str:
     result = value
     for secret in sorted((item for item in secrets if item), key=len, reverse=True):
         result = result.replace(secret, "[REDACTED]")
     result = _BEARER_RE.sub(r"\1[REDACTED]", result)
     result = _KEY_VALUE_RE.sub(r"\1[REDACTED]", result)
-    return result[:1000]
+    return result[:limit]
 
 
 class AuditLog:
@@ -41,6 +41,9 @@ class AuditLog:
 
     def add_secrets(self, values: Iterable[str]) -> None:
         self._secrets.update(value for value in values if value)
+
+    def redact_content(self, value: str, *, limit: int = 1000) -> str:
+        return redact(value, self._secrets, limit=limit)
 
     def write(self, event: str, level: int = logging.INFO, **fields: Any) -> None:
         record = {

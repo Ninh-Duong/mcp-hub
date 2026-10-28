@@ -1,0 +1,9 @@
+{
+  "transport": "stdio",
+  "command": "python",
+  "args": ["-m", "mcp_read_source.server"],
+  "cwd": "../mcp-read-source",
+  "env": {},
+  "inheritEnv": ["PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE"],
+  "timeoutSeconds": 60
+}

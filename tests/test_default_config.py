@@ -104,6 +104,31 @@ class DefaultConfigTest(unittest.TestCase):
         suffix = "Scripts/python.exe" if os.name == "nt" else "bin/python"
         self.assertEqual(Path(loaded.servers["mcp-jira-sync"].command), self.root / ".venv" / suffix)
 
+    def test_source_reader_uses_the_hub_venv_and_child_src_path(self):
+        (self.parent / "mcp-read-source").mkdir()
+        loaded = config.load_config()
+        suffix = "Scripts/python.exe" if os.name == "nt" else "bin/python"
+        server = loaded.servers["mcp-read-source"]
+        self.assertEqual(Path(server.command), self.root / ".venv" / suffix)
+        self.assertEqual(server.env["PYTHONPATH"], str((self.parent / "mcp-read-source" / "src").resolve()))
+        self.assertIn("source__search", {route.exposed_name for route in loaded.routes})
+
+    def test_source_reader_uses_the_hub_runtime_even_with_private_child_template(self):
+        (self.parent / "mcp-read-source").mkdir()
+        private = self.root / "config" / "private" / "mcps" / "mcp-read-source.json"
+        private.write_text(json.dumps({
+            "transport": "stdio", "command": "python", "args": ["-m", "mcp_read_source.server"],
+            "cwd": "../mcp-read-source", "env": {},
+        }), encoding="utf-8")
+        manifest = {"version": 1,
+                    "servers": {"mcp-read-source": {"enabled": True, "configFile": "config/private/mcps/mcp-read-source.json"}},
+                    "features": {}}
+        (self.root / "config" / "private" / "hub.json").write_text(json.dumps(manifest), encoding="utf-8")
+        loaded = config.load_config()
+        suffix = "Scripts/python.exe" if os.name == "nt" else "bin/python"
+        self.assertEqual(Path(loaded.servers["mcp-read-source"].command), self.root / ".venv" / suffix)
+        self.assertEqual(loaded.servers["mcp-read-source"].env["PYTHONPATH"], str((self.parent / "mcp-read-source" / "src").resolve()))
+
 
 if __name__ == "__main__":
     unittest.main()

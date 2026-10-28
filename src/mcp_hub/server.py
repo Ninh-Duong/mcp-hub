@@ -208,13 +208,22 @@ class HubRuntime:
                 "connected": len(self.clients),
                 "children": children,
             }))])
-        route = self.routes.get(params.name)
+        return await self.call_child_tool(params.name, params.arguments or {}, request_id=request_id)
+
+    async def call_child_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        *,
+        request_id: str = "unknown",
+    ) -> CallToolResult:
+        route = self.routes.get(name)
         if route is None:
             self.audit.write(
                 "tool.call.denied",
                 level=logging.WARNING,
                 request_id=request_id,
-                tool=params.name,
+                tool=name,
             )
             return CallToolResult(
                 content=[TextContent(type="text", text="This tool is not enabled in the Hub configuration.")],
@@ -231,7 +240,7 @@ class HubRuntime:
         )
         try:
             with anyio.fail_after(self.config.servers[route.server_id].timeout_seconds):
-                result = await self.clients[route.server_id].call_tool(route.tool_name, params.arguments or {})
+                result = await self.clients[route.server_id].call_tool(route.tool_name, arguments)
         except Exception as exc:
             self.audit.write(
                 "tool.call.failed",
@@ -281,6 +290,43 @@ def _result_error_summary(result: CallToolResult) -> str:
     return ""
 
 
+def create_mcp_server(runtime: HubRuntime, job_runner: Any | None = None) -> Server:
+    groups = "\n".join(f"- {sid}: {', '.join(tools)}" for sid, tools in runtime.tools_by_server().items())
+    rules = HUB_ROOT / "docs" / "client-rules.md"
+
+    async def list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
+        result = await runtime.list_tools(ctx, params)
+        if job_runner is None:
+            return result
+        return ListToolsResult(tools=[*result.tools, *job_runner.tool_definitions()])
+
+    async def call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+        if job_runner is not None and params.name in {tool.name for tool in job_runner.tool_definitions()}:
+            return await job_runner.call_tool(params.name, params.arguments or {})
+        return await runtime.call_tool(ctx, params)
+
+    job_instructions = (
+        " Shared investigation tools: hub__list_projects returns registered aliases; hub__submit_issue starts a bounded async job; hub__get_job and "
+        "hub__get_job_detail read status and encrypted evidence; hub__provide_job_input supplies a validated "
+        "environment; hub__approve_job requires the one-time dashboard code; hub__cancel_job stops a job."
+        if job_runner is not None else ""
+    )
+    # Essentials first; Codex reads the first 512 chars; Claude Code cuts instructions at 4096.
+    return Server(
+        "mcp-hub",
+        instructions=(
+            f"{INSTRUCTIONS_SUMMARY}{job_instructions}\n\nDetected siblings: {len(runtime.config.detected)}; "
+            f"connected children: {len(runtime.clients)}."
+            f"\nTools by child MCP (server ID: tools):\n{groups}\n\n"
+            + (rules.read_text(encoding="utf-8") if rules.is_file() else "")
+        ),
+        on_list_tools=list_tools,
+        on_call_tool=call_tool,
+        on_list_prompts=runtime.list_prompts,
+        on_get_prompt=runtime.get_prompt,
+    )
+
+
 async def serve() -> None:
     audit = AuditLog()
     try:
@@ -292,21 +338,7 @@ async def serve() -> None:
     runtime = HubRuntime(config, audit)
     async with AsyncExitStack() as stack:
         await runtime.connect(stack)
-        groups = "\n".join(f"- {sid}: {', '.join(tools)}" for sid, tools in runtime.tools_by_server().items())
-        rules = HUB_ROOT / "docs" / "client-rules.md"
-        # Essentials first: Codex reads the first 512 chars; Claude Code cuts instructions at 4096.
-        server = Server(
-            "mcp-hub",
-            instructions=(
-                f"{INSTRUCTIONS_SUMMARY}\n\nDetected siblings: {len(config.detected)}; connected children: {len(runtime.clients)}."
-                f"\nTools by child MCP (server ID: tools):\n{groups}\n\n"
-                + (rules.read_text(encoding="utf-8") if rules.is_file() else "")
-            ),
-            on_list_tools=runtime.list_tools,
-            on_call_tool=runtime.call_tool,
-            on_list_prompts=runtime.list_prompts,
-            on_get_prompt=runtime.get_prompt,
-        )
+        server = create_mcp_server(runtime)
         audit.write(
             "hub.started",
             config=str(config.config_path),

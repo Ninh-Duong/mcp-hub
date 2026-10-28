@@ -12,6 +12,10 @@
     "mcp-pr-companion": {
       "enabled": false,
       "configFile": "config/private/mcps/mcp-pr-companion.json"
+    },
+    "mcp-read-source": {
+      "enabled": false,
+      "configFile": "config/private/mcps/mcp-read-source.json"
     }
   },
   "features": {
@@ -162,6 +166,26 @@
           "server": "mcp-pr-companion",
           "name": "sync_my_open_prs",
           "exposeAs": "pr__sync_my_open_prs"
+        }
+      ]
+    },
+    "source": {
+      "enabled": false,
+      "tools": [
+        {
+          "server": "mcp-read-source",
+          "name": "source__check_connection",
+          "exposeAs": "source__check_connection"
+        },
+        {
+          "server": "mcp-read-source",
+          "name": "source__search",
+          "exposeAs": "source__search"
+        },
+        {
+          "server": "mcp-read-source",
+          "name": "source__read",
+          "exposeAs": "source__read"
         }
       ]
     }

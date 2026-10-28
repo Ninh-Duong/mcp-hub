@@ -1,8 +1,15 @@
 # GitHub Copilot in VS Code (agent mode)
 
-Do the general procedure in [../connecting-a-client.md](../connecting-a-client.md), and use this file for steps 6–8. `<P>` = the mcp-hub repo's absolute path, with forward slashes. Facts were checked against the official docs on 2026-10-19.
+Do the general procedure in [../connecting-a-client.md](../connecting-a-client.md), and use this file for steps 6–8. `<P>` = the mcp-hub repo's absolute path, with forward slashes. Facts were checked against the official docs on 2026-10-28.
 
 ## 1. MCP entry
+- For the shared Windows service, this guide uses the **stdio bridge** because the Copilot harness's HTTP config has no built-in helper that can read the Hub token from private storage. Keep the local command and append `-Bridge` to its args:
+  ```json
+  { "servers": { "mcp-hub": { "type": "stdio",
+      "command": "powershell",
+      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "<P>/scripts/start.ps1", "-Bridge"] } } }
+  ```
+  The existing entry without `-Bridge` below starts an isolated per-client Hub.
 - **File:** the user-profile `mcp.json` (Command Palette → **MCP: Open User Configuration**). A workspace-only alternative is `.vscode/mcp.json` in the user's workspace.
 - **Shape:** the top-level key is **`servers`** (not `mcpServers`), with `"type": "stdio"`:
   ```json

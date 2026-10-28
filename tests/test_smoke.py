@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, call, patch
 
 from mcp.types import CallToolResult, TextContent
 
-from scripts.smoke import CHECKS, _has_organizations, _is_connected, _probe, _report, main
+from scripts.smoke import CHECKS, _has_organizations, _has_project_aliases, _is_connected, _probe, _report, main
 
 
 class SmokeChecksTest(unittest.TestCase):
@@ -67,6 +67,12 @@ class SmokeChecksTest(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertFalse(_is_connected(CallToolResult(content=[TextContent(type="text", text=text)])))
         self.assertFalse(_is_connected(CallToolResult(content=[TextContent(type="text", text='{"connected":true}')], isError=True)))
+
+    def test_source_check_accepts_aliases_but_never_requires_a_registered_root(self) -> None:
+        self.assertEqual(CHECKS["mcp-read-source"][0][1], "source__check_connection")
+        self.assertTrue(_has_project_aliases(CallToolResult(content=[TextContent(type="text", text='{"configured_projects":[]}')])))
+        self.assertTrue(_has_project_aliases(CallToolResult(content=[TextContent(type="text", text='{"configured_projects":["app"]}')])))
+        self.assertFalse(_has_project_aliases(CallToolResult(content=[TextContent(type="text", text='{"configured_projects":"root/path"}')])))
 
     def test_report_shows_status_for_all_environments(self) -> None:
         ok, detail = _report(

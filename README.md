@@ -1,6 +1,6 @@
 # mcp-hub
 
-Local, config-driven MCP gateway for AI agents. The Hub launches child MCP servers over stdio, discovers their tools, exposes only allowlisted ones, routes calls, and writes audit events to `logs/mcp-hub.jsonl`.
+Local, config-driven MCP gateway for AI agents. It can run as one shared Windows service for multiple clients, or keep its original per-client stdio mode. It launches child MCP servers over stdio, discovers their tools, exposes only allowlisted ones, routes calls, and writes metadata-only audit events to `logs/mcp-hub.jsonl`.
 
 **Agents: read [AGENTS.md](AGENTS.md) first.** Its rules are mandatory.
 
@@ -20,6 +20,18 @@ On Linux or macOS:
 bash scripts/start.sh
 ```
 
+### Shared Windows service
+
+After preparing this repository and the desired child MCPs, follow [the shared Agent Hub runbook](docs/operations/shared-agent-hub.md). The service starts at sign-in through Task Scheduler, listens only on loopback, and shares child connections and investigation jobs across local AI clients.
+
+```powershell
+.\scripts\hubctl.ps1 install
+.\scripts\hubctl.ps1 status
+.\scripts\hubctl.ps1 open
+```
+
+Clients with a safe dynamic-header helper can connect over HTTP using `scripts/http_headers.ps1`. Other clients use the stdio bridge by passing `-Bridge` to `scripts/start.ps1`. The existing stdio launcher remains available for development and per-client compatibility.
+
 If `uv` is missing, the launcher installs it under the ignored `.tools/` directory without changing the global `PATH`. It then installs Python from `.python-version` when needed and runs `uv run --locked`, which creates or synchronizes the project environment from `uv.lock`. The first run needs internet access and write access to the repository and uv-managed data/cache directories. If download or installation fails, the launcher exits with a diagnostic on stderr before starting the Hub. Stdout stays reserved for MCP protocol traffic.
 
 To connect an AI client, paste this into the agent (replace `<MCP_HUB_PATH>` with this repo's absolute path). Other prompts (instructions only, rule refresh, daily use) are in [docs/connecting-a-client.md §0](docs/connecting-a-client.md#0-for-the-human-the-prompts).
@@ -31,9 +43,9 @@ replace any old entries for its child MCPs, install the always-on rule and the /
 Ask me before writing global config or removing entries, and report what you changed at the end.
 ```
 
-Daily use after that: `/mcp-hub <server-id> <task>` (Codex: `$mcp-hub …`), e.g. `/mcp-hub mcp-server-logs show the prod logs for service orders-api`. Without the command installed, type `mcp-hub:<server-id> <task>`.
+Daily use after that: `/mcp-hub <server-id> <task>` (Codex: `$mcp-hub …`), e.g. `/mcp-hub mcp-server-logs show the prod logs for service orders-api`. For a cross-system issue, use `/mcp-hub investigate <project-alias> <task>`; the Hub routes a bounded asynchronous job. Without the command installed, type `mcp-hub:<server-id> <task>` or ask for the investigation in plain language.
 
-The Hub discovers its three supported child repositories next to this repo at startup. Paths in Hub configuration are relative to this repo, such as `../mcp-server-logs`; they are resolved only in memory. Optional `config/private/hub.json` and per-child private configs override defaults. `MCP_HUB_CONFIG` still selects an explicit private manifest.
+The Hub discovers four supported child repositories next to this repo at startup. `mcp-read-source` is the new separate sibling repository described in this change. Paths in Hub configuration are relative to this repo, such as `../mcp-server-logs`; they are resolved only in memory. Optional `config/private/hub.json` and per-child private configs override defaults. `MCP_HUB_CONFIG` still selects an explicit private manifest.
 
 ## Default setup
 
@@ -45,12 +57,15 @@ The supported children and exposed tools are mapped in [config/hub.example.json]
   mcp-server-logs/
   mcp-jira-sync/
   mcp-pr-companion/
+  mcp-read-source/
 ```
 
 ```powershell
 cd <parent>
 foreach ($repo in "mcp-hub", "mcp-server-logs", "mcp-jira-sync", "mcp-pr-companion") { git clone "<GIT_BASE>/$repo.git" }
 ```
+
+Place the separate `mcp-read-source` repository beside the other four. It is created as part of this implementation; a remote clone URL depends on where the user chooses to host it.
 
 Connect your client to `mcp-hub` using [the client guide](docs/connecting-a-client.md). No Hub config copy or enable step is needed for a fresh clone. Call `hub__status` to see how many child repos were detected and which are connected, disabled, or need credentials. A child without credentials may remain unavailable while the others work; the Hub does not expose a child's tools until it supplies their schemas. The client still needs a path to the Hub launcher because it can start from any working directory.
 
@@ -59,14 +74,16 @@ Connect your client to `mcp-hub` using [the client guide](docs/connecting-a-clie
 | `mcp-server-logs` | `../mcp-server-logs` | `logs__*` | `openobserve` / `seq` in `config/private/mcps/mcp-server-logs.json`, else the child's `config/openobserve.<env>.env` and `config/seq.env` | [docs/mcps/mcp-server-logs.md](docs/mcps/mcp-server-logs.md) |
 | `mcp-jira-sync` | `../mcp-jira-sync` | `jira__*` | `jira` in `config/private/mcps/mcp-jira-sync.json`, else the child's `.env` | [docs/mcps/mcp-jira-sync.md](docs/mcps/mcp-jira-sync.md) |
 | `mcp-pr-companion` | `../mcp-pr-companion` | `pr__*` | `bitbucket` in `config/private/mcps/mcp-pr-companion.json`, else the child's `.env` | [docs/mcps/mcp-pr-companion.md](docs/mcps/mcp-pr-companion.md) |
+| `mcp-read-source` | `../mcp-read-source` | `source__*` | Project roots by alias in the child's `config/private/projects.json` | [docs/mcps/mcp-read-source.md](docs/mcps/mcp-read-source.md) |
 
-Each value is taken from the first place that has it: the child config's `env`, then the Hub section (copy the template to `config/private/mcps/<id>.json` and fill it by hand), then the child's own files. Every child's check tool reports which one it used; see [Configuration sources](docs/child-mcp-compatibility.md#configuration-sources).
+For logs/Jira/PR credentials, each value is taken from the first place that has it: the child config's `env`, then the Hub section (copy the template to `config/private/mcps/<id>.json` and fill it by hand), then the child's own files. Every child's check tool reports which one it used; see [Configuration sources](docs/child-mcp-compatibility.md#configuration-sources). Source roots are registered separately by alias and have no upstream credentials.
 
 Prepare each child once:
 
 - `mcp-server-logs`: `node start.mjs --preflight` in the child repo (Node 22+; installs, builds, creates the account files).
 - `mcp-jira-sync`: nothing to install there; it runs on this repo's venv, so `uv sync` here covers its dependencies. Do not `pip install` into another Python.
 - `mcp-pr-companion`: `node bin/cli.js prepare` in the child repo (Node 20.12+).
+- `mcp-read-source`: no upstream account or build step; register local roots by alias in its private config as described in its contract.
 
 Then fill each child's credentials and run `uv run python scripts/smoke.py`. Jira needs a private child config before its tools can appear; copy its template and fill the placeholders without printing secrets. In automatic mode, the Hub selects this repo's `.venv` Python for Jira on each platform. To disable a detected child, create a minimal `config/private/hub.json` such as `{"version":1,"servers":{"mcp-jira-sync":{"enabled":false}},"features":{}}`. Private fields override defaults; `enabled: false` wins over discovery. Private configuration is never generated automatically.
 
@@ -118,6 +135,8 @@ The command runs unit tests, the leak checker, and Python compile checks. It doe
 | Change child MCP code and keep it compatible with the Hub | [docs/child-mcp-compatibility.md](docs/child-mcp-compatibility.md) |
 | What a child MCP does, its tools and side effects | [docs/mcps/](docs/mcps/) |
 | Request flow, failure handling, prompts | [docs/architecture.md](docs/architecture.md) |
+| Shared agent Hub design and implementation process | [design](docs/superpowers/specs/2026-10-28-shared-agent-hub-design.md), [plan](docs/superpowers/plans/2026-10-28-shared-agent-hub.md) |
+| Shared Windows service setup, operation and client migration | [docs/operations/shared-agent-hub.md](docs/operations/shared-agent-hub.md) |
 | Secrets, audit events, diagnosing failures | [docs/security-and-logging.md](docs/security-and-logging.md) |
 | Safe config templates | [config/hub.example.json](config/hub.example.json), [config/mcps/](config/mcps/) |
 
@@ -126,6 +145,8 @@ The command runs unit tests, the leak checker, and Python compile checks. It doe
 - `src/mcp_hub/config.py`: discovers known sibling repos, merges private overrides, validates child configs, and resolves relative paths.
 - `src/mcp_hub/server.py`: starts child clients, exposes allowlisted tools and per-child prompts, routes calls, and writes audit events. It uses the MCP SDK's low-level server so child JSON Schemas and annotations are forwarded unchanged.
 - `src/mcp_hub/audit.py`: rotating JSONL audit log with secret redaction.
+- `src/mcp_hub/service.py`, `http.py`, `bridge.py`: shared HTTP lifecycle, local auth, and stdio compatibility bridge.
+- `src/mcp_hub/jobs/`, `agents/`, `dashboard/`: bounded issue workflows, model adapters, encrypted results, and localhost dashboard.
 - `scripts/private_config.py`: inspects or edits a private child config without printing secrets.
 - `scripts/check_leaks.py`: blocks machine paths, real emails, and private files from being committed.
 - `scripts/smoke.py`: read-only end-to-end check. For each enabled child it checks the Hub prompt and makes one read-only tool call (`CHECKS` table).

@@ -169,6 +169,11 @@ def load_config(config_path: str | Path | None = None) -> HubConfig:
         env = _mapping(local.get("env", {}), f"server {server_id} env")
         if not all(isinstance(key, str) and isinstance(value, str) for key, value in env.items()):
             raise ConfigError(f"server {server_id} env must contain string values")
+        if server_id == "mcp-read-source":
+            command = str(HUB_ROOT / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python"))
+            source_path = str(cwd / "src")
+            inherited_pythonpath = env.get("PYTHONPATH")
+            env["PYTHONPATH"] = source_path + (os.pathsep + inherited_pythonpath if inherited_pythonpath else "")
         inherit_env = local.get("inheritEnv", ["PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE"])
         if not isinstance(inherit_env, list) or not all(isinstance(name, str) for name in inherit_env):
             raise ConfigError(f"server {server_id} inheritEnv must be a list of names")
