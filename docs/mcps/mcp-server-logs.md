@@ -34,11 +34,11 @@ All are read-only except `logs__export_openobserve_logs`. The OpenObserve tools,
 
 ## Hub integration
 
-- Read-only smoke check: `logs__list_openobserve_organizations` runs with `env: dev`, `stg`, and `prod`; every result must be JSON with an `organizations` array. A smoke PASS means all three accounts reached OpenObserve. If the result shape changes, update `scripts/smoke.py` and `tests/test_smoke.py`.
+- Read-only smoke check: `logs__list_log_providers` first; each environment it reports with `configured: false` is shown as `unset` and skipped. `logs__list_openobserve_organizations` then runs for each remaining `env` (`dev`, `stg`, `prod`); every result must be JSON with an `organizations` array. A smoke PASS means every configured account reached OpenObserve, and at least one is configured. If the result shape changes, update `scripts/smoke.py` and `tests/test_smoke.py`.
 - Preserve the child tool names and read/write annotations; the Hub exposes only the aliases allowlisted in `config/hub.example.json` plus overrides in `config/private/hub.json`.
 
 ## Diagnostics
 
 - Child logs: `../mcp-server-logs/logs/mcp-process.log`. Hub events: `logs/mcp-hub.jsonl`.
 - Child self-check: `node start.mjs --preflight` in the child repo.
-- End-to-end: `uv run python scripts/smoke.py` (checks `logs__list_openobserve_organizations` for all three OpenObserve environments).
+- End-to-end: `uv run python scripts/smoke.py` (checks `logs__list_openobserve_organizations` for each configured OpenObserve environment).

@@ -43,6 +43,32 @@ class SmokeChecksTest(unittest.TestCase):
             call("logs__list_openobserve_organizations", {"env": "prod"}),
         ])
 
+    def test_probe_skips_environments_without_an_account(self) -> None:
+        providers = '{"openobserve_environments":[{"env":"dev","configured":true},{"env":"stg","configured":false}]}'
+        client = AsyncMock()
+        client.__aenter__.return_value = client
+        client.list_tools.return_value = SimpleNamespace(tools=[
+            SimpleNamespace(name="logs__list_log_providers"), SimpleNamespace(name="logs__list_openobserve_organizations"),
+        ])
+        client.list_prompts.return_value = SimpleNamespace(prompts=[SimpleNamespace(name="mcp-server-logs")])
+        client.call_tool.side_effect = lambda tool, _args: CallToolResult(content=[TextContent(
+            type="text", text=providers if tool == "logs__list_log_providers" else '{"organizations":[]}',
+        )])
+
+        with patch("scripts.smoke.stdio_client", return_value=object()), patch("scripts.smoke.Client", return_value=client):
+            _, calls = asyncio.run(_probe(["mcp-server-logs"]))
+
+        self.assertEqual(calls["mcp-server-logs"], {"dev": True, "stg": None, "prod": True})
+        self.assertNotIn(call("logs__list_openobserve_organizations", {"env": "stg"}), client.call_tool.await_args_list)
+
+    def test_report_passes_with_unset_environment_but_not_when_all_are_unset(self) -> None:
+        connected = [{"server": "mcp-server-logs", "event": "server.connected", "tools_count": 12}]
+        ok, detail = _report("mcp-server-logs", {"mcp-server-logs"}, {"mcp-server-logs": {"dev": True, "stg": None, "prod": True}}, connected)
+        self.assertTrue(ok)
+        self.assertIn("dev=ok stg=unset prod=ok", detail)
+        ok, _ = _report("mcp-server-logs", {"mcp-server-logs"}, {"mcp-server-logs": {"dev": None, "stg": None, "prod": None}}, connected)
+        self.assertFalse(ok)
+
     def test_logs_check_accepts_organizations_payload(self) -> None:
         result = CallToolResult(content=[TextContent(type="text", text='{"organizations":[]}')])
         self.assertTrue(self.check(result))

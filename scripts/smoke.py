@@ -22,6 +22,7 @@ from mcp.types import CallToolResult, TextContent
 from mcp_hub.config import HUB_ROOT, load_config
 
 LOG = HUB_ROOT / "logs" / "mcp-hub.jsonl"
+_STATUS = {True: "ok", False: "failed", None: "unset"}
 
 
 def _texts(result: CallToolResult) -> list[str]:
@@ -49,6 +50,16 @@ def _has_organizations(result: CallToolResult) -> bool:
 
 def _is_connected(result: CallToolResult) -> bool:
     return any(payload.get("connected") is True for payload in _json_objects(result))
+
+
+def _unconfigured_envs(result: CallToolResult) -> set[str]:
+    """OpenObserve environments that `logs__list_log_providers` reports without an account."""
+    return {
+        item["env"]
+        for payload in _json_objects(result)
+        for item in payload.get("openobserve_environments") or []
+        if isinstance(item, dict) and item.get("configured") is False and isinstance(item.get("env"), str)
+    }
 
 
 def _has_project_aliases(result: CallToolResult) -> bool:
@@ -82,8 +93,14 @@ async def _probe(server_ids: list[str]) -> tuple[set[str], dict[str, dict[str, b
             calls: dict[str, dict[str, bool]] = {}
             for server_id in server_ids:
                 if server_id in connected:
+                    unset = set()
+                    if server_id == "mcp-server-logs" and "logs__list_log_providers" in tools:
+                        unset = _unconfigured_envs(await client.call_tool("logs__list_log_providers", {}))
                     for label, tool, args, check in CHECKS.get(server_id, ()):
                         if tool not in tools:
+                            continue
+                        if label in unset:
+                            calls.setdefault(server_id, {})[label] = None
                             continue
                         result = await client.call_tool(tool, args)
                         calls.setdefault(server_id, {})[label] = not result.is_error and check(result)
@@ -133,8 +150,10 @@ def _report(
     if len(checks) == 1:
         ok = results[checks[0][0]]
         return ok, f"{detail}, {tool} {'ok' if ok else 'failed'}"
-    status = " ".join(f"{label}={'ok' if results[label] else 'failed'}" for label, _, _, _ in checks)
-    return all(results[label] for label, _, _, _ in checks), f"{detail}, {tool} {status}"
+    # None = no account for that environment: shown as unset, not a failure, but at least one must pass.
+    outcomes = [results[label] for label, _, _, _ in checks]
+    status = " ".join(f"{label}={_STATUS[results[label]]}" for label, _, _, _ in checks)
+    return False not in outcomes and True in outcomes, f"{detail}, {tool} {status}"
 
 
 def main() -> None:
