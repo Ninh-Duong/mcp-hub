@@ -69,14 +69,16 @@ Run from the Hub repository in a normal, non-administrator PowerShell session:
 .\scripts\hubctl.ps1 open
 ```
 
-The dashboard has live service/child/agent state and a shared job list. Its stop and restart buttons invoke the same hidden `hubctl` helper. The helper sends an authenticated shutdown request; the Hub gives active HTTP requests up to 20 seconds to drain, then cancels them and closes its job runner and child MCP connections before the scheduled task exits. `hubctl` waits up to 45 seconds for a clean stop. If the service is stopped, use `hubctl start` or `hubctl open`; the dashboard cannot control a process that is not running. If the task is running but `/health` is unavailable, `hubctl stop` reports the condition rather than force-killing the task.
+The scheduled task runs the prepared environment through `pythonw.exe`, so the Hub stays in the background when a PowerShell or Windows Terminal window closes. The task is allowed to start and continue on battery. `hubctl install` prepares and synchronizes the locked environment before registering the task; `hubctl start` also prepares it when starting a stopped task. Run `hubctl install` again after changing the Python version or task setup.
+
+The dashboard has live service/child/agent state and a shared job list. Its pixel buffalo barn shows each child MCP at rest or handling tool calls. The daily activity panel ranks MCPs by call count or total duration and lists the tools and labeled clients used, with filters by child, client, and tool. It reads only metadata retained for 30 days; it does not display tool arguments or results. It polls at one-second intervals while visible. Its stop and restart buttons invoke the same hidden `hubctl` helper. The helper sends an authenticated shutdown request; the Hub gives active HTTP requests up to 20 seconds to drain, then cancels them and closes its job runner and child MCP connections before the scheduled task exits. `hubctl` waits up to 45 seconds for a clean stop. If the service is stopped, use `hubctl start` or `hubctl open`; the dashboard cannot control a process that is not running. If the task is running but `/health` is unavailable, `hubctl stop` reports the condition rather than force-killing the task.
 
 ## 4. Connect each AI client
 
 Each client still has exactly one entry named `mcp-hub`:
 
 - Prefer authenticated Streamable HTTP for clients that can run a local dynamic-header helper. The endpoint is `http://127.0.0.1:8765/mcp`; the helper is `scripts/http_headers.ps1`. Current Codex and Claude Code guides include this configuration.
-- Use the stdio bridge for clients that cannot safely supply the bearer header. It starts with `scripts/start.ps1 -Bridge` and forwards MCP protocol messages to the shared Hub. It reads the bearer token in process.
+- Use the stdio bridge for clients that cannot safely supply the bearer header. It starts with `scripts/start.ps1 -Bridge -ClientName "<AI_CLIENT>"` and forwards MCP protocol messages to the shared Hub. It reads the bearer token in process and labels calls in the daily dashboard report. HTTP clients are labeled from MCP `clientInfo`.
 - The original `scripts/start.ps1` without `-Bridge` still launches an isolated stdio Hub for development or a temporary compatibility fallback. It does not share jobs with the service.
 
 Follow [connecting-a-client.md](../connecting-a-client.md) and that client's guide. The setup agent must ask before editing a user-level client config and before removing an old direct child entry. Replace only child server entries that point to the logs/Jira/PR repos, then install/refresh the Hub rule and `/mcp-hub` command. This repository change does not modify any AI client settings.
@@ -97,7 +99,7 @@ Documented encrypted cache updates made automatically as part of read workflows 
 
 ## 7. Retention and support
 
-SQLite job records, events, pending actions, summaries, and tool results are removed after 30 days. Sensitive blobs are protected at rest with Windows user-scope DPAPI. The database belongs to the Windows account that created it and cannot be decrypted under another account. Hub audit logs remain metadata-only and are in `logs/mcp-hub.jsonl`.
+SQLite job records, events, pending actions, summaries, tool results, and daily child-call history are removed after 30 days. Sensitive blobs are protected at rest with Windows user-scope DPAPI. The database belongs to the Windows account that created it and cannot be decrypted under another account. Hub audit logs remain metadata-only and are in `logs/mcp-hub.jsonl`.
 
 | Symptom | Check |
 |---|---|

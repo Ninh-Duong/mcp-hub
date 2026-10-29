@@ -7,7 +7,7 @@ Do the general procedure in [../connecting-a-client.md](../connecting-a-client.m
   ```json
   { "mcpServers": { "mcp-hub": {
       "command": "powershell",
-      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "<P>/scripts/start.ps1"] } } }
+      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "<P>/scripts/start.ps1", "-Bridge", "-ClientName", "Gemini CLI"] } } }
   ```
   macOS/Linux: `"command": "bash", "args": ["<P>/scripts/start.sh"]`.
 - `gemini mcp add -s user mcp-hub <command> [args...]` also works. Editing the file is safer when the args start with `-`.

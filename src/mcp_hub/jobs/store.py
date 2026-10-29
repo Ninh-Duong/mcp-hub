@@ -20,6 +20,7 @@ JOB_STATES = {
     "completed", "partial", "failed", "interrupted", "cancelled",
 }
 TERMINAL_STATES = {"completed", "partial", "failed", "interrupted", "cancelled"}
+MAX_ACTIVITY_OFFSET = 1_000_000
 TRANSITIONS = {
     "queued": {"running", "awaiting_input", "cancelled", "failed"},
     "awaiting_input": {"queued", "running", "cancelled", "failed"},
@@ -36,6 +37,10 @@ class Protector(Protocol):
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _utc_timestamp(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat()
 
 
 class JobStore:
@@ -98,9 +103,23 @@ class JobStore:
                 expires_at TEXT NOT NULL,
                 approved INTEGER NOT NULL DEFAULT 0
             );
+            CREATE TABLE IF NOT EXISTS tool_calls (
+                call_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                server_id TEXT NOT NULL,
+                tool TEXT NOT NULL,
+                client TEXT NOT NULL,
+                agent_role TEXT,
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                duration_ms INTEGER,
+                state TEXT NOT NULL CHECK (state IN ('running', 'succeeded', 'failed', 'interrupted')),
+                error_type TEXT
+            );
             CREATE INDEX IF NOT EXISTS jobs_updated_idx ON jobs(updated_at DESC);
             CREATE INDEX IF NOT EXISTS events_job_idx ON events(job_id, event_id);
             CREATE INDEX IF NOT EXISTS details_expiry_idx ON details(expires_at);
+            CREATE INDEX IF NOT EXISTS tool_calls_started_idx ON tool_calls(started_at DESC);
+            CREATE INDEX IF NOT EXISTS tool_calls_child_idx ON tool_calls(server_id, started_at DESC);
         """)
         event_columns = {row["name"] for row in self._connection.execute("PRAGMA table_info(events)")}
         if "source_id" not in event_columns:
@@ -383,9 +402,131 @@ class JobStore:
 
     def purge_expired(self) -> int:
         now = self._timestamp()
+        tool_call_cutoff = _utc_timestamp(datetime.fromisoformat(now) - self.retention)
         with self._lock, self._connection:
             cursor = self._connection.execute("DELETE FROM jobs WHERE expires_at<=?", (now,))
+            self._connection.execute("DELETE FROM tool_calls WHERE started_at<?", (tool_call_cutoff,))
             return cursor.rowcount
+
+    def begin_tool_call(
+        self,
+        *,
+        server_id: str,
+        tool: str,
+        client: str,
+        agent_role: str | None = None,
+    ) -> int:
+        with self._lock, self._connection:
+            cursor = self._connection.execute(
+                "INSERT INTO tool_calls(server_id, tool, client, agent_role, started_at, state) "
+                "VALUES (?, ?, ?, ?, ?, 'running')",
+                (server_id, tool, client, agent_role, self._timestamp()),
+            )
+            return int(cursor.lastrowid)
+
+    def finish_tool_call(
+        self,
+        call_id: int,
+        state: str,
+        *,
+        duration_ms: int,
+        error_type: str | None = None,
+    ) -> None:
+        if state not in {"succeeded", "failed", "interrupted"}:
+            raise ValueError(f"Invalid tool call state: {state}")
+        with self._lock, self._connection:
+            self._connection.execute(
+                "UPDATE tool_calls SET finished_at=?, duration_ms=?, state=?, error_type=? WHERE call_id=?",
+                (self._timestamp(), max(0, duration_ms), state, error_type, call_id),
+            )
+
+    def mark_tool_calls_interrupted(self) -> int:
+        now = self._timestamp()
+        now_dt = datetime.fromisoformat(now)
+        with self._lock, self._connection:
+            rows = self._connection.execute(
+                "SELECT call_id, started_at FROM tool_calls WHERE state='running'"
+            ).fetchall()
+            for row in rows:
+                started = datetime.fromisoformat(row["started_at"])
+                duration_ms = round(max(0.0, (now_dt - started).total_seconds()) * 1000)
+                self._connection.execute(
+                    "UPDATE tool_calls SET finished_at=?, duration_ms=?, state='interrupted' "
+                    "WHERE call_id=?",
+                    (now, duration_ms, row["call_id"]),
+                )
+            return len(rows)
+
+    def activity_report(
+        self,
+        start: datetime,
+        end: datetime,
+        *,
+        server_id: str | None = None,
+        client: str | None = None,
+        tool: str | None = None,
+        sort_by: str = "calls",
+        offset: int = 0,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        if sort_by not in {"calls", "duration"}:
+            raise ValueError("sort_by must be calls or duration")
+        offset = max(0, offset)
+        if offset > MAX_ACTIVITY_OFFSET:
+            raise ValueError("Activity offset is too large")
+        page_limit = max(1, min(250, limit))
+        start_at, end_at = _utc_timestamp(start), _utc_timestamp(end)
+        clauses = ["started_at>=?", "started_at<?"]
+        values: list[Any] = [start_at, end_at]
+        for column, value in (("server_id", server_id), ("client", client), ("tool", tool)):
+            if value:
+                clauses.append(f"{column}=?")
+                values.append(value)
+        where = " AND ".join(clauses)
+        order = "calls DESC, duration_ms DESC" if sort_by == "calls" else "duration_ms DESC, calls DESC"
+        with self._lock:
+            summary = self._connection.execute(
+                f"SELECT COUNT(*) AS total_calls, COALESCE(SUM(duration_ms), 0) AS total_duration_ms, "
+                f"SUM(CASE WHEN state='failed' THEN 1 ELSE 0 END) AS failures, "
+                f"SUM(CASE WHEN state='interrupted' THEN 1 ELSE 0 END) AS interrupted "
+                f"FROM tool_calls WHERE {where}", values,
+            ).fetchone()
+            by_child = self._connection.execute(
+                f"SELECT server_id, COUNT(*) AS calls, COALESCE(SUM(duration_ms), 0) AS duration_ms, "
+                f"SUM(CASE WHEN state='failed' THEN 1 ELSE 0 END) AS failures "
+                f"FROM tool_calls WHERE {where} GROUP BY server_id ORDER BY {order}, server_id", values,
+            ).fetchall()
+            by_tool = self._connection.execute(
+                f"SELECT tool, COUNT(*) AS calls, COALESCE(SUM(duration_ms), 0) AS duration_ms, "
+                f"SUM(CASE WHEN state='failed' THEN 1 ELSE 0 END) AS failures "
+                f"FROM tool_calls WHERE {where} GROUP BY tool ORDER BY calls DESC, tool", values,
+            ).fetchall()
+            by_client = self._connection.execute(
+                f"SELECT client, COUNT(*) AS calls FROM tool_calls WHERE {where} "
+                f"GROUP BY client ORDER BY calls DESC, client", values,
+            ).fetchall()
+            events = self._connection.execute(
+                f"SELECT call_id, server_id, tool, client, agent_role, started_at, finished_at, "
+                f"duration_ms, state, error_type FROM tool_calls WHERE {where} "
+                f"ORDER BY started_at DESC, call_id DESC LIMIT ? OFFSET ?",
+                [*values, page_limit, offset],
+            ).fetchall()
+        event_rows = [dict(row) for row in events]
+        return {
+            "summary": {
+                "total_calls": summary["total_calls"],
+                "total_duration_ms": summary["total_duration_ms"],
+                "failures": summary["failures"] or 0,
+                "interrupted": summary["interrupted"] or 0,
+            },
+            "by_child": [dict(row) for row in by_child],
+            "by_tool": [dict(row) for row in by_tool],
+            "by_client": [dict(row) for row in by_client],
+            "events": event_rows,
+            "has_more": offset + len(event_rows) < summary["total_calls"],
+            "offset": offset,
+            "limit": page_limit,
+        }
 
     def _insert_event(
         self, job_id: str, event: str, agent: str | None, tool: str | None,

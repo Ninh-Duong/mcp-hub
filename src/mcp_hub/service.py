@@ -40,9 +40,10 @@ async def run_http(host: str | None = None, port: int | None = None) -> None:
     projects = load_projects()
     job_store = JobStore()
     job_store.mark_running_interrupted()
+    job_store.mark_tool_calls_interrupted()
     job_store.purge_expired()
 
-    runtime = HubRuntime(config, audit)
+    runtime = HubRuntime(config, audit, activity_store=job_store)
     try:
         async with AsyncExitStack() as stack:
             await runtime.connect(stack)

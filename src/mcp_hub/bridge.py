@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Any
 
 import httpx2
@@ -8,6 +9,7 @@ from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.stdio import stdio_server
+from mcp.types import Implementation
 from mcp.types import (
     CallToolRequestParams,
     CallToolResult,
@@ -19,6 +21,12 @@ from mcp.types import (
 )
 
 from .service_config import load_service_config
+from .server import normalize_client_name
+
+
+def bridge_client_info(client_name: str | None = None) -> Implementation:
+    name = client_name if client_name is not None else os.environ.get("MCP_HUB_CLIENT_NAME")
+    return Implementation(name=normalize_client_name(name), version="0.1.0")
 
 
 def create_bridge_server(remote: Any) -> Server:
@@ -57,7 +65,10 @@ async def serve_bridge() -> None:
         headers={"Authorization": f"Bearer {config.token}"},
         timeout=60.0,
     ) as http_client:
-        async with Client(streamable_http_client(url, http_client=http_client)) as remote:
+        async with Client(
+            streamable_http_client(url, http_client=http_client),
+            client_info=bridge_client_info(),
+        ) as remote:
             await remote.list_tools()
             server = create_bridge_server(remote)
             async with stdio_server() as (read_stream, write_stream):

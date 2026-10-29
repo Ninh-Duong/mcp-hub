@@ -296,7 +296,13 @@ class JobRunner:
                 tool_name, arguments = self.store.consume_approved_call(job_id)
                 if tool_name != expected["tool_name"] or arguments != expected["arguments"]:
                     raise SpecialistError("Approved operation no longer matches its stored request")
-                result = await self.runtime.call_child_tool(tool_name, arguments, request_id=f"job:{job_id}")
+                result = await self.runtime.call_child_tool(
+                    tool_name,
+                    arguments,
+                    request_id=f"job:{job_id}",
+                    client_name="investigation",
+                    agent_role=expected.get("agent"),
+                )
                 self.store.append_event(
                     job_id,
                     "tool.call.failed" if result.is_error else "tool.call.succeeded",
@@ -496,7 +502,13 @@ class JobRunner:
             arguments = approved_args
 
         started = asyncio.get_running_loop().time()
-        result = await self.runtime.call_child_tool(name, arguments, request_id=f"job:{job_id}")
+        result = await self.runtime.call_child_tool(
+            name,
+            arguments,
+            request_id=f"job:{job_id}",
+            client_name="investigation",
+            agent_role=role,
+        )
         elapsed = round((asyncio.get_running_loop().time() - started) * 1000)
         self.store.append_event(
             job_id,

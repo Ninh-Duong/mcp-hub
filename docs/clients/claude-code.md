@@ -12,7 +12,7 @@ Do the general procedure in [../connecting-a-client.md](../connecting-a-client.m
   }
   ```
   If the installed Claude Code version does not support `headersHelper`, use the stdio bridge.
-- **Shared stdio bridge:** use the existing command with `-Bridge` appended: `powershell -NoProfile -ExecutionPolicy Bypass -File "<P>/scripts/start.ps1" -Bridge`.
+- **Shared stdio bridge:** use the existing command with `-Bridge -ClientName "Claude Code"` appended: `powershell -NoProfile -ExecutionPolicy Bypass -File "<P>/scripts/start.ps1" -Bridge -ClientName "Claude Code"`.
 - **Legacy per-client stdio:** the existing command below stays available for development or isolated use.
 - **Command (user scope, all projects):**
   ```bash

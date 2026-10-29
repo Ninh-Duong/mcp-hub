@@ -8,7 +8,7 @@ Do the general procedure in [../connecting-a-client.md](../connecting-a-client.m
   ```json
   { "mcpServers": { "mcp-hub": { "type": "stdio",
       "command": "powershell",
-      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "<P>/scripts/start.ps1"] } } }
+      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "<P>/scripts/start.ps1", "-Bridge", "-ClientName", "Cursor"] } } }
   ```
   macOS/Linux: `"command": "bash", "args": ["<P>/scripts/start.sh"]`.
 

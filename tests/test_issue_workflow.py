@@ -61,8 +61,8 @@ class IssueWorkflowTest(unittest.TestCase):
             def __init__(self):
                 self.calls = []
 
-            async def call_child_tool(self, name, arguments, request_id):
-                self.calls.append((name, arguments, request_id))
+            async def call_child_tool(self, name, arguments, request_id, **metadata):
+                self.calls.append((name, arguments, request_id, metadata))
                 return CallToolResult(content=[TextContent(type="text", text="written")])
 
         with tempfile.TemporaryDirectory() as directory:
@@ -86,6 +86,7 @@ class IssueWorkflowTest(unittest.TestCase):
                 asyncio.run(wait_for_approved_write())
                 self.assertEqual(runtime.calls, [(
                     "jira__sync_ticket", {"issue_key": "EX-1", "summary": "approved"}, f"job:{job_id}",
+                    {"client_name": "investigation", "agent_role": "jira"},
                 )])
                 self.assertEqual(store.get_job(job_id)["state"], "partial")
                 self.assertIsNotNone(store.get_detail_page(job_id, "approved-write", offset=0, limit=100)["content"])

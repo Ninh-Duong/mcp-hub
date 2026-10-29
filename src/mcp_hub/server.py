@@ -3,9 +3,14 @@ from __future__ import annotations
 import logging
 import json
 import os
+import re
+import asyncio
+from collections import deque
 from contextlib import AsyncExitStack
+from datetime import datetime, timezone
 from time import perf_counter
 from typing import Any
+from uuid import uuid4
 
 import anyio
 from mcp import Client, StdioServerParameters
@@ -33,13 +38,30 @@ from .audit import AuditLog, redact
 from .config import HUB_ROOT, HubConfig, ServerConfig, ToolRoute, load_config
 
 
+_CLIENT_LABEL_RE = re.compile(r"[^A-Za-z0-9_. -]")
+
+
+def normalize_client_name(value: Any) -> str:
+    if not isinstance(value, str):
+        return "unknown"
+    return " ".join(_CLIENT_LABEL_RE.sub("", value).split())[:48] or "unknown"
+
+
 class HubRuntime:
-    def __init__(self, config: HubConfig, audit: AuditLog) -> None:
+    def __init__(self, config: HubConfig, audit: AuditLog, *, activity_store: Any | None = None) -> None:
         self.config = config
         self.audit = audit
+        self.activity_store = activity_store
         self.clients: dict[str, Client] = {}
         self.routes: dict[str, ToolRoute] = {}
         self.public_tools: list[Tool] = []
+        self.discovered_tool_counts: dict[str, int] = {}
+        self._child_activity: dict[str, dict[str, Any]] = {}
+        self._activity_events: deque[dict[str, Any]] = deque(maxlen=80)
+        self._activity_sequence = 0
+        self._activity_call_id = 0
+        self._activity_stream_id = uuid4().hex
+        self._activity_subscribers: set[asyncio.Queue] = set()
 
     async def connect(self, stack: AsyncExitStack) -> None:
         # A failing child is skipped so the remaining children stay usable.
@@ -62,6 +84,7 @@ class HubRuntime:
                     )
                 continue
             self.clients[server_id] = client
+            self.discovered_tool_counts[server_id] = len(discovered[server_id])
             self.audit.write(
                 "server.connected",
                 server=server_id,
@@ -163,6 +186,125 @@ class HubRuntime:
             grouped.setdefault(route.server_id, []).append(name)
         return grouped
 
+    def activity_snapshot(self) -> dict[str, Any]:
+        children: dict[str, dict[str, Any]] = {}
+        server_ids = dict.fromkeys((*self.config.detected, *self.config.servers, *self.config.unavailable))
+        for server_id in server_ids:
+            state = self._child_activity.get(server_id, {})
+            active = state.get("active", {})
+            children[server_id] = {
+                "tool_count": self.discovered_tool_counts.get(server_id, 0),
+                "active_calls": len(active),
+                "active_tools": list(active.values()),
+                "active_call_details": [
+                    {"call_id": call_id, "tool": tool_name} for call_id, tool_name in active.items()
+                ],
+                "last_tool": state.get("last_tool"),
+                "last_state": state.get("last_state"),
+                "last_duration_ms": state.get("last_duration_ms"),
+                "last_error_type": state.get("last_error_type"),
+                "last_at": state.get("last_at"),
+            }
+        return {
+            "children": children,
+            "events": list(self._activity_events),
+            "sequence": self._activity_sequence,
+            "stream_id": self._activity_stream_id,
+        }
+
+    def subscribe_activity(self) -> asyncio.Queue:
+        queue: asyncio.Queue = asyncio.Queue(maxsize=256)
+        self._activity_subscribers.add(queue)
+        return queue
+
+    def unsubscribe_activity(self, queue: asyncio.Queue) -> None:
+        self._activity_subscribers.discard(queue)
+
+    def _begin_child_activity(
+        self, server_id: str, tool_name: str, client: str, agent_role: str | None,
+    ) -> tuple[int, float]:
+        state = self._child_activity.setdefault(server_id, {"active": {}})
+        self._activity_call_id += 1
+        call_id = self._activity_call_id
+        state["active"][call_id] = tool_name
+        state["last_tool"] = tool_name
+        state["last_state"] = "running"
+        state["last_at"] = datetime.now(timezone.utc).isoformat()
+        self._append_activity_event(
+            server_id, tool_name, "started", call_id=call_id, client=client, agent_role=agent_role,
+        )
+        return call_id, perf_counter()
+
+    def _finish_child_activity(
+        self,
+        server_id: str,
+        tool_name: str,
+        call_id: int,
+        started: float,
+        state_name: str,
+        error_type: str | None = None,
+        *,
+        client: str = "unknown",
+        agent_role: str | None = None,
+    ) -> int:
+        duration_ms = round((perf_counter() - started) * 1000)
+        state = self._child_activity[server_id]
+        state["active"].pop(call_id, None)
+        state["last_tool"] = tool_name
+        state["last_state"] = state_name
+        state["last_duration_ms"] = duration_ms
+        state["last_at"] = datetime.now(timezone.utc).isoformat()
+        if error_type:
+            state["last_error_type"] = error_type
+        else:
+            state["last_error_type"] = None
+        self._append_activity_event(
+            server_id,
+            tool_name,
+            state_name,
+            duration_ms,
+            error_type,
+            call_id=call_id,
+            client=client,
+            agent_role=agent_role,
+        )
+        return duration_ms
+
+    def _append_activity_event(
+        self,
+        server_id: str,
+        tool_name: str,
+        state: str,
+        duration_ms: int | None = None,
+        error_type: str | None = None,
+        *,
+        call_id: int,
+        client: str = "unknown",
+        agent_role: str | None = None,
+    ) -> None:
+        self._activity_sequence += 1
+        event = {
+            "stream_id": self._activity_stream_id,
+            "sequence": self._activity_sequence,
+            "call_id": call_id,
+            "server_id": server_id,
+            "tool": tool_name,
+            "state": state,
+            "at": datetime.now(timezone.utc).isoformat(),
+            "duration_ms": duration_ms,
+            "error_type": error_type,
+            "client": client,
+            "agent_role": agent_role,
+        }
+        self._activity_events.append(event)
+        for subscriber in tuple(self._activity_subscribers):
+            if subscriber.full():
+                while not subscriber.empty():
+                    subscriber.get_nowait()
+                subscriber.put_nowait({"resync": True})
+            else:
+                subscriber.put_nowait(event)
+
     async def list_prompts(
         self,
         ctx: ServerRequestContext,
@@ -197,6 +339,11 @@ class HubRuntime:
 
     async def call_tool(self, ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
         request_id = str(ctx.request_id) if ctx.request_id is not None else "unknown"
+        client_name = "unknown"
+        client_params = getattr(getattr(ctx, "session", None), "client_params", None)
+        client_info = getattr(client_params, "client_info", None)
+        if client_info is not None:
+            client_name = normalize_client_name(getattr(client_info, "name", None))
         if params.name == "hub__status":
             self.audit.write("tool.call.started", request_id=request_id, feature="hub", server="mcp-hub", tool="hub__status")
             children = {server_id: (
@@ -208,7 +355,9 @@ class HubRuntime:
                 "connected": len(self.clients),
                 "children": children,
             }))])
-        return await self.call_child_tool(params.name, params.arguments or {}, request_id=request_id)
+        return await self.call_child_tool(
+            params.name, params.arguments or {}, request_id=request_id, client_name=client_name,
+        )
 
     async def call_child_tool(
         self,
@@ -216,6 +365,8 @@ class HubRuntime:
         arguments: dict[str, Any],
         *,
         request_id: str = "unknown",
+        client_name: str = "unknown",
+        agent_role: str | None = None,
     ) -> CallToolResult:
         route = self.routes.get(name)
         if route is None:
@@ -230,7 +381,9 @@ class HubRuntime:
                 is_error=True,
             )
 
-        started = perf_counter()
+        client_name = normalize_client_name(client_name)
+        call_id, started = self._begin_child_activity(route.server_id, route.tool_name, client_name, agent_role)
+        stored_call_id = self._persist_activity_start(route.server_id, route.tool_name, client_name, agent_role)
         self.audit.write(
             "tool.call.started",
             request_id=request_id,
@@ -241,7 +394,24 @@ class HubRuntime:
         try:
             with anyio.fail_after(self.config.servers[route.server_id].timeout_seconds):
                 result = await self.clients[route.server_id].call_tool(route.tool_name, arguments)
+        except asyncio.CancelledError:
+            duration_ms = self._finish_child_activity(
+                route.server_id, route.tool_name, call_id, started, "interrupted", "CancelledError",
+                client=client_name, agent_role=agent_role,
+            )
+            self._persist_activity_finish(stored_call_id, "interrupted", duration_ms, "CancelledError")
+            self.audit.write(
+                "tool.call.interrupted", level=logging.WARNING, request_id=request_id,
+                feature=route.feature, server=route.server_id, tool=route.tool_name, duration_ms=duration_ms,
+                error_type="CancelledError",
+            )
+            raise
         except Exception as exc:
+            duration_ms = self._finish_child_activity(
+                route.server_id, route.tool_name, call_id, started, "failed", type(exc).__name__,
+                client=client_name, agent_role=agent_role,
+            )
+            self._persist_activity_finish(stored_call_id, "failed", duration_ms, type(exc).__name__)
             self.audit.write(
                 "tool.call.failed",
                 level=logging.ERROR,
@@ -249,7 +419,7 @@ class HubRuntime:
                 feature=route.feature,
                 server=route.server_id,
                 tool=route.tool_name,
-                duration_ms=round((perf_counter() - started) * 1000),
+                duration_ms=duration_ms,
                 error_type=type(exc).__name__,
                 error=str(exc),
             )
@@ -260,6 +430,20 @@ class HubRuntime:
 
         error_summary = _result_error_summary(result)
         failed = bool(getattr(result, "is_error", False)) or error_summary.startswith(("❌", "Error:"))
+        duration_ms = self._finish_child_activity(
+            route.server_id,
+            route.tool_name,
+            call_id,
+            started,
+            "failed" if failed else "succeeded",
+            "ToolError" if failed else None,
+            client=client_name,
+            agent_role=agent_role,
+        )
+        self._persist_activity_finish(
+            stored_call_id, "failed" if failed else "succeeded", duration_ms,
+            "ToolError" if failed else None,
+        )
         self.audit.write(
             "tool.call.failed" if failed else "tool.call.succeeded",
             level=logging.ERROR if failed else logging.INFO,
@@ -267,10 +451,33 @@ class HubRuntime:
             feature=route.feature,
             server=route.server_id,
             tool=route.tool_name,
-            duration_ms=round((perf_counter() - started) * 1000),
+            duration_ms=duration_ms,
             **({"error_summary": error_summary} if failed and error_summary else {}),
         )
         return result
+
+    def _persist_activity_start(
+        self, server_id: str, tool_name: str, client: str, agent_role: str | None,
+    ) -> int | None:
+        if self.activity_store is None:
+            return None
+        try:
+            return self.activity_store.begin_tool_call(
+                server_id=server_id, tool=tool_name, client=client, agent_role=agent_role,
+            )
+        except Exception as exc:
+            self.audit.write("activity.persist.failed", level=logging.ERROR, operation="start", error_type=type(exc).__name__)
+            return None
+
+    def _persist_activity_finish(
+        self, call_id: int | None, state: str, duration_ms: int, error_type: str | None,
+    ) -> None:
+        if self.activity_store is None or call_id is None:
+            return
+        try:
+            self.activity_store.finish_tool_call(call_id, state, duration_ms=duration_ms, error_type=error_type)
+        except Exception as exc:
+            self.audit.write("activity.persist.failed", level=logging.ERROR, operation="finish", error_type=type(exc).__name__)
 
 
 INSTRUCTIONS_SUMMARY = (

@@ -7,7 +7,7 @@ Do the general procedure in [../connecting-a-client.md](../connecting-a-client.m
   ```json
   { "servers": { "mcp-hub": { "type": "stdio",
       "command": "powershell",
-      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "<P>/scripts/start.ps1", "-Bridge"] } } }
+      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "<P>/scripts/start.ps1", "-Bridge", "-ClientName", "GitHub Copilot"] } } }
   ```
   The existing entry without `-Bridge` below starts an isolated per-client Hub.
 - **File:** the user-profile `mcp.json` (Command Palette → **MCP: Open User Configuration**). A workspace-only alternative is `.vscode/mcp.json` in the user's workspace.

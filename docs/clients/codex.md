@@ -11,7 +11,7 @@ Do the general procedure in [../connecting-a-client.md](../connecting-a-client.m
   startup_timeout_sec = 120
   ```
   If the installed Codex version does not support `http_headers_helper`, use the stdio bridge below.
-- **Shared stdio bridge:** configure the existing command with `-Bridge` appended to args: `['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', '<P>/scripts/start.ps1', '-Bridge']`. It connects to the shared service instead of starting another child set.
+- **Shared stdio bridge:** configure the existing command with `-Bridge -ClientName Codex` appended to args: `['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', '<P>/scripts/start.ps1', '-Bridge', '-ClientName', 'Codex']`. It connects to the shared service instead of starting another child set.
 - **Legacy per-client stdio:** the existing `codex mcp add mcp-hub -- powershell … -File "<P>/scripts/start.ps1"` entry below remains available when an isolated Hub is wanted.
 - **Command:**
   ```bash

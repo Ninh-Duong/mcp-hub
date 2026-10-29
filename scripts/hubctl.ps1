@@ -29,12 +29,23 @@ function Get-ServiceToken {
     return [string]$serviceConfig.token
 }
 
+function Prepare-HubEnvironment {
+    $powershell = (Get-Command powershell.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+    $quotedScript = '"{0}"' -f $startScript
+    $arguments = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File $quotedScript -Prepare"
+    $process = Start-Process -FilePath $powershell -ArgumentList $arguments -WorkingDirectory $repoRoot -WindowStyle Hidden -Wait -PassThru
+    if ($process.ExitCode -ne 0) { throw "Could not prepare the locked Hub environment (exit code $($process.ExitCode))." }
+}
+
 function Start-HubTask {
+    param([switch]$SkipPrepare)
+
     $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
     if (-not $task) {
         throw "Hub task is not installed. Run: hubctl install"
     }
     if (-not (Test-HubHealth)) {
+        if (-not $SkipPrepare) { Prepare-HubEnvironment }
         Start-ScheduledTask -TaskName $taskName
         $deadline = (Get-Date).AddSeconds(120)
         while ((Get-Date) -lt $deadline -and -not (Test-HubHealth)) { Start-Sleep -Milliseconds 500 }
@@ -65,10 +76,16 @@ function Stop-HubTask {
 
 switch ($Command) {
     "install" {
-        $powershell = (Get-Command powershell.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
-        $quotedScript = '"{0}"' -f $startScript
-        $arguments = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File $quotedScript -Service"
-        $action = New-ScheduledTaskAction -Execute $powershell -Argument $arguments -WorkingDirectory $repoRoot
+        Prepare-HubEnvironment
+        if (Test-HubHealth) { Stop-HubTask }
+        $venvPython = Join-Path $repoRoot ".venv\Scripts\python.exe"
+        $basePython = & $venvPython -c "import sys; print(sys._base_executable)"
+        if ($LASTEXITCODE -ne 0 -or -not $basePython) { throw "Could not find the prepared Python runtime." }
+        $pythonw = Join-Path (Split-Path ([string]$basePython)) "pythonw.exe"
+        if (-not (Test-Path -LiteralPath $pythonw -PathType Leaf)) { throw "The prepared Python runtime has no pythonw.exe." }
+        $serviceLauncher = Join-Path $PSScriptRoot "service_launcher.pyw"
+        $arguments = '"{0}"' -f $serviceLauncher
+        $action = New-ScheduledTaskAction -Execute $pythonw -Argument $arguments -WorkingDirectory $repoRoot
         $userId = [Security.Principal.WindowsIdentity]::GetCurrent().Name
         # Private files hold tokens and API keys; restrict them to this user and SYSTEM.
         $privateRoot = Join-Path $repoRoot "config\private"
@@ -77,9 +94,9 @@ switch ($Command) {
         if ($LASTEXITCODE -ne 0) { throw "Could not restrict access to config\private." }
         $trigger = New-ScheduledTaskTrigger -AtLogOn -User $userId
         $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Limited
-        $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero)
+        $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
         Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
-        Start-HubTask
+        Start-HubTask -SkipPrepare
         Write-Output "Installed and started the per-user mcp-hub task."
     }
     "status" {

@@ -23,8 +23,13 @@ class BootstrapScriptsTest(unittest.TestCase):
         self.assertIn('if ! curl -LsSf https://astral.sh/uv/install.sh | sh >&2; then', unix)
         self.assertIn('[switch]$Service', windows)
         self.assertIn('[switch]$Bridge', windows)
+        self.assertIn('[string]$ClientName', windows)
+        self.assertIn('MCP_HUB_CLIENT_NAME', windows)
+        self.assertIn('-ClientName can only be used with -Bridge', windows)
         self.assertIn('"mcp-hub-service"', windows)
         self.assertIn('"mcp-hub-bridge"', windows)
+        self.assertIn("[switch]$Prepare", windows)
+        self.assertIn("sync --locked", windows)
         for script in (windows, unix):
             with self.subTest(script=script[:30]):
                 self.assertIn("UV_INSTALL_DIR", script)
@@ -34,10 +39,18 @@ class BootstrapScriptsTest(unittest.TestCase):
 
     def test_shared_service_control_uses_per_user_task_and_local_health(self) -> None:
         script = (HUB_ROOT / "scripts" / "hubctl.ps1").read_text(encoding="utf-8")
+        launcher = (HUB_ROOT / "scripts" / "service_launcher.pyw").read_text(encoding="utf-8")
         self.assertIn('"install", "status", "start", "stop", "restart", "open"', script)
         self.assertIn("New-ScheduledTaskTrigger -AtLogOn", script)
         self.assertIn("-RunLevel Limited", script)
-        self.assertIn("-WindowStyle Hidden", script)
+        self.assertIn("pythonw.exe", script)
+        self.assertIn("-AllowStartIfOnBatteries", script)
+        self.assertIn("-DontStopIfGoingOnBatteries", script)
+        self.assertIn("service_launcher.pyw", script)
+        self.assertIn("sys._base_executable", script)
+        self.assertIn("CREATE_NO_WINDOW", launcher)
+        self.assertIn('from mcp_hub.service import main; main()', launcher)
+        self.assertIn("Prepare-HubEnvironment", script)
         self.assertIn('"$url/health"', script)
         self.assertIn('http://127.0.0.1:8765', script)
         self.assertIn('"$url/dashboard/pair"', script)

@@ -1,6 +1,8 @@
 param(
     [switch]$Service,
-    [switch]$Bridge
+    [switch]$Bridge,
+    [switch]$Prepare,
+    [string]$ClientName
 )
 
 $ErrorActionPreference = "Stop"
@@ -93,6 +95,26 @@ try {
 }
 
 Set-Location -LiteralPath $repoRoot
+if ($Prepare) {
+    & $uvPath sync --locked --python $pythonVersion
+    exit $LASTEXITCODE
+}
+$previousClientName = [Environment]::GetEnvironmentVariable("MCP_HUB_CLIENT_NAME", "Process")
+if ($ClientName -and -not $Bridge) {
+    [Console]::Error.WriteLine("-ClientName can only be used with -Bridge.")
+    exit 2
+}
 $entrypoint = if ($Service) { "mcp-hub-service" } elseif ($Bridge) { "mcp-hub-bridge" } else { "mcp-hub" }
-& $uvPath run --locked --python $pythonVersion $entrypoint
-exit $LASTEXITCODE
+if ($Bridge) {
+    $clientLabel = if ($ClientName) { $ClientName } else { "unknown" }
+    [Environment]::SetEnvironmentVariable("MCP_HUB_CLIENT_NAME", $clientLabel, "Process")
+}
+try {
+    & $uvPath run --locked --python $pythonVersion $entrypoint
+    $entrypointExitCode = $LASTEXITCODE
+} finally {
+    if ($Bridge) {
+        [Environment]::SetEnvironmentVariable("MCP_HUB_CLIENT_NAME", $previousClientName, "Process")
+    }
+}
+exit $entrypointExitCode

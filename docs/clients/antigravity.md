@@ -8,9 +8,9 @@ Do the general procedure in [../connecting-a-client.md](../connecting-a-client.m
   ```json
   { "mcpServers": { "mcp-hub": {
       "command": "powershell",
-      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "<P>/scripts/start.ps1"] } } }
+      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "<P>/scripts/start.ps1", "-Bridge", "-ClientName", "Antigravity"] } } }
   ```
-  macOS/Linux: `"command": "bash", "args": ["<P>/scripts/start.sh"]`.
+  This shared-service bridge labels calls as `Antigravity` in the daily dashboard report. macOS/Linux: `"command": "bash", "args": ["<P>/scripts/start.sh"]`.
 - There is no CLI `add` command. Edit the file.
 
 ## 2. Always-on rule

@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+import os
 import unittest
+from unittest.mock import patch
 
 import anyio
 from mcp import Client
 from mcp.server import Server
 from mcp.shared.memory import create_client_server_memory_streams
 from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
+
+from mcp_hub.bridge import bridge_client_info
 
 
 class FakeRemoteClient:
@@ -33,6 +37,7 @@ class StdioBridgeTest(unittest.TestCase):
             async with create_client_server_memory_streams() as (client_streams, server_streams):
                 client_read, client_write = client_streams
                 server_read, server_write = server_streams
+
                 @asynccontextmanager
                 async def transport():
                     yield client_read, client_write
@@ -55,6 +60,17 @@ class StdioBridgeTest(unittest.TestCase):
                         task_group.cancel_scope.cancel()
 
         asyncio.run(exercise())
+
+    def test_bridge_passes_the_configured_client_label(self) -> None:
+        with patch.dict(os.environ, {"MCP_HUB_CLIENT_NAME": "Antigravity"}):
+            info = bridge_client_info()
+        self.assertEqual(info.name, "Antigravity")
+
+    def test_bridge_uses_unknown_for_empty_or_unset_labels(self) -> None:
+        with patch.dict(os.environ, {"MCP_HUB_CLIENT_NAME": "  /  "}):
+            self.assertEqual(bridge_client_info().name, "unknown")
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(bridge_client_info().name, "unknown")
 
 
 if __name__ == "__main__":

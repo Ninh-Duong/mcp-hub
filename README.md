@@ -30,7 +30,9 @@ After preparing this repository and the desired child MCPs, follow [the shared A
 .\scripts\hubctl.ps1 open
 ```
 
-Clients with a safe dynamic-header helper can connect over HTTP using `scripts/http_headers.ps1`. Other clients use the stdio bridge by passing `-Bridge` to `scripts/start.ps1`. The existing stdio launcher remains available for development and per-client compatibility.
+Clients with a safe dynamic-header helper can connect over HTTP using `scripts/http_headers.ps1`. Other clients use the stdio bridge by passing `-Bridge -ClientName "<AI_CLIENT>"` to `scripts/start.ps1`. The existing stdio launcher remains available for development and per-client compatibility.
+
+`hubctl open` opens the paired localhost dashboard. Its pixel barn shows live child-tool activity; the daily panel ranks child MCPs and lists tool calls by client for the last 30 days. The report stores only tool/client names, timing, and call state. HTTP clients are labeled from MCP `clientInfo`; bridge entries can pass `-ClientName <AI_CLIENT>`.
 
 If `uv` is missing, the launcher installs it under the ignored `.tools/` directory without changing the global `PATH`. It then installs Python from `.python-version` when needed and runs `uv run --locked`, which creates or synchronizes the project environment from `uv.lock`. The first run needs internet access and write access to the repository and uv-managed data/cache directories. If download or installation fails, the launcher exits with a diagnostic on stderr before starting the Hub. Stdout stays reserved for MCP protocol traffic.
 
@@ -146,7 +148,7 @@ The command runs unit tests, the leak checker, and Python compile checks. It doe
 - `src/mcp_hub/server.py`: starts child clients, exposes allowlisted tools and per-child prompts, routes calls, and writes audit events. It uses the MCP SDK's low-level server so child JSON Schemas and annotations are forwarded unchanged.
 - `src/mcp_hub/audit.py`: rotating JSONL audit log with secret redaction.
 - `src/mcp_hub/service.py`, `http.py`, `bridge.py`: shared HTTP lifecycle, local auth, and stdio compatibility bridge.
-- `src/mcp_hub/jobs/`, `agents/`, `dashboard/`: bounded issue workflows, model adapters, encrypted results, and localhost dashboard.
+- `src/mcp_hub/jobs/`, `agents/`, `dashboard/`: bounded issue workflows, model adapters, encrypted results, and localhost dashboard with the pixel barn and 30-day child-call statistics.
 - `scripts/private_config.py`: inspects or edits a private child config without printing secrets.
 - `scripts/check_leaks.py`: blocks machine paths, real emails, and private files from being committed.
 - `scripts/smoke.py`: read-only end-to-end check. For each enabled child it checks the Hub prompt and makes one read-only tool call (`CHECKS` table).
