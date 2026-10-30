@@ -40,9 +40,7 @@ All tools that touch local encrypted data (including list and file readers) requ
 
 ## Hub result cache
 
-The Hub keeps successful results of a tool in memory for that tool's `cacheSeconds` (set per tool in `config/hub.example.json`, overridable in `config/private/hub.json`; `0` or omitted means no caching). It applies a TTL only when the child declares `readOnlyHint=true`, so write tools are never cached. The key is the tool plus its canonical arguments; error results are never stored, and concurrent identical calls share one child call. A cached answer is logged as `tool.call.cached`. When one of a child's write tools succeeds, the Hub drops that child's cached results, so a read after a sync or export is fresh.
-
-Defaults here: 300 s for `pr__check_bitbucket_connection` only. Every tool that returns PR data has no Hub TTL, because this child forbids in-memory caching of PR data; its own encrypted cache and freshness check handle repeats.
+Shared rules: [Hub result cache](README.md#hub-result-cache). Defaults here: 300 s for `pr__check_bitbucket_connection` only. Every tool that returns PR data has no Hub TTL, because this child forbids in-memory caching of PR data; its own encrypted cache and freshness check handle repeats.
 
 ## CLI sync and cache migration
 

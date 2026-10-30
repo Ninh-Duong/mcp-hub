@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
-import logging
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -60,22 +60,10 @@ class _Observer:
 class _AuditCase(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
-        logger = logging.getLogger("mcp_hub.audit")
-        original = list(logger.handlers)
-        for handler in original:
-            logger.removeHandler(handler)
-
-        def restore() -> None:
-            for handler in list(logger.handlers):
-                logger.removeHandler(handler)
-                handler.close()
-            for handler in original:
-                logger.addHandler(handler)
-            self.tmp.cleanup()
-
-        self.addCleanup(restore)
+        self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.audit = AuditLog(self.root / "audit.jsonl")
+        self.addCleanup(self.audit.close)  # runs first: release the file before the directory is removed
         config = HubConfig(
             self.root / "hub.json",
             {"child": ServerConfig("child", "python", (), self.root, {}, ())},
@@ -290,8 +278,21 @@ class LaunchFileTest(_AuditCase):
         path = self.root / "launch.json"
         for content in ("not json", "[]", '{"extensions": "activity-ui"}'):
             path.write_text(content, encoding="utf-8")
-            self.assertEqual(read_launch_extensions(path), frozenset())
+            self.assertEqual(read_launch_extensions(path, self.audit), frozenset())
             self.assertFalse(path.exists())
+        self.assertEqual(self.log().count('"event": "launch.file.invalid"'), 3)
+
+    def test_undecodable_or_unreadable_launch_file_never_stops_the_start(self) -> None:
+        path = self.root / "launch.json"
+        path.write_bytes(bytes([0xFF, 0xFE, 0x41]))
+        self.assertEqual(read_launch_extensions(path, self.audit), frozenset())
+        self.assertFalse(path.exists())
+        path.mkdir()  # reading a directory raises an OSError, and so does deleting it as a file
+        self.assertEqual(read_launch_extensions(path, self.audit), frozenset())
+        events = [json.loads(line) for line in self.log().splitlines()]
+        error_types = [event["error_type"] for event in events if event["event"] == "launch.file.invalid"]
+        self.assertEqual(error_types[0], "UnicodeDecodeError")
+        self.assertEqual(len(error_types), 3)
 
     def test_service_installs_only_requested_extensions(self) -> None:
         self.assertIsNone(service.install_extensions(frozenset(), self.runtime, None, self.audit))

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import socket
 import tempfile
 import unittest
@@ -100,23 +99,10 @@ class ClientPresenceOverHTTPTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        logger = logging.getLogger("mcp_hub.audit")
-        original_handlers = list(logger.handlers)
-        for handler in original_handlers:
-            logger.removeHandler(handler)
-
-        def restore_audit_logger() -> None:
-            # Release the temporary audit file before the directory is removed.
-            for handler in list(logger.handlers):
-                logger.removeHandler(handler)
-                handler.close()
-            for handler in original_handlers:
-                logger.addHandler(handler)
-
-        self.addCleanup(restore_audit_logger)
         self.token = "test-local-token"
         root = Path(self.tmp.name)
         audit = AuditLog(root / "audit.jsonl")
+        self.addCleanup(audit.close)  # release the file before the directory is removed
         self.runtime = HubRuntime(HubConfig(root / "hub.json", {}, ()), audit)
         self.ui = install(self.runtime, store=None, audit=audit)
 

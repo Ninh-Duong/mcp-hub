@@ -50,7 +50,8 @@ function Invoke-Hidden {
 }
 
 function Sync-HubEnvironment {
-    $powershell = (Get-Command powershell.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+    # Absolute path: never a powershell.exe found in the working directory or earlier on PATH.
+    $powershell = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
     $arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -Prepare' -f $startScript
     $result = Invoke-Hidden -FilePath $powershell -Arguments $arguments
     if ($result.ExitCode -ne 0) { throw "Could not prepare the locked Hub environment (exit code $($result.ExitCode))." }
@@ -150,6 +151,38 @@ function Protect-PrivateConfig {
     if ($LASTEXITCODE -ne 0) { throw "Could not restrict access to config\private." }
 }
 
+function Test-OthersCanWrite {
+    param([string]$Path)
+
+    # Write, append, delete, ACL/owner changes, and the generic write/all bits used by inherit-only entries.
+    $writeMask = 0x2 -bor 0x4 -bor 0x10 -bor 0x100 -bor 0x10000 -bor 0x40000 -bor 0x80000 -bor 0x40000000 -bor 0x10000000
+    $trusted = @([Security.Principal.WindowsIdentity]::GetCurrent().User.Value, "S-1-5-18", "S-1-5-32-544", "S-1-3-0")
+    foreach ($rule in (Get-Acl -LiteralPath $Path).Access) {
+        if ([string]$rule.AccessControlType -ne "Allow") { continue }
+        try { $sid = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } catch { continue }
+        if ($trusted -contains $sid) { continue }
+        if (([int64]$rule.FileSystemRights -band $writeMask) -ne 0) { return $true }
+    }
+    return $false
+}
+
+function Protect-HubCheckout {
+    param([string]$UserId)
+
+    # The logon task runs code from this checkout as this user; another account able to edit it could run code as us.
+    if (Test-OthersCanWrite -Path $repoRoot) {
+        icacls $repoRoot /inheritance:r /grant:r "${UserId}:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" | Out-Null
+        if ($LASTEXITCODE -ne 0 -or (Test-OthersCanWrite -Path $repoRoot)) { throw "Could not restrict write access to the Hub checkout." }
+        Write-Output "Restricted the Hub checkout to this user, SYSTEM, and Administrators."
+    }
+    $parent = Split-Path -Parent $repoRoot
+    if ($parent -and (Test-OthersCanWrite -Path $parent)) {
+        $command = 'icacls <folder> /inheritance:r /grant:r "' + $UserId + ':(OI)(CI)F" *S-1-5-18:(OI)(CI)F *S-1-5-32-544:(OI)(CI)F'
+        Write-Warning ("Other accounts can write to '" + $parent + "', which holds the child MCP repositories the Hub runs as you. " +
+            "Restrict it, or each child repository, the same way: " + $command)
+    }
+}
+
 function Register-HubTask {
     if (Get-ScheduledTask -TaskName $legacyTaskName -ErrorAction SilentlyContinue) {
         Unregister-ScheduledTask -TaskName $legacyTaskName -Confirm:$false
@@ -157,10 +190,12 @@ function Register-HubTask {
     $serviceLauncher = Join-Path $PSScriptRoot "service_launcher.pyw"
     $action = New-ScheduledTaskAction -Execute (Get-PythonW) -Argument ('"{0}"' -f $serviceLauncher) -WorkingDirectory $repoRoot
     $userId = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    Protect-HubCheckout -UserId $userId
     Protect-PrivateConfig -UserId $userId
     $trigger = New-ScheduledTaskTrigger -AtLogOn -User $userId
     $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Limited
-    $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+    # A crashed service is restarted up to 3 times, one minute apart.
+    $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
 }
 

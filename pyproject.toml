@@ -6,20 +6,32 @@ build-backend = "setuptools.build_meta"
 name = "mcp-hub"
 version = "0.1.0"
 description = "Local config-driven MCP gateway for AI agents"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
+# One locked environment serves the Hub and the Python children that borrow its venv (config.py), and the
+# launchers sync all of it, so every group below is a regular dependency.
 dependencies = [
+    # Core: MCP server and client, the shared HTTP service, and config validation.
     "mcp>=2.0,<3",
     "httpx2>=2.0",
     "starlette>=0.40",
-    # Not imported by the Hub: mcp-jira-sync and mcp-read-source run on this venv (config.py).
-    "httpx>=0.27",
-    "python-dotenv>=1.0",
-    "cryptography>=42",
+    "uvicorn>=0.30",
+    "jsonschema>=4.0",
+    # Investigation providers: imported lazily on a role's first request; a missing one is reported
+    # as "provider package not installed" in agent status (agents/providers.py).
     "openai>=1.75",
     "anthropic>=0.45",
     "google-genai>=1.0",
-    "jsonschema>=4.0",
-    "uvicorn>=0.30",
+    # Child-shared: not imported by the Hub; mcp-jira-sync and mcp-read-source run on this venv.
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+    "cryptography>=42",
+]
+
+[dependency-groups]
+# QC tools run by scripts/package_qc.py (uv syncs this group by default).
+dev = [
+    "ruff>=0.6",
+    "coverage>=7.6",
 ]
 
 [project.scripts]
@@ -32,3 +44,18 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 mcp_hub = ["dashboard/*.html", "dashboard/*.js", "dashboard/*.css", "dashboard/locales/*.json"]
+
+[tool.ruff]
+target-version = "py312"
+extend-exclude = ["docs"]
+
+[tool.ruff.lint]
+# Conservative: syntax errors and pyflakes (undefined names, unused imports and variables).
+select = ["E9", "F"]
+
+[tool.coverage.run]
+source = ["src/mcp_hub"]
+branch = true
+
+[tool.coverage.report]
+skip_empty = true

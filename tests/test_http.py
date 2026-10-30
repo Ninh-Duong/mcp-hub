@@ -61,6 +61,27 @@ class SharedHTTPAuthenticationTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 401)
 
+    def test_websocket_scopes_are_refused_without_reaching_the_app(self) -> None:
+        from mcp_hub.http import LocalBearerMiddleware
+
+        reached: list[str] = []
+        sent: list[dict] = []
+
+        async def app(scope, receive, send) -> None:
+            reached.append(scope["type"])
+
+        async def send(message) -> None:
+            sent.append(message)
+
+        async def receive() -> dict:
+            return {"type": "websocket.connect"}
+
+        middleware = LocalBearerMiddleware(app, self.token, "127.0.0.1", 8765)
+        asyncio.run(middleware({"type": "websocket", "path": "/mcp", "headers": []}, receive, send))
+        asyncio.run(middleware({"type": "lifespan"}, receive, send))
+        self.assertEqual(reached, ["lifespan"])
+        self.assertEqual(sent, [{"type": "websocket.close", "code": 1008}])
+
     def test_health_endpoint_only_reports_liveness_without_token(self) -> None:
         with TestClient(self.app) as client:
             response = client.get("/health", headers={"Host": "127.0.0.1:8765"})

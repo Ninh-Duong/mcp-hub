@@ -19,9 +19,10 @@ from mcp import Client, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.types import CallToolResult, TextContent
 
+from mcp_hub.audit import default_audit_path
 from mcp_hub.config import HUB_ROOT, load_config
 
-LOG = HUB_ROOT / "logs" / "mcp-hub.jsonl"
+LOG = default_audit_path()
 _STATUS = {True: "ok", False: "failed", None: "unset"}
 
 

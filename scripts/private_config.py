@@ -11,7 +11,7 @@ import json
 import sys
 from typing import Any
 
-from mcp_hub.config import _SENSITIVE_KEY_RE, PRIVATE_ROOT, SECRET_PLACEHOLDER
+from mcp_hub.config import PRIVATE_ROOT, SECRET_PLACEHOLDER, is_sensitive_key
 
 SHOWN = {"transport", "command", "cwd", "inheritEnv", "timeoutSeconds"}
 
@@ -61,7 +61,7 @@ def main(argv: list[str]) -> None:
     key_path = argv[2].split(".")
     *parents, leaf = key_path
     value = json.loads(argv[3])
-    if any(_SENSITIVE_KEY_RE.search(key) for key in key_path) and value != SECRET_PLACEHOLDER:
+    if any(is_sensitive_key(key) for key in key_path) and value != SECRET_PLACEHOLDER:
         raise SystemExit(f"'{leaf}' looks sensitive; agents may only set it to {SECRET_PLACEHOLDER}")
     target = data
     for key in parents:

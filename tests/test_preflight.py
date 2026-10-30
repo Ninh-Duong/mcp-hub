@@ -134,8 +134,55 @@ class PrepareTest(unittest.TestCase):
         result = preflight.run_prepare(server(self.cwd, spec), spec, runner=timing_out, which=which_all)
         self.assertIn("timed out", result.detail)
 
+    def test_prepare_gets_only_the_child_environment(self) -> None:
+        spec = PrepareSpec(command=("npm", "ci"))
+        child = ServerConfig("child", "node", (), self.cwd, {"CHILD_SETTING": "1"}, ("MCP_HUB_TEST_INHERITED",))
+        runner = FakeRunner([])
+        hub_only = {"MCP_HUB_TEST_INHERITED": "yes", "MCP_HUB_TEST_HUB_ONLY": "hub-secret"}
+        with patch.dict(preflight.os.environ, hub_only):
+            preflight.run_prepare(child, spec, runner=runner, which=which_all)
+        env = runner.calls[-1][1]["env"]
+        self.assertEqual((env["CHILD_SETTING"], env["MCP_HUB_TEST_INHERITED"]), ("1", "yes"))
+        self.assertNotIn("MCP_HUB_TEST_HUB_ONLY", env)
+
     def test_children_without_prepare_are_skipped(self) -> None:
         self.assertEqual(preflight.check_server(server(self.cwd, None), install=True, runner=FakeRunner([])), [])
+
+
+class FindExecutableTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+
+    def make(self, path: Path) -> Path:
+        path.write_text("", encoding="utf-8")
+        path.chmod(0o755)
+        return path
+
+    def test_never_searches_the_current_or_relative_directories(self) -> None:
+        name = "tool.exe" if preflight.os.name == "nt" else "tool"
+        self.make(self.root / name)
+        cwd = preflight.os.getcwd()
+        preflight.os.chdir(self.root)
+        self.addCleanup(preflight.os.chdir, cwd)
+        self.assertIsNone(preflight.find_executable("tool", path=preflight.os.pathsep.join([".", "bin", ""])))
+        expected = self.make(self.bin / name)
+        found = preflight.find_executable("tool", path=f".{preflight.os.pathsep}{self.bin}")
+        self.assertTrue(found and Path(found).samefile(expected))
+
+    def test_names_with_a_directory_are_not_resolved(self) -> None:
+        self.assertIsNone(preflight.find_executable(str(Path("bin") / "tool"), path=str(self.bin)))
+        self.assertIsNone(preflight.find_executable("", path=str(self.bin)))
+
+    def test_windows_uses_pathext_and_skips_the_bare_script(self) -> None:
+        self.make(self.bin / "npm")  # the POSIX shell script npm installs next to npm.cmd
+        expected = self.make(self.bin / "npm.cmd")
+        with patch.dict(preflight.os.environ, {"PATHEXT": ".exe;.cmd"}):
+            self.assertEqual(preflight.find_executable("npm", path=str(self.bin), platform="win32"), str(expected))
+            self.assertEqual(preflight.find_executable("npm.cmd", path=str(self.bin), platform="win32"), str(expected))
 
 
 class PathRefreshTest(unittest.TestCase):

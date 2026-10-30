@@ -134,6 +134,8 @@ main { max-width: 1440px; margin: 0 auto; padding: 24px 32px 40px; }
 .evidence button { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .detail-output { margin-top: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #f8fafc; color: #263246; font: 11px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .approval { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px; border: 1px solid #f0d8a8; border-radius: 9px; background: #fffaf0; }
+.approval > p { flex: 1 1 100%; margin: 0; }
+.approval-preview { flex: 1 1 100%; min-width: 0; max-height: 360px; overflow: auto; white-space: pre; overflow-wrap: normal; }
 .approval-code { padding: 6px 8px; border: 1px dashed #dabd82; border-radius: 6px; color: #63440a; font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .button { padding: 8px 11px; border: 1px solid transparent; border-radius: 7px; background: var(--blue); color: white; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
 .button:hover { filter: brightness(.96); }

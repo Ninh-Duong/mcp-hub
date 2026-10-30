@@ -20,9 +20,7 @@ Search is case-insensitive substring matching. Globs are relative and cannot con
 
 ## Hub result cache
 
-The Hub keeps successful results of a tool in memory for that tool's `cacheSeconds` (set per tool in `config/hub.example.json`, overridable in `config/private/hub.json`; `0` or omitted means no caching). It applies a TTL only when the child declares `readOnlyHint=true`, so write tools are never cached. The key is the tool plus its canonical arguments; error results are never stored, and concurrent identical calls share one child call. A cached answer is logged as `tool.call.cached`. When one of a child's write tools succeeds, the Hub drops that child's cached results, so a read after a sync or export is fresh.
-
-Defaults here: 120 s for `source__check_connection`; none for `source__search` and `source__read`, because the user may be editing the files. Never repeat an identical search or read within a task, and call `source__check_connection` only to explain a failed call.
+Shared rules: [Hub result cache](README.md#hub-result-cache). Defaults here: 120 s for `source__check_connection`; none for `source__search` and `source__read`, because the user may be editing the files. Never repeat an identical search or read within a task, and call `source__check_connection` only to explain a failed call.
 
 ## Setup and diagnostics
 

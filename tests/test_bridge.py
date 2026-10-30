@@ -8,11 +8,18 @@ from unittest.mock import Mock, patch
 
 import anyio
 from mcp import Client
-from mcp.server import Server
 from mcp.shared.memory import create_client_server_memory_streams
 from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
 
 from mcp_hub.bridge import bridge_client_info
+
+
+async def wait_until_started(server, task: asyncio.Task) -> None:
+    """Poll a uvicorn server until it accepts connections; stop early if its task already ended."""
+    while not server.started:
+        if task.done():
+            raise RuntimeError("the test HTTP server stopped before it started")
+        await asyncio.sleep(0.02)
 
 
 class FakeRemoteClient:
@@ -126,8 +133,7 @@ class PresenceTest(unittest.TestCase):
                 http_server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="critical"))
                 task = asyncio.create_task(http_server.serve())
                 try:
-                    while not http_server.started:
-                        await asyncio.sleep(0.02)
+                    await asyncio.wait_for(wait_until_started(http_server, task), 10)
                     await asyncio.wait_for(hold_presence(
                         f"http://127.0.0.1:{port}/mcp", "token", Implementation(name="bridge", version="1"),
                     ), 10)

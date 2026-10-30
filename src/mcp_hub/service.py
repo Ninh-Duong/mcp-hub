@@ -24,15 +24,11 @@ from .service_config import load_service_config
 SHUTDOWN_DRAIN_SECONDS = 20
 
 
-async def run_http(host: str | None = None, port: int | None = None) -> None:
+async def run_http() -> None:
+    """Run the shared service on the loopback address and port from the private service configuration."""
     service_config = load_service_config()
-    listen_host = host or service_config.host
-    listen_port = port if port is not None else service_config.port
-    if listen_host != service_config.host or listen_port != service_config.port:
-        raise ValueError("HTTP bind settings must match the private service configuration")
-
     audit = AuditLog()
-    requested = read_launch_extensions()
+    requested = read_launch_extensions(audit=audit)
     config = _load_hub_config(audit)
     agent_configs = load_agent_configs()
     projects = load_projects()
@@ -43,8 +39,9 @@ async def run_http(host: str | None = None, port: int | None = None) -> None:
             await runtime.connect(stack)
             job_runner = JobRunner(store=job_store, runtime=runtime, projects=projects, agents=agent_configs)
             job_runner.resume_queued_jobs()
+            job_runner.watch_pending_approvals()
             ui = install_extensions(requested, runtime, job_store, audit)
-            await _serve(runtime, job_runner, ui, listen_host, listen_port, service_config.token, job_store)
+            await _serve(runtime, job_runner, ui, service_config.host, service_config.port, service_config.token, job_store)
     finally:
         job_store.close()
 

@@ -107,6 +107,23 @@ class ResultCacheTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(child.calls, 2)
         self.assertEqual(cache.stats()["entries"], 0)
 
+    async def test_store_if_refuses_results_it_rejects(self) -> None:
+        cache, child = ResultCache(), _Child("Error: upstream down")
+        def looks_ok(result: CallToolResult) -> bool:
+            return not _text(result).startswith("Error:")
+        for _ in range(2):
+            _, cached = await cache.get_or_call("t", {}, 60, child, store_if=looks_ok)
+            self.assertFalse(cached)
+        self.assertEqual(child.calls, 2)
+        self.assertEqual(cache.stats()["entries"], 0)
+
+    async def test_store_if_accepting_stores_the_result(self) -> None:
+        cache, child = ResultCache(), _Child()
+        await cache.get_or_call("t", {}, 60, child, store_if=lambda result: True)
+        result, cached = await cache.get_or_call("t", {}, 60, child, store_if=lambda result: True)
+        self.assertTrue(cached)
+        self.assertEqual((_text(result), child.calls), ("ok-1", 1))
+
     async def test_exceptions_propagate_and_are_not_cached(self) -> None:
         cache, child = ResultCache(), _Child(error=RuntimeError("down"))
         for _ in range(2):

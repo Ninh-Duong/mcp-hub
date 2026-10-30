@@ -1,12 +1,14 @@
 # mcp-hub
 
-Local, config-driven MCP gateway for AI agents. It can run as one shared Windows service for multiple clients, or keep its original per-client stdio mode. It launches child MCP servers over stdio, discovers their tools, exposes only allowlisted ones, routes calls, and writes metadata-only audit events to `logs/mcp-hub.jsonl`.
+Local, config-driven MCP gateway for AI agents. It can run as one shared Windows service for multiple clients, or keep its original per-client stdio mode. It launches child MCP servers over stdio, supervises and reconnects them, discovers their tools, exposes only allowlisted ones, routes calls (briefly caching read-only results), and writes metadata-only audit events to `logs/mcp-hub.jsonl`. The shared service adds bounded, asynchronous investigation jobs across the children and a localhost dashboard.
 
 **Agents: read [AGENTS.md](AGENTS.md) first.** Its rules are mandatory.
 
 ## Run
 
-Python 3.12 is the project runtime (`.python-version`; 3.11+ is required). The launcher prepares the local prerequisites before starting.
+Python 3.12 is the project runtime (`.python-version`, `requires-python >=3.12`). The launcher prepares the local prerequisites before starting.
+
+**Support matrix.** The per-client stdio Hub works on Windows, macOS, and Linux. The shared service, the dashboard's service controls, investigation jobs (their data is encrypted with Windows DPAPI), and preflight's winget runtime install are Windows-only; off Windows, `hub__submit_issue` answers `investigation jobs require Windows DPAPI`. Details: [Packaging and QC → Support matrix](docs/packaging-and-qc.md#support-matrix).
 
 Run directly, including when an AI client starts the Hub over stdio:
 
@@ -38,7 +40,7 @@ Clients with a safe dynamic-header helper can connect over HTTP using `scripts/h
 
 `hubctl open` opens the paired localhost dashboard, in English or Vietnamese (language selector in the top bar). The Hub starts in fast mode by default: tool calls are not tracked beyond the audit log. Add `-Ui` to `start`, `restart`, or `open` to run with the activity UI until the next start (see [Fast mode and the activity UI](docs/operations/shared-agent-hub.md#fast-mode-and-the-activity-ui)). With it, the pixel barn shows live child-tool activity; the daily panel ranks child MCPs and lists tool calls by client for the last 30 days. The report stores only tool/client names, timing, and call state. HTTP clients are labeled from MCP `clientInfo`; bridge entries can pass `-ClientName <AI_CLIENT>`. The **Connected AI clients** panel and `hubctl status` show which clients are connected now or were active in the last 30 minutes (see [Connected AI clients](docs/operations/shared-agent-hub.md#connected-ai-clients)).
 
-If `uv` is missing, the launcher installs it under the ignored `.tools/` directory without changing the global `PATH`. It then installs Python from `.python-version` when needed and runs `uv run --locked`, which creates or synchronizes the project environment from `uv.lock`. The first run needs internet access and write access to the repository and uv-managed data/cache directories. If download or installation fails, the launcher exits with a diagnostic on stderr before starting the Hub. Stdout stays reserved for MCP protocol traffic.
+If `uv` is missing, the launcher installs a pinned uv release under the ignored `.tools/` directory without changing the global `PATH`, after checking the installer's SHA-256 ([details](docs/packaging-and-qc.md#pinned-uv-installer)). It then installs Python from `.python-version` when needed and runs `uv run --locked`, which creates or synchronizes the project environment from `uv.lock`. The first run needs internet access and write access to the repository and uv-managed data/cache directories. If download or installation fails, the launcher exits with a diagnostic on stderr before starting the Hub. Stdout stays reserved for MCP protocol traffic.
 
 To connect an AI client, paste this into the agent (replace `<MCP_HUB_PATH>` with this repo's absolute path). Other prompts (instructions only, rule refresh, daily use) are in [docs/connecting-a-client.md §0](docs/connecting-a-client.md#0-for-the-human-the-prompts).
 
@@ -110,7 +112,7 @@ A `FAIL` line names the cause:
 
 | Output | Meaning |
 |---|---|
-| `not connected: <event> (<error_type>)` | The child didn't start or didn't answer; check `cwd`/`command`. |
+| `not connected: <event> (<error_type>)` | The child didn't start or didn't answer within its `connectTimeoutSeconds` (`TimeoutError`); check `cwd`/`command`. The user can read the child's own output in `logs/children/<server-id>.log`. |
 | `not connected (no Hub events; see logs)` | No events from this run (rare, e.g. log rotation); rerun. |
 | `no exposed tools: <tools>` / `tool not found: <tools>` | Wrong tool names in `hub.json`. |
 | `check tool not exposed: <tool>` | The `CHECKS` tool in `scripts/smoke.py` is not allowlisted. |
@@ -127,7 +129,7 @@ Run the offline package checks before using or releasing a checkout:
 uv run --locked --python 3.12 python scripts/package_qc.py
 ```
 
-The command runs unit tests, the leak checker, and Python compile checks. It does not contact child MCPs or upstream services. Add `--live-smoke` only when private Hub configuration and required child credentials are available. See [Packaging and QC](docs/packaging-and-qc.md) for bootstrap behavior and CI details.
+The command runs, stopping at the first failure: `ruff` lint, the unit tests under `coverage`, the coverage gate (`--fail-under=85`), `check_leaks.py`, `check_code_standards.py`, and `compileall`. It does not contact child MCPs or upstream services. Set `MCP_HUB_E2E=1` to also run the launcher end-to-end test in a fresh uv environment (needs network; CI sets it). Add `--live-smoke` only when private Hub configuration and required child credentials are available. See [Packaging and QC](docs/packaging-and-qc.md) for bootstrap behavior and CI details.
 
 ## Where to look
 
@@ -140,29 +142,24 @@ The command runs unit tests, the leak checker, and Python compile checks. It doe
 | Add or reconfigure a child MCP | [docs/adding-a-child-mcp.md](docs/adding-a-child-mcp.md) |
 | Change child MCP code and keep it compatible with the Hub | [docs/child-mcp-compatibility.md](docs/child-mcp-compatibility.md) |
 | What a child MCP does, its tools and side effects | [docs/mcps/](docs/mcps/) |
-| Request flow, failure handling, prompts | [docs/architecture.md](docs/architecture.md) |
-| Shared agent Hub design and implementation process | [design](docs/superpowers/specs/2026-10-28-shared-agent-hub-design.md), [plan](docs/superpowers/plans/2026-10-28-shared-agent-hub.md) |
+| Module map, request flow, failure handling, prompts, job limits | [docs/architecture.md](docs/architecture.md) |
+| Bootstrap, support matrix, QC steps, CI | [docs/packaging-and-qc.md](docs/packaging-and-qc.md) |
+| Design and plan history (not maintained; the docs above are current) | [docs/history/](docs/history/) |
 | Shared Windows service setup, operation and client migration | [docs/operations/shared-agent-hub.md](docs/operations/shared-agent-hub.md) |
 | Secrets, audit events, diagnosing failures | [docs/security-and-logging.md](docs/security-and-logging.md) |
 | Safe config templates | [config/hub.example.json](config/hub.example.json), [config/mcps/](config/mcps/) |
 
 ## Layout
 
-- `src/mcp_hub/config.py`: discovers known sibling repos, merges private overrides, validates child configs, and resolves relative paths.
-- `src/mcp_hub/server.py`: starts child clients, exposes allowlisted tools and per-child prompts, routes calls, and writes audit events. It uses the MCP SDK's low-level server so child JSON Schemas and annotations are forwarded unchanged.
-- `src/mcp_hub/audit.py`: rotating JSONL audit log with secret redaction.
-- `src/mcp_hub/service.py`, `http.py`, `bridge.py`: shared HTTP lifecycle, local auth, and stdio compatibility bridge.
-- `src/mcp_hub/jobs/`, `agents/`, `dashboard/`: bounded issue workflows, model adapters, encrypted results, and the localhost dashboard.
-- `src/mcp_hub/activity_ui/`: the optional activity UI extension (pixel barn, 30-day child-call statistics, connected clients), installed only with `-Ui`.
-- `scripts/bench_call_path.py`: measures tool-call latency with the activity UI off and on.
-- `scripts/private_config.py`: inspects or edits a private child config without printing secrets.
-- `scripts/check_leaks.py`: blocks machine paths, real emails, and private files from being committed.
-- `scripts/smoke.py`: read-only end-to-end check. For each enabled child it checks the Hub prompt and makes one read-only tool call (`CHECKS` table).
-- `tests/`: `uv run python -m unittest discover tests`.
+- `src/mcp_hub/`: the Hub package; [docs/architecture.md → Module layout](docs/architecture.md#module-layout) lists every module and the dependency direction.
+- `config/`: tracked templates (`hub.example.json`, `mcps/*.example.json`); `config/private/` holds the user's ignored files (see [AGENTS.md → Private files](AGENTS.md#private-files)).
+- `scripts/`: launchers (`start.ps1`, `start.sh`), service control (`hubctl.ps1`, `service_launcher.pyw`, `http_headers.ps1`), `smoke.py`, `package_qc.py`, `check_leaks.py`, `check_code_standards.py`, `private_config.py` (inspect private configs without printing secrets), and `bench_call_path.py` (tool-call latency with the activity UI off and on).
+- `tests/`: offline unit tests, run by `package_qc.py` (or `uv run python -m unittest discover tests`).
+- `logs/`: the redacted audit log `mcp-hub.jsonl`, child stderr under `children/`, and service stderr; all ignored.
 
 ## Security summary
 
 - `config/private/`, `.local/`, `.env`, `.env.*`, and `logs/` are gitignored and never committed.
-- Tool arguments and successful results are not logged. Configured values, inherited environment values, and values under sensitive config keys are redacted from Hub error logs.
+- Tool arguments and successful results are not logged. Values under sensitive config keys (including sensitive `env` entries) and inherited environment variables with sensitive names are redacted from Hub error logs.
 - A child receives only the MCP SDK's default safe variables (e.g. `PATH`, `APPDATA`, `USERNAME`; on POSIX, `HOME`, `USER`), its `inheritEnv` variables, and its configured `env`.
 - stdout is reserved for MCP protocol frames.

@@ -1,8 +1,30 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 from dataclasses import dataclass
 from typing import Any, Protocol
+
+
+# One request is retried at most this many times by the SDK, each attempt bounded by the provider timeout.
+MAX_RETRIES = 2
+DEFAULT_TIMEOUT_SECONDS = 60.0
+
+
+# The SDK package each provider imports lazily on its first request (optional investigation dependencies).
+PROVIDER_PACKAGES = {"openai": "openai", "anthropic": "anthropic", "gemini": "google.genai"}
+PACKAGE_MISSING_MESSAGE = "provider package not installed"
+
+
+def provider_package_installed(provider: str) -> bool:
+    """Whether the SDK package for `provider` can be imported; unknown providers have none and report False."""
+    package = PROVIDER_PACKAGES.get(provider)
+    if package is None:
+        return False
+    try:
+        return importlib.util.find_spec(package) is not None
+    except ImportError:  # a missing parent package such as `google`
+        return False
 
 
 class ProviderError(RuntimeError):
@@ -35,11 +57,15 @@ class ModelProvider(Protocol):
 class _Provider:
     provider_name = "model"
 
-    def __init__(self, model: str, api_key: str, *, client: Any = None, timeout_seconds: float = 60.0) -> None:
+    def __init__(
+        self, model: str, api_key: str, *, client: Any = None,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS, max_retries: int = MAX_RETRIES,
+    ) -> None:
         self.model = model
         self.api_key = api_key
         self._client = client
         self.timeout_seconds = timeout_seconds
+        self.max_retries = max_retries
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}(model={self.model!r})"
@@ -61,6 +87,7 @@ class OpenAIProvider(_Provider):
                 input=_openai_messages(messages),
                 tools=[_openai_tool(tool) for tool in tools],
                 max_output_tokens=max_output_tokens,
+                store=False,
             )
             return _parse_openai(response)
         except ProviderError:
@@ -71,7 +98,7 @@ class OpenAIProvider(_Provider):
     def _create_client(self) -> Any:
         from openai import AsyncOpenAI
 
-        self._client = AsyncOpenAI(api_key=self.api_key, timeout=self.timeout_seconds)
+        self._client = AsyncOpenAI(api_key=self.api_key, timeout=self.timeout_seconds, max_retries=self.max_retries)
         return self._client
 
 
@@ -100,7 +127,9 @@ class AnthropicProvider(_Provider):
     def _create_client(self) -> Any:
         import anthropic
 
-        self._client = anthropic.AsyncAnthropic(api_key=self.api_key, timeout=self.timeout_seconds)
+        self._client = anthropic.AsyncAnthropic(
+            api_key=self.api_key, timeout=self.timeout_seconds, max_retries=self.max_retries,
+        )
         return self._client
 
 
@@ -132,7 +161,11 @@ class GeminiProvider(_Provider):
 
         self._client = genai.Client(
             api_key=self.api_key,
-            http_options={"timeout": int(self.timeout_seconds * 1000)},
+            http_options={
+                "timeout": int(self.timeout_seconds * 1000),
+                # `attempts` counts the first request too.
+                "retry_options": {"attempts": self.max_retries + 1},
+            },
         )
         return self._client
 

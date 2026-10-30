@@ -54,6 +54,40 @@ class JobStoreTest(unittest.TestCase):
         self.assertEqual(len(page["content"]), 12)
         self.assertGreater(page["next_offset"], 0)
 
+    def test_job_list_tolerates_a_summary_that_cannot_be_decrypted(self) -> None:
+        class DpapiFailure(FakeProtector):
+            def unprotect(self, data: bytes) -> bytes:
+                if data.startswith(b"dpapi-broken"):
+                    raise OSError("DPAPI could not decrypt")
+                return super().unprotect(data)
+
+        self.store.protector = DpapiFailure()
+        good, foreign, broken = (self.store.create_job(project="orders", question="q") for _ in range(3))
+        for job_id in (good, foreign, broken):
+            self.store.save_summary(job_id, "kept")
+        self.store._connection.execute("UPDATE jobs SET summary_blob=? WHERE job_id=?", (b"foreign", foreign))
+        self.store._connection.execute("UPDATE jobs SET summary_blob=? WHERE job_id=?", (b"dpapi-broken", broken))
+        self.store._connection.commit()
+
+        rows = {row["job_id"]: row for row in self.store.list_jobs()}
+        self.assertEqual((rows[good]["summary"], rows[good]["summary_unavailable"]), ("kept", False))
+        for job_id in (foreign, broken):
+            self.assertIsNone(rows[job_id]["summary"])
+            self.assertTrue(rows[job_id]["summary_unavailable"])
+        self.assertTrue(self.store.get_job(broken)["summary_unavailable"])
+
+    def test_evidence_refs_cover_every_source_id_and_filter_by_agent(self) -> None:
+        job_id = self.store.create_job(project="orders", question="q")
+        for index in range(150):
+            self.store.append_event(job_id, "agent.started", agent="logs")
+        self.store.append_event(job_id, "tool.call.succeeded", agent="logs", tool="logs__query_logs", source_id="logs-1")
+        self.store.append_event(job_id, "tool.call.failed", agent="jira", tool="jira__read_ticket", source_id="jira-1")
+        self.assertEqual(len(self.store.list_events(job_id)), 100)
+        self.assertEqual([ref["source_id"] for ref in self.store.list_evidence_refs(job_id)], ["logs-1", "jira-1"])
+        self.assertEqual(self.store.list_evidence_refs(job_id, agent="jira"), [
+            {"source_id": "jira-1", "tool": "jira__read_ticket", "agent": "jira"},
+        ])
+
     def test_rejects_invalid_state_transitions_and_marks_running_jobs_interrupted(self) -> None:
         queued = self.store.create_job(project="orders", question="check")
         with self.assertRaises(ValueError):

@@ -53,8 +53,18 @@ class FakeJobRunner:
         return {
             "tool_name": "jira__sync_ticket",
             "expires_at": "2026-10-28T00:10:00+00:00",
-            "arguments_preview": '{"issue_key":"EX-1","token":"[REDACTED]"}',
+            "arguments_preview": '{\n  "issue_key": "EX-1",\n  "token": "[REDACTED]"\n}',
+            "truncated": False,
         }
+
+    async def approve_from_dashboard(self, job_id):
+        self.approved = getattr(self, "approved", []) + [job_id]
+        return job_id == "pending-job"
+
+    async def cancel_job(self, job_id):
+        if job_id != "pending-job":
+            raise KeyError(job_id)
+        return {"job_id": job_id, "cancelled": True, "status": "cancelled"}
 
 
 class FakeActivityStore:
@@ -366,6 +376,30 @@ class CoreDashboardTest(unittest.TestCase):
             client.post("/dashboard/api/control/restart", headers=self.headers)
         self.assertEqual(self.launched, [["restart"]])
 
+    def test_control_reports_unavailable_when_powershell_cannot_be_located(self) -> None:
+        from unittest.mock import patch
+
+        from mcp_hub.dashboard import api
+
+        with patch.dict(api.os.environ, {}, clear=True), self.assertRaises(OSError):
+            api.windows_powershell()
+        with patch.dict(api.os.environ, {"SystemRoot": "/sysroot"}):
+            self.assertEqual(
+                api.Path(api.windows_powershell()).parts[-4:],
+                ("System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+            )
+        from mcp_hub.dashboard.api import create_dashboard_routes
+        from mcp_hub.http import create_http_app
+
+        def failing_launcher(_arguments: list[str]) -> None:
+            raise OSError("no SystemRoot")
+
+        routes = create_dashboard_routes(FakeRuntime(), self.jobs, self.sessions, control_launcher=failing_launcher)
+        app = create_http_app(Server("core-dashboard"), self.token, custom_routes=routes, sessions=self.sessions)
+        with TestClient(app) as client:
+            response = client.post("/dashboard/api/control/stop", headers=self.headers)
+        self.assertEqual(response.status_code, 503)
+
     def test_blocking_job_reads_run_off_the_event_loop(self) -> None:
         import asyncio as real_asyncio
         from unittest.mock import patch
@@ -384,8 +418,58 @@ class CoreDashboardTest(unittest.TestCase):
         with patch.object(dashboard_api.asyncio, "to_thread", recording_to_thread), TestClient(self.app) as client:
             client.get("/dashboard/api/jobs", headers=self.headers)
             client.get("/dashboard/api/jobs/a", headers=self.headers)
-            client.get("/dashboard/api/jobs/pending-job/pending-call", headers=self.headers)
+            pair = client.post("/dashboard/pair", headers=self.headers).json()["pairing_token"]
+            client.get(f"/dashboard/?pair={pair}", headers={"Host": "127.0.0.1:8765"})
+            client.get("/dashboard/api/jobs/pending-job/pending-call", headers={"Host": "127.0.0.1:8765"})
         self.assertEqual(offloaded, ["<lambda>", "<lambda>", "pending_approval_preview"])
+
+    def test_write_approval_routes_refuse_the_bearer_token(self) -> None:
+        with TestClient(self.app) as client:
+            responses = [
+                client.get("/dashboard/api/jobs/pending-job/pending-call", headers=self.headers),
+                client.get("/dashboard/api/jobs/pending-job/approval-code", headers=self.headers),
+                client.post("/dashboard/api/jobs/pending-job/approve", headers=self.headers),
+            ]
+            # Other dashboard routes still accept the bearer token (hubctl uses them).
+            status = client.get("/dashboard/api/status", headers=self.headers)
+        self.assertEqual([response.status_code for response in responses], [403, 403, 403])
+        self.assertEqual(status.status_code, 200)
+
+    def test_write_approval_routes_accept_the_paired_session(self) -> None:
+        with TestClient(self.app) as client:
+            pair = client.post("/dashboard/pair", headers=self.headers).json()["pairing_token"]
+            client.get(f"/dashboard/?pair={pair}", headers={"Host": "127.0.0.1:8765"})
+            preview = client.get("/dashboard/api/jobs/pending-job/pending-call", headers={"Host": "127.0.0.1:8765"})
+        self.assertEqual(preview.status_code, 200)
+
+    def test_paired_dashboard_approves_and_cancels_through_the_async_runner(self) -> None:
+        with TestClient(self.app) as client:
+            pair = client.post("/dashboard/pair", headers=self.headers).json()["pairing_token"]
+            client.get(f"/dashboard/?pair={pair}", headers={"Host": "127.0.0.1:8765"})
+            approved = client.post("/dashboard/api/jobs/pending-job/approve", headers={"Host": "127.0.0.1:8765"})
+            cancelled = client.post("/dashboard/api/jobs/pending-job/cancel", headers=self.headers)
+            missing = client.post("/dashboard/api/jobs/other-job/cancel", headers=self.headers)
+        self.assertEqual(approved.json(), {"approved": True})
+        self.assertEqual(self.jobs.approved, ["pending-job"])
+        self.assertEqual(cancelled.json()["status"], "cancelled")
+        self.assertEqual(missing.status_code, 404)
+
+    def test_undecryptable_job_data_is_a_json_error_not_a_crash(self) -> None:
+        def unreadable(*_args, **_kwargs):
+            raise OSError("DPAPI failure")
+
+        self.jobs.list_jobs = unreadable
+        self.jobs.get_job = unreadable
+        with TestClient(self.app) as client:
+            responses = [client.get(path, headers=self.headers) for path in ("/dashboard/api/jobs", "/dashboard/api/jobs/a")]
+        for response in responses:
+            self.assertEqual(response.status_code, 500)
+            self.assertEqual(response.json(), {"error": "Job data could not be decrypted."})
+
+    def test_dashboard_responses_are_not_cached(self) -> None:
+        with TestClient(self.app) as client:
+            status = client.get("/dashboard/api/status", headers=self.headers)
+        self.assertEqual(status.headers["cache-control"], "no-store")
 
 
 if __name__ == "__main__":

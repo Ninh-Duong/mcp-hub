@@ -99,6 +99,8 @@ function makeBuffaloActor(name, index) {
 function connectionLabel(state) {
   const labels = {
     connected: t("connection.connected"),
+    connecting: t("connection.connecting"),
+    reconnecting: t("connection.reconnecting"),
     disabled: t("connection.disabled"),
     "credentials required": t("connection.credentialsRequired"),
     unavailable: t("connection.unavailable"),

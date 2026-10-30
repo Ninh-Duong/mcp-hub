@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -20,11 +19,6 @@ from mcp_hub.server import HubRuntime
 class ActivityRuntimeTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp())
-        self.logger = logging.getLogger("mcp_hub.audit")
-        self.original_handlers = list(self.logger.handlers)
-        for handler in self.original_handlers:
-            self.logger.removeHandler(handler)
-        self.original_propagate = self.logger.propagate
         config = HubConfig(
             self.tmp / "hub.json",
             {"sample-child": ServerConfig("sample-child", "python", (), self.tmp, {}, ())},
@@ -32,6 +26,7 @@ class ActivityRuntimeTest(unittest.IsolatedAsyncioTestCase):
         )
         self.store = JobStore(self.tmp / "jobs.sqlite3", protector=_FakeProtector())
         audit = AuditLog(self.tmp / "audit.jsonl")
+        self.audit = audit
         self.runtime = HubRuntime(config, audit)
         self.ui = install(self.runtime, store=self.store, audit=audit)
         self.runtime.clients["sample-child"] = _FakeClient()
@@ -39,12 +34,7 @@ class ActivityRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.runtime.discovered_tool_counts = {"sample-child": 3}
 
     def tearDown(self) -> None:
-        for handler in list(self.logger.handlers):
-            self.logger.removeHandler(handler)
-            handler.close()
-        for handler in self.original_handlers:
-            self.logger.addHandler(handler)
-        self.logger.propagate = self.original_propagate
+        self.audit.close()
         self.store.close()
         for path in self.tmp.rglob("*"):
             if path.is_file():

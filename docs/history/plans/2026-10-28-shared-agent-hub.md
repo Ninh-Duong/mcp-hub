@@ -8,7 +8,7 @@
 
 **Tech Stack:** Existing Python 3.12 Hub, MCP Python SDK, asyncio/AnyIO, SQLite, Windows Task Scheduler/DPAPI via standard-library `ctypes`, plain browser HTML/CSS/JavaScript, official OpenAI/Anthropic/Gemini SDKs. New source child: Python 3.12, MCP Python SDK, standard library for repository traversal/search.
 
-**Spec:** `docs/superpowers/specs/2026-10-28-shared-agent-hub-design.md`
+**Spec:** `docs/history/specs/2026-10-28-shared-agent-hub-design.md`
 
 **Implementation status:** Code and operator documentation are in place across `mcp-hub` and the new sibling `mcp-read-source`. The existing logs, Jira, and PR child repositories are unchanged. Unit tests pass; see [Verification and handoff](#verification-and-handoff) for the one environment-dependent smoke failure and the remaining manual acceptance.
 

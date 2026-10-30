@@ -44,8 +44,20 @@ def _load_api() -> _Api:
         return _api
 
 
+WINDOWS_ONLY_MESSAGE = "investigation jobs require Windows DPAPI"
+
+
+def dpapi_available() -> bool:
+    """DPAPI exists only on Windows; elsewhere the job store cannot encrypt and jobs are refused."""
+    return os.name == "nt"
+
+
 class DPAPIProtector:
     """Encrypt bytes for the current Windows user with DPAPI."""
+
+    @property
+    def available(self) -> bool:
+        return dpapi_available()
 
     def protect(self, data: bytes) -> bytes:
         return self._invoke(data, unprotect=False)
@@ -55,7 +67,7 @@ class DPAPIProtector:
 
     @staticmethod
     def _invoke(data: bytes, *, unprotect: bool) -> bytes:
-        if os.name != "nt":
+        if not dpapi_available():
             raise OSError("DPAPI job storage is available on Windows only")
         api = _api or _load_api()
         source_buffer = ctypes.create_string_buffer(data)

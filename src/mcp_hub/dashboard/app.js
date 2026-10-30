@@ -38,7 +38,8 @@ async function refresh() {
     renderJobs(jobData.jobs || []);
     await renderActivityUi(status);
     const jobId = selectedJob();
-    if (jobId && (jobData.jobs || []).some((job) => job.job_id === jobId)) await selectJob(jobId);
+    // The poll re-renders the open job only when it changed, so an open evidence view stays put.
+    if (jobId && (jobData.jobs || []).some((job) => job.job_id === jobId)) await selectJob(jobId, { force: false });
     scheduleRefresh(REFRESH_MS);
   } catch (error) {
     setHealth(false);

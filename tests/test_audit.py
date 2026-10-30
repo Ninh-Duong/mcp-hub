@@ -1,10 +1,9 @@
-import logging
 import json
 import tempfile
 import unittest
 from contextlib import AsyncExitStack
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import MagicMock, patch
 from types import SimpleNamespace
 
 from mcp.types import CallToolRequestParams
@@ -17,19 +16,16 @@ from mcp_hub.server import HubRuntime
 class InheritedEnvironmentRedactionTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp())
-        self.logger = logging.getLogger("mcp_hub.audit")
-        self.original_handlers = list(self.logger.handlers)
-        for handler in self.original_handlers:
-            self.logger.removeHandler(handler)
-        self.original_propagate = self.logger.propagate
+        self.audits: list[AuditLog] = []
+
+    def audit(self) -> AuditLog:
+        audit = AuditLog(self.tmp / "audit.jsonl")
+        self.audits.append(audit)
+        return audit
 
     def tearDown(self) -> None:
-        for handler in list(self.logger.handlers):
-            self.logger.removeHandler(handler)
-            handler.close()
-        for handler in self.original_handlers:
-            self.logger.addHandler(handler)
-        self.logger.propagate = self.original_propagate
+        for audit in self.audits:
+            audit.close()
         for path in self.tmp.rglob("*"):
             if path.is_file():
                 path.unlink()
@@ -55,9 +51,8 @@ class InheritedEnvironmentRedactionTest(unittest.IsolatedAsyncioTestCase):
             servers={"child": child},
             routes=(ToolRoute("feature", "child", "tool", "child__tool"),),
         )
-        audit = AuditLog(self.tmp / "audit.jsonl")
-        runtime = HubRuntime(config, audit)
-        runtime._connect_server = AsyncMock(side_effect=ValueError(f"child echoed {env_secret} and {config_secret}"))
+        runtime = HubRuntime(config, self.audit())
+        runtime.child_opener = MagicMock(side_effect=ValueError(f"child echoed {env_secret} and {config_secret}"))
 
         with patch.dict("os.environ", {"MCP_HUB_TEST_API_KEY": env_secret}):
             async with AsyncExitStack() as stack:
@@ -71,7 +66,7 @@ class InheritedEnvironmentRedactionTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_status_reports_detected_and_unavailable_children(self) -> None:
         config = HubConfig(self.tmp / "hub.json", {}, (), ("mcp-jira-sync",), {"mcp-jira-sync": "credentials required"})
-        runtime = HubRuntime(config, AuditLog(self.tmp / "audit.jsonl"))
+        runtime = HubRuntime(config, self.audit())
         async with AsyncExitStack() as stack:
             await runtime.connect(stack)
         result = await runtime.call_tool(SimpleNamespace(request_id="status"), CallToolRequestParams(name="hub__status", arguments={}))
@@ -99,6 +94,16 @@ class RedactPatternTest(unittest.TestCase):
             with self.subTest(text=text[:12]):
                 self.assertNotIn(secret, redact(text))
         self.assertEqual(redact("max_tokens=100 token_count=5"), "max_tokens=100 token_count=5")
+
+    def test_key_value_redaction_is_linear_on_long_words(self) -> None:
+        import time
+
+        from mcp_hub.audit import redact
+
+        started = time.perf_counter()
+        self.assertEqual(redact("y" * 200_000, limit=300_000), "y" * 200_000)
+        self.assertLess(time.perf_counter() - started, 2.0)
+        self.assertEqual(redact("x-access_token=abc foo-token: def"), "x-access_token=[REDACTED] foo-token: [REDACTED]")
 
 
 if __name__ == "__main__":

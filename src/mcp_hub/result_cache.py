@@ -1,7 +1,8 @@
 """Short-lived, in-process cache for read-only child tool results.
 
 Keys are the tool name plus canonical JSON of its arguments. Error results and
-exceptions are never stored. Concurrent identical calls share one in-flight
+exceptions are never stored; a caller's `store_if` check can refuse more (the Hub
+passes its single failure check, so error-looking text is not cached either). Concurrent identical calls share one in-flight
 child call (single-flight), and every caller receives its own deep copy.
 """
 from __future__ import annotations
@@ -64,8 +65,12 @@ class ResultCache:
         arguments: dict[str, Any] | None,
         ttl_seconds: float,
         call: Callable[[], Awaitable[CallToolResult]],
+        store_if: Callable[[CallToolResult], bool] | None = None,
     ) -> tuple[CallToolResult, bool]:
-        """Return (result, served_from_cache); call the child only on a miss."""
+        """Return (result, served_from_cache); call the child only on a miss.
+
+        A result is stored only when it is not `is_error` and `store_if` (when given) returns True.
+        """
         key = cache_key(tool, arguments)
         if key is None or not ttl_seconds > 0:
             return await call(), False
@@ -73,7 +78,7 @@ class ResultCache:
         if cached is not None:
             self._hits += 1
             return cached.model_copy(deep=True), True
-        return await self._call_once(key, ttl_seconds, call)
+        return await self._call_once(key, ttl_seconds, call, store_if)
 
     def stats(self) -> dict[str, int]:
         return {"hits": self._hits, "misses": self._misses, "entries": len(self._entries)}
@@ -95,6 +100,7 @@ class ResultCache:
 
     async def _call_once(
         self, key: str, ttl_seconds: float, call: Callable[[], Awaitable[CallToolResult]],
+        store_if: Callable[[CallToolResult], bool] | None,
     ) -> tuple[CallToolResult, bool]:
         task = self._inflight.get(key)
         leader = task is None
@@ -103,20 +109,25 @@ class ResultCache:
             task = asyncio.ensure_future(call())
             self._inflight[key] = task
             generation = self._generation
-            task.add_done_callback(lambda done: self._settle(key, ttl_seconds, generation, done))
+            task.add_done_callback(lambda done: self._settle(key, ttl_seconds, generation, done, store_if))
         else:
             self._hits += 1
         # shield: a cancelled caller must not cancel the call other waiters share.
         result = await asyncio.shield(task)
         return result.model_copy(deep=True), not leader
 
-    def _settle(self, key: str, ttl_seconds: float, generation: int, task: asyncio.Future[CallToolResult]) -> None:
+    def _settle(
+        self, key: str, ttl_seconds: float, generation: int, task: asyncio.Future[CallToolResult],
+        store_if: Callable[[CallToolResult], bool] | None,
+    ) -> None:
         if self._inflight.get(key) is task:
             del self._inflight[key]
         if task.cancelled() or task.exception() is not None or generation != self._generation:
             return
         result = task.result()
-        if isinstance(result, CallToolResult) and not result.is_error:
+        if not isinstance(result, CallToolResult) or result.is_error:
+            return
+        if store_if is None or store_if(result):
             self._store(key, result, ttl_seconds)
 
     def _lookup(self, key: str) -> CallToolResult | None:

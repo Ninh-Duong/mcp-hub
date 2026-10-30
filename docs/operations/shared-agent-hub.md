@@ -1,6 +1,6 @@
 # Shared Agent Hub operations
 
-This is the operator process for one Windows user running a single Hub for several local AI clients. The first release changes code in **two repositories**: `mcp-hub` and the new sibling `mcp-read-source`. The existing `mcp-server-logs`, `mcp-jira-sync`, and `mcp-pr-companion` repositories keep their current tools and cache behavior; this integration does not edit their code.
+This is the operator process for one Windows user running a single Hub for several local AI clients. The shared service, its dashboard controls, investigation jobs (DPAPI), and the winget runtime install are Windows-only; see the [support matrix](../packaging-and-qc.md#support-matrix). The source reader used by investigations is the sibling repository `mcp-read-source`.
 
 ## 1. Prepare the repositories
 
@@ -59,7 +59,7 @@ Run from the Hub repository in a normal, non-administrator PowerShell session:
 .\scripts\hubctl.ps1 open
 ```
 
-`install` registers a per-user Task Scheduler job at logon and starts the Hub. The server listens only on `127.0.0.1:8765`. `open` starts the dashboard at `/dashboard/` using a one-use pairing token; it does not print the token. Use these commands for recovery and change activation:
+`install` registers a per-user Task Scheduler job at logon and starts the Hub. If another account can write to the checkout, it first restricts the checkout to you, SYSTEM, and Administrators, and it warns when the parent folder holding the child repositories is writable by others (see [security-and-logging.md](../security-and-logging.md)). The server listens only on `127.0.0.1:8765`. `open` starts the dashboard at `/dashboard/` using a one-use pairing token; it does not print the token. Use these commands for recovery and change activation:
 
 ```powershell
 .\scripts\hubctl.ps1 status
@@ -122,17 +122,17 @@ Follow [connecting-a-client.md](../connecting-a-client.md) and that client's gui
 
 ## 5. Run and inspect an issue job
 
-Start with `hub__list_projects`, which returns aliases and allowed environments but no local roots. `hub__submit_issue(project, question, env?, issue_key?, rcid?)` returns a `job_id` immediately. If both `env` and the project's default are absent, the job waits in `awaiting_input`; provide a valid environment with `hub__provide_job_input`. The coordinator dispatches only the fixed specialist roles and their allowlisted child tools. Direct child tools remain available beside the job tools.
+Start with `hub__list_projects`, which returns aliases and allowed environments but no local roots. `hub__submit_issue(project, question, env?, issue_key?, rcid?)` returns a `job_id` immediately, or an error when 20 jobs are already queued (try again after one starts or is cancelled). If both `env` and the project's default are absent, the job waits in `awaiting_input`; provide a valid environment with `hub__provide_job_input`. The coordinator dispatches only the fixed specialist roles. Each specialist sees only its role's read-only child tools and the encrypted cache refreshes the Hub allows (`jira__sync_ticket`, `pr__sync_my_open_prs`, `pr__get_pr_context_pack`); export and other write tools are not offered. Direct child tools remain available beside the job tools.
 
 Inspect the job from any connected client with `hub__get_job(job_id)` or open the same job in the dashboard. State and evidence events are shared because all clients use the same Hub process and per-user SQLite database. `hub__get_job_detail` or the dashboard loads bounded pages of the encrypted full tool output only when requested.
 
-Limits are two active jobs, 15 minutes per job, and 30 child-tool calls per job. Unconfigured providers or children produce a partial result; the Hub does not guess a missing environment, alias, or source.
+Limits are two active jobs, 20 queued jobs, a 15-minute investigation window per job, and 30 child-tool calls per job. A job waiting for approval does not hold an active slot. A failed tool call is reported to the specialist, which continues. At the 15-minute limit, unfinished specialists stop, the coordinator gets up to 90 seconds to summarize the evidence already collected, and the job ends `partial`. Unconfigured providers or children produce a partial result; the Hub does not guess a missing environment, alias, or source.
 
 ## 6. Approve a pending write
 
-Agent-initiated child writes wait in `awaiting_approval`. Open the job in the dashboard and inspect the tool name and redacted argument preview. The dashboard can approve directly, or copy the one-time code there and provide it to the AI client for `hub__approve_job(job_id, code)`. The code expires after 10 minutes and works once. The user must explicitly choose to approve; an agent saying “approved” is not enough.
+A gated write (today: a forced `jira__sync_ticket` with `force=true`) waits in `awaiting_approval`. Open the job in the dashboard and inspect the tool name and its full arguments in the scrollable preview; only secret values such as tokens, keys, and passwords are masked, and a preview over 64 KB says it was cut. The dashboard can approve directly (it asks for confirmation and disables the button while the request runs), or copy the one-time code there and provide it to the AI client for `hub__approve_job(job_id, code)`. Only the paired dashboard can read the code or approve; the bearer token that AI clients hold gets `403` on those routes. Each write waits for its own approval. The code expires after 10 minutes and works once. The user must explicitly choose to approve; an agent saying “approved” is not enough.
 
-Documented encrypted cache updates made automatically as part of read workflows do not prompt. Direct child calls keep their current behavior and must follow their child contract. If the service restarts while an investigation is running, the job is marked interrupted and model work is not replayed. A job still waiting for approval remains pending; approving it runs only its exact saved operation once and returns a partial job because the broader investigation does not resume.
+Documented encrypted cache updates made automatically as part of read workflows do not prompt. Direct child calls keep their current behavior and must follow their child contract. If the service restarts while an investigation is running, the job is marked interrupted and model work is not replayed. One-time codes do not survive a restart; approve a still-pending write from the dashboard instead. A job still waiting for approval remains pending until 15 minutes after it was created, then becomes `partial` with event `approval.expired` (at start for older ones) and its write is not run. Approving it in time runs only its exact saved operation once and returns a partial job because the broader investigation does not resume.
 
 ## 7. Retention and support
 
@@ -140,11 +140,16 @@ SQLite job records, events, pending actions, summaries, tool results, and daily 
 
 | Symptom | Check |
 |---|---|
-| Service task runs but health is unavailable | `hubctl status`; inspect the redacted `config.load.failed` or child connection event in `logs/mcp-hub.jsonl`; run `uv run python scripts/smoke.py` |
+| Service task runs but health is unavailable | `hubctl status`; inspect the redacted `config.load.failed` or child connection event in `logs/mcp-hub.jsonl`; a crash traceback is in `logs/mcp-hub-service.err`; run `uv run python scripts/smoke.py` |
+| A child shows `reconnecting` or calls return `ChildUnavailable` | The child failed its last attempt or its session ended; the Hub retries it every 1 s up to 60 s. Find `server.disconnected`, `server.connect.failed`, or `server.reconnect.failed` for that `server` in `logs/mcp-hub.jsonl` (`error_type`, `retry_in_seconds`); the user can read the child's own output in `logs/children/<server-id>.log` (agents must not print it). A child that times out on first start (`error_type=TimeoutError`) may need a larger `connectTimeoutSeconds`. |
+| A child stays `connecting` at start | Its first attempt is still running; startup waits at most its `connectTimeoutSeconds` (default 120). |
 | HTTP client gets 401 | Restart after installing the service so `service.json` exists; reconnect so the client header helper runs again |
 | Dashboard pairing is rejected | Run `hubctl open` again; pairing tokens expire after two minutes and are one-use |
 | Source alias is unknown | Check `project-status`, then check the matching alias in the source child's private project config and restart |
 | Agent shows unconfigured | Check `agent-status`; edit the provider/model/key in private `agents.json`, then restart |
-| Write waits unexpectedly | Inspect the job's preview and state; explicit exports and external writes are gated by design |
+| Agent shows "Provider package not installed" | The provider's SDK (`openai`, `anthropic`, or `google-genai`) is missing from the Hub environment; run `hubctl start` to resync the locked environment |
+| Agent shows "Needs Windows DPAPI" | The Hub runs off Windows, where job details cannot be encrypted; `hub__submit_issue` refuses jobs there. Direct child tools still work |
+| Write waits unexpectedly | Inspect the job's preview and state; a forced Jira re-sync is gated by design, and other writes are never offered to specialists |
+| Submitting a job says the queue is full | 20 jobs are already queued; wait for one to start or cancel one in the dashboard |
 
 Do not share private configuration files, job databases, or full tool results in issue reports. Report request IDs and redacted error metadata only.

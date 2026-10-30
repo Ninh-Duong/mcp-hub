@@ -29,6 +29,8 @@ class SideEffectPolicyTest(unittest.TestCase):
                     "jira__sync_ticket", read_only_hint=False, arguments={"issue_key": "EX-1", "force": force},
                 ))
         self.assertFalse(policy.requires_approval("pr__sync_my_open_prs", read_only_hint=False, arguments={"force": True}))
+        # A child that marks the sync read-only cannot lift the forced-sync gate.
+        self.assertTrue(policy.requires_approval("jira__sync_ticket", read_only_hint=True, arguments={"force": True}))
 
     def test_never_gates_read_only_tools(self) -> None:
         from mcp_hub.jobs.policy import SideEffectPolicy

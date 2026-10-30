@@ -6,20 +6,27 @@ from pathlib import Path
 from unittest.mock import patch
 
 from mcp_hub import config
-from mcp_hub.config import HUB_ROOT, PRIVATE_ROOT, ConfigError, PrepareSpec, RuntimeRequirement, load_config
+from mcp_hub.config import HUB_ROOT, ConfigError, PrepareSpec, RuntimeRequirement, load_config
 
 
 class LoadConfigTest(unittest.TestCase):
     def setUp(self) -> None:
-        PRIVATE_ROOT.mkdir(parents=True, exist_ok=True)
-        self.tmp = Path(tempfile.mkdtemp(dir=PRIVATE_ROOT))
+        # A temporary checkout, so the real config/private/ is never written.
+        self.root = Path(tempfile.mkdtemp()).resolve()
+        private_root = self.root / "config" / "private"
+        self.tmp = private_root / "case"
         (self.tmp / "child" / "bin").mkdir(parents=True)
+        self.patches = [patch.object(config, "HUB_ROOT", self.root), patch.object(config, "PRIVATE_ROOT", private_root)]
+        for item in self.patches:
+            item.start()
 
     def tearDown(self) -> None:
-        shutil.rmtree(self.tmp)
+        for item in reversed(self.patches):
+            item.stop()
+        shutil.rmtree(self.root)
 
     def load_config(self, server: object, *, version: object = 1, features: object | None = None, servers: object | None = None):
-        rel = self.tmp.relative_to(HUB_ROOT).as_posix()
+        rel = self.tmp.relative_to(self.root).as_posix()
         (self.tmp / "child.json").write_text(json.dumps(server), encoding="utf-8")
         hub = {
             "version": version,
@@ -33,7 +40,7 @@ class LoadConfigTest(unittest.TestCase):
         return self.load_config(server, **kwargs).servers["child"]
 
     def server(self, **extra) -> dict:
-        rel = self.tmp.relative_to(HUB_ROOT).as_posix()
+        rel = self.tmp.relative_to(self.root).as_posix()
         return {"transport": "stdio", "command": "bin/run.exe", "cwd": f"{rel}/child", **extra}
 
     def test_relative_cwd_and_command(self) -> None:
@@ -83,8 +90,15 @@ class LoadConfigTest(unittest.TestCase):
     def test_valid_finite_timeout_is_preserved(self) -> None:
         self.assertEqual(self.load(self.server(timeoutSeconds=12.5)).timeout_seconds, 12.5)
 
+    def test_connect_timeout_defaults_and_is_validated(self) -> None:
+        self.assertEqual(self.load(self.server()).connect_timeout_seconds, 120.0)
+        self.assertEqual(self.load(self.server(connectTimeoutSeconds=7.5)).connect_timeout_seconds, 7.5)
+        for timeout in (True, 0, -1, float("nan"), float("inf"), "30"):
+            with self.subTest(timeout=timeout), self.assertRaisesRegex(ConfigError, "connectTimeoutSeconds"):
+                self.load(self.server(connectTimeoutSeconds=timeout))
+
     def test_invalid_child_config_fields_are_rejected(self) -> None:
-        rel = self.tmp.relative_to(HUB_ROOT).as_posix()
+        rel = self.tmp.relative_to(self.root).as_posix()
         cases = (
             (self.server(transport="http"), "transport"),
             (self.server(command=" "), "command"),
@@ -102,7 +116,7 @@ class LoadConfigTest(unittest.TestCase):
                 self.load(child_config)
 
     def test_invalid_hub_and_server_config_shapes_are_rejected(self) -> None:
-        rel = self.tmp.relative_to(HUB_ROOT).as_posix()
+        rel = self.tmp.relative_to(self.root).as_posix()
         server_entry = {"enabled": True, "configFile": f"{rel}/child.json"}
         cases = (
             (self.server(), 1, [], "servers must be an object"),
@@ -140,7 +154,7 @@ class LoadConfigTest(unittest.TestCase):
             ]}})
 
     def load_with_prepare(self, prepare: object):
-        rel = self.tmp.relative_to(HUB_ROOT).as_posix()
+        rel = self.tmp.relative_to(self.root).as_posix()
         servers = {"child": {"enabled": True, "configFile": f"{rel}/child.json", "prepare": prepare}}
         return self.load(self.server(), servers=servers)
 

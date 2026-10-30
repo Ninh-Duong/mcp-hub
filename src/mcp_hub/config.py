@@ -10,7 +10,9 @@ from typing import Any
 
 
 HUB_ROOT = Path(__file__).resolve().parents[2]
-PRIVATE_ROOT = (HUB_ROOT / "config" / "private").resolve()
+# `MCP_HUB_PRIVATE_DIR` relocates all private files (tests and tools that must not touch the real ones).
+PRIVATE_DIR_ENV = "MCP_HUB_PRIVATE_DIR"
+PRIVATE_ROOT = Path(os.environ.get(PRIVATE_DIR_ENV) or HUB_ROOT / "config" / "private").resolve()
 _DEFAULT_CONFIG = PRIVATE_ROOT / "hub.json"
 SECRET_PLACEHOLDER = "<SET_BY_USER>"
 _ALIAS_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
@@ -48,6 +50,7 @@ class ServerConfig:
     timeout_seconds: float = 60.0
     secret_values: tuple[str, ...] = field(default=(), repr=False)
     prepare: PrepareSpec | None = None
+    connect_timeout_seconds: float = 120.0
 
 
 @dataclass(frozen=True)
@@ -78,6 +81,11 @@ class _LoadContext:
     unavailable: dict[str, str] = field(default_factory=dict)
 
 
+def is_sensitive_key(name: str) -> bool:
+    """Whether a config or environment key name looks like it holds a secret (token, password, API key, ...)."""
+    return bool(_SENSITIVE_KEY_RE.search(name))
+
+
 def _mapping(value: Any, label: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ConfigError(f"{label} must be an object")
@@ -94,7 +102,7 @@ def _collect_sensitive_values(value: Any, sensitive_parent: bool = False) -> lis
     found: list[str] = []
     if isinstance(value, dict):
         for key, child in value.items():
-            sensitive = sensitive_parent or bool(_SENSITIVE_KEY_RE.search(str(key)))
+            sensitive = sensitive_parent or is_sensitive_key(str(key))
             found.extend(_collect_sensitive_values(child, sensitive))
     elif isinstance(value, list):
         for child in value:
@@ -240,6 +248,9 @@ def _load_server(server_id: str, item: dict[str, Any], context: _LoadContext) ->
         timeout_seconds=_parse_timeout(local.get("timeoutSeconds", 60), f"server {server_id} timeoutSeconds"),
         secret_values=tuple(_collect_sensitive_values(local)),
         prepare=_parse_prepare(item.get("prepare"), server_id),
+        connect_timeout_seconds=_parse_timeout(
+            local.get("connectTimeoutSeconds", 120), f"server {server_id} connectTimeoutSeconds",
+        ),
     )
 
 

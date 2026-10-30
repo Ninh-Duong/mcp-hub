@@ -16,6 +16,9 @@ if ($pythonVersion -notmatch '^\d+\.\d+$') {
 
 $versionParts = $pythonVersion.Split(".")
 $versionCheck = "import sys; raise SystemExit(sys.version_info[:2] != ($($versionParts[0]), $($versionParts[1])))"
+# The uv version installed when none is found, and the SHA-256 of its installer script; update both together.
+$uvVersion = "0.12.3"
+$uvInstallerSha256 = "7b84813e3fad9586da122e362d4dcba1e2e611664244d004bcfc32b2fdf10430"
 $uvDirectory = Join-Path $repoRoot ".tools"
 $localUv = Join-Path $uvDirectory "uv.exe"
 $uvPath = $null
@@ -65,12 +68,19 @@ try {
         New-Item -ItemType Directory -Force -Path $uvDirectory | Out-Null
         $env:UV_INSTALL_DIR = $uvDirectory
         $env:UV_NO_MODIFY_PATH = "1"
+        $installerPath = Join-Path $uvDirectory "uv-installer.ps1"
         try {
-            [Console]::Error.WriteLine("[mcp-hub] Installing uv into the repository-local .tools directory.")
-            $installer = Invoke-RestMethod -Uri "https://astral.sh/uv/install.ps1"
+            [Console]::Error.WriteLine("[mcp-hub] Installing uv $uvVersion into the repository-local .tools directory.")
+            Invoke-WebRequest -Uri "https://astral.sh/uv/$uvVersion/install.ps1" -OutFile $installerPath -UseBasicParsing
+            $installerHash = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($installerHash -ne $uvInstallerSha256) {
+                throw "The downloaded uv $uvVersion installer does not match its pinned SHA-256; it was not run."
+            }
+            $installer = [IO.File]::ReadAllText($installerPath)
             $output = Invoke-Expression $installer 2>&1
             foreach ($line in $output) { [Console]::Error.WriteLine([string]$line) }
         } finally {
+            Remove-Item -LiteralPath $installerPath -Force -ErrorAction SilentlyContinue
             Remove-Item Env:UV_INSTALL_DIR -ErrorAction SilentlyContinue
             Remove-Item Env:UV_NO_MODIFY_PATH -ErrorAction SilentlyContinue
         }

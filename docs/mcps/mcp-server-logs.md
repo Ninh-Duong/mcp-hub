@@ -35,9 +35,7 @@ All are read-only except `logs__export_openobserve_logs`. The OpenObserve tools,
 
 ## Hub result cache
 
-The Hub keeps successful results of a tool in memory for that tool's `cacheSeconds` (set per tool in `config/hub.example.json`, overridable in `config/private/hub.json`; `0` or omitted means no caching). It applies a TTL only when the child declares `readOnlyHint=true`, so write tools are never cached. The key is the tool plus its canonical arguments; error results are never stored, and concurrent identical calls share one child call. A cached answer is logged as `tool.call.cached`. When one of a child's write tools succeeds, the Hub drops that child's cached results, so a read after a sync or export is fresh.
-
-Defaults here: 300 s for `logs__list_openobserve_organizations`; 120 s for `logs__list_log_providers`, the stream/schema/service discovery tools, and `logs__list_ai_context_snapshots`; 60 s for `logs__query_logs`, `logs__search_openobserve_logs`, `logs__get_openobserve_service_logs`, `logs__find_openobserve_logs_by_rcid`, and `logs__read_ai_context`; none for `logs__export_openobserve_logs`.
+Shared rules: [Hub result cache](README.md#hub-result-cache). Defaults here: 300 s for `logs__list_openobserve_organizations`; 120 s for `logs__list_log_providers`, the stream/schema/service discovery tools, and `logs__list_ai_context_snapshots`; 60 s for `logs__query_logs`, `logs__search_openobserve_logs`, `logs__get_openobserve_service_logs`, `logs__find_openobserve_logs_by_rcid`, and `logs__read_ai_context`; none for `logs__export_openobserve_logs`.
 
 ## Care
 

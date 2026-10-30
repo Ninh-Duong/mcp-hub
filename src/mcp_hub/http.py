@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hmac
+import re
 from collections.abc import Sequence
 from http.cookies import SimpleCookie
 from typing import Any
@@ -14,6 +15,9 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from mcp.server import Server
 from mcp.server.transport_security import TransportSecuritySettings
 
+# Dashboard routes that reveal or use a write approval; only a paired browser session may call them.
+_SESSION_ONLY_PATH = re.compile(r"^/dashboard/api/jobs/[^/]+/(?:approve|approval-code|pending-call)/?$")
+
 
 class LocalBearerMiddleware:
     def __init__(self, app: ASGIApp, token: str, host: str, port: int, sessions=None) -> None:
@@ -24,8 +28,13 @@ class LocalBearerMiddleware:
         self.allowed_origins = {f"http://{host}:{port}"}
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":
+        if scope["type"] == "lifespan":
             await self.app(scope, receive, send)
+            return
+        if scope["type"] != "http":
+            # No websocket or other scope is served; refuse instead of passing it through unauthenticated.
+            if scope["type"] == "websocket":
+                await send({"type": "websocket.close", "code": 1008})
             return
         headers = {key.lower(): value for key, value in scope.get("headers", [])}
         secured_send = _with_security_headers(send, dashboard=scope.get("path", "").startswith("/dashboard"))
@@ -42,9 +51,15 @@ class LocalBearerMiddleware:
             return PlainTextResponse("Invalid Host header", status_code=421)
         if origin and origin not in self.allowed_origins:
             return PlainTextResponse("Invalid Origin header", status_code=403)
-        if scope.get("path") == "/health":
+        path = scope.get("path", "")
+        if path == "/health":
             return None
-        if self._dashboard_session_authorized(scope, headers) or self._bearer_authorized(headers):
+        if _SESSION_ONLY_PATH.match(path):
+            # Approving a write is a human step: the bearer token every AI client holds must not do it.
+            if self._session_authorized(scope, headers):
+                return None
+            return PlainTextResponse("This action requires the paired dashboard session", status_code=403)
+        if self._session_authorized(scope, headers) or self._bearer_authorized(headers):
             return None
         return PlainTextResponse("Unauthorized", status_code=401, headers={"WWW-Authenticate": "Bearer"})
 
@@ -53,11 +68,10 @@ class LocalBearerMiddleware:
         supplied = authorization[7:] if authorization.startswith(b"Bearer ") else b""
         return bool(supplied) and hmac.compare_digest(supplied, self.token.encode("utf-8"))
 
-    def _dashboard_session_authorized(self, scope: Scope, headers: dict[bytes, bytes]) -> bool:
+    def _session_authorized(self, scope: Scope, headers: dict[bytes, bytes]) -> bool:
+        """A paired browser: a valid dashboard session cookie, or a pairing token on the entry page."""
         if not scope.get("path", "").startswith("/dashboard") or self.sessions is None:
             return False
-        if self._bearer_authorized(headers):
-            return True
         cookies = SimpleCookie()
         try:
             cookies.load(headers.get(b"cookie", b"").decode("latin-1"))
@@ -82,10 +96,14 @@ def _with_security_headers(send: Send, *, dashboard: bool) -> Send:
                 (b"referrer-policy", b"no-referrer"),
             ])
             if dashboard:
-                response_headers.append((
-                    b"content-security-policy",
-                    b"default-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
-                ))
+                response_headers.extend([
+                    (
+                        b"content-security-policy",
+                        b"default-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+                    ),
+                    # Approval codes and job data must not stay in a browser or proxy cache.
+                    (b"cache-control", b"no-store"),
+                ])
             message = {**message, "headers": response_headers}
         await send(message)
 

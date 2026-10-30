@@ -33,9 +33,10 @@ Never open the file after creating it. The `set` value is JSON, so strings need 
 | `inheritEnv` | no | `PATH`, `SYSTEMROOT`, `WINDIR`, `TEMP`, `TMP`, `USERPROFILE` | Hub process env vars passed to the child, in addition to the MCP SDK's default safe set (e.g. `PATH`, `APPDATA`, `USERNAME`; POSIX: `HOME`, `USER`). No other Hub env vars reach the child. |
 | `env` | no | `{}` | String values passed verbatim. A path inside `env` is resolved by the child, normally against its `cwd`, so use a path relative to the child repo (e.g. `../mcp-hub/config/private/mcps/<id>.json`). All values are redacted from Hub error logs. |
 | `timeoutSeconds` | no | `60` | Positive finite number of seconds for each tool call. |
+| `connectTimeoutSeconds` | no | `120` | Positive finite number of seconds to start the child, finish the MCP handshake, and list its tools, at Hub start and on each reconnect. Raise it for a child whose first start builds or installs dependencies. |
 | any other key | no | none | Ignored by the Hub; children may read them (e.g. the `jira` block). Values under a sensitive key, including nested string values, are redacted from Hub error logs. Sensitive keys include `api_key`, keys ending in `_key` (e.g. `ai_context_key`), and common token, password, authorization, email, and credential names. |
 
-The Hub config version must be the integer `1`. Values copied from names in `inheritEnv` are also added to the Hub's exact-value error redaction set.
+The Hub config version must be the integer `1`. Values of `inheritEnv` variables with sensitive names (token, secret, password, API key, ...), and child `env` values under sensitive keys, are added to the Hub's exact-value error redaction set; give a secret variable such a name.
 
 ## 3. Register it in `config/private/hub.json`
 
@@ -98,7 +99,7 @@ Check the newest events in `logs/mcp-hub.jsonl`:
 | `server.connected` (server `<id>`) + `hub.tools.registered` listing your tools | Working | Done |
 | `hub__status` lists the child as `credentials required` (or `config.load.failed` with "unfilled `<SET_BY_USER>`" when `MCP_HUB_CONFIG` is set) | Secrets not filled | Back to step 5.1 |
 | `config.load.failed` with other text | Invalid config (message names the key) | Fix it with `private_config.py set` or in `hub.json` |
-| `server.connect.failed` / `server.list_tools.failed` | Child didn't start or answer | Check `cwd`, `command`, `args`, and the child's own logs |
+| `server.connect.failed` / `server.list_tools.failed` | Child didn't start or answer within `connectTimeoutSeconds` (`error_type=TimeoutError`) | Check `cwd`, `command`, `args`, and the child's stderr in `logs/children/<server-id>.log` (the user reads it; it may contain secrets). The Hub keeps retrying (`server.reconnect.failed`). |
 | `route.skipped` with `tool not found` | Wrong tool name in the allowlist | Fix `name` in `hub.json` |
 
 Add one or more read-only checks for the child to `CHECKS` in `scripts/smoke.py`, using a tool that proves it reaches the required upstream service. The success check must validate each tool's real response shape, not only the absence of an MCP error flag. Add unit tests for successful, malformed, and error results, then run the definition-of-done commands in [AGENTS.md](../AGENTS.md). For an enabled child without an entry, `smoke.py` checks only the connection and prints `PASS  N tools, connected (no read-only check in CHECKS)`.

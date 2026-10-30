@@ -6,6 +6,7 @@ The core tool-call path (`server`, `http`, `dashboard/api.py` core routes) never
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Protocol
@@ -62,22 +63,39 @@ def status_flags(installed: tuple[str, ...] | frozenset[str]) -> dict[str, bool]
     return {flag: name in installed for name, flag in STATUS_FLAGS.items()}
 
 
-def read_launch_extensions(path: Path = LAUNCH_FILE) -> frozenset[str]:
+def read_launch_extensions(path: Path = LAUNCH_FILE, audit: Any = None) -> frozenset[str]:
     """Return the extensions requested for this start, then delete the request.
 
     `hubctl start|restart|open -Ui` writes the file; deleting it makes the next start
-    (including the logon-triggered one) use the default fast mode.
+    (including the logon-triggered one) use the default fast mode. A file that cannot be read,
+    decoded, parsed, or deleted never stops the start: it is logged as `launch.file.invalid`
+    (when `audit` is given) and the Hub starts in fast mode.
     """
     try:
         text = path.read_text(encoding="utf-8-sig")
     except FileNotFoundError:
         return frozenset()
+    except (OSError, UnicodeDecodeError) as exc:
+        return _invalid_launch_file(audit, type(exc).__name__)
     finally:
-        path.unlink(missing_ok=True)
+        _remove_launch_file(path, audit)
     try:
         names = json.loads(text).get("extensions")
-    except (ValueError, AttributeError):
-        return frozenset()
+    except (ValueError, AttributeError) as exc:
+        return _invalid_launch_file(audit, type(exc).__name__)
     if not isinstance(names, list):
-        return frozenset()
+        return _invalid_launch_file(audit, "ValueError")
     return frozenset(name for name in names if isinstance(name, str))
+
+
+def _remove_launch_file(path: Path, audit: Any) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as exc:
+        _invalid_launch_file(audit, type(exc).__name__)
+
+
+def _invalid_launch_file(audit: Any, error_type: str) -> frozenset[str]:
+    if audit is not None:
+        audit.write("launch.file.invalid", level=logging.WARNING, error_type=error_type)
+    return frozenset()

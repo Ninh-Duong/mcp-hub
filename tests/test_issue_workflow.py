@@ -80,7 +80,7 @@ class IssueWorkflowTest(unittest.TestCase):
             )
             try:
                 async def wait_for_approved_write():
-                    self.assertTrue(runner.approve_from_dashboard(job_id))
+                    self.assertTrue(await runner.approve_from_dashboard(job_id))
                     await runner.wait(job_id)
 
                 asyncio.run(wait_for_approved_write())
@@ -90,6 +90,53 @@ class IssueWorkflowTest(unittest.TestCase):
                 )])
                 self.assertEqual(store.get_job(job_id)["state"], "partial")
                 self.assertIsNotNone(store.get_detail_page(job_id, "approved-write", offset=0, limit=100)["content"])
+            finally:
+                store.close()
+
+    def test_every_write_in_one_job_waits_for_its_own_approval(self) -> None:
+        from mcp_hub.agents.config import AGENT_ROLES, AgentConfig
+        from mcp_hub.jobs.projects import ProjectConfig
+        from mcp_hub.jobs.runner import JobRunner
+        from mcp_hub.jobs.store import JobStore
+
+        class Runtime:
+            public_tools = []
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "jobs.sqlite3", protector=FakeProtector())
+            job_id = store.create_job(project="orders", question="sync two tickets", env="dev")
+            store.transition_job(job_id, "running", event="job.started")
+            runner = JobRunner(
+                store=store, runtime=Runtime(), projects={"orders": ProjectConfig("orders", ("dev",))},
+                agents={role: AgentConfig(role, None, None) for role in AGENT_ROLES},
+            )
+
+            async def waiting_for(task: asyncio.Task, issue_key: str) -> bool:
+                for _ in range(200):
+                    pending = store.get_pending_call(job_id, include_arguments=True)
+                    if pending and pending["arguments"] == {"issue_key": issue_key}:
+                        return not task.done()
+                    if task.done():
+                        return False
+                    await asyncio.sleep(0.005)
+                return False
+
+            async def exercise() -> list[dict]:
+                async def two_writes() -> list[dict]:
+                    return [
+                        await runner._await_approval(job_id, "jira", "jira__sync_ticket", {"issue_key": key})
+                        for key in ("EX-1", "EX-2")
+                    ]
+
+                task = asyncio.create_task(two_writes())
+                runner._tasks[job_id] = task
+                for key in ("EX-1", "EX-2"):
+                    self.assertTrue(await waiting_for(task, key), f"{key} did not wait for approval")
+                    self.assertTrue(await runner.approve_from_dashboard(job_id))
+                return await asyncio.wait_for(task, 5)
+
+            try:
+                self.assertEqual(asyncio.run(exercise()), [{"issue_key": "EX-1"}, {"issue_key": "EX-2"}])
             finally:
                 store.close()
 
@@ -152,7 +199,10 @@ class IssueWorkflowTest(unittest.TestCase):
                 return redact(value, self.secrets, limit=limit)
 
         class Runtime:
-            public_tools = [SimpleNamespace(name="logs__query_logs", input_schema={"type": "object"})]
+            public_tools = [SimpleNamespace(
+                name="logs__query_logs", input_schema={"type": "object"},
+                annotations=SimpleNamespace(read_only_hint=True),
+            )]
 
             def __init__(self):
                 self.audit = Audit()

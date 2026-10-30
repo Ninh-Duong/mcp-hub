@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import logging
 import socket
 import statistics
 import sys
@@ -101,6 +100,7 @@ async def _drain(queue: asyncio.Queue) -> None:
 async def run_mode(root: Path, ui_on: bool, calls: int) -> list[float]:
     audit = AuditLog(root / "audit.jsonl")
     runtime = HubRuntime(hub_config(root), audit)
+    runtime.child_log_dir = root / "children"
     store = JobStore(root / f"jobs-{'ui' if ui_on else 'fast'}.sqlite3", protector=PlainProtector())
     try:
         async with AsyncExitStack() as stack:
@@ -124,6 +124,7 @@ async def run_mode(root: Path, ui_on: bool, calls: int) -> list[float]:
             return durations
     finally:
         store.close()
+        audit.close()
 
 
 def report(label: str, durations: list[float]) -> None:
@@ -133,20 +134,10 @@ def report(label: str, durations: list[float]) -> None:
     )
 
 
-def _close_audit_handlers() -> None:
-    logger = logging.getLogger("mcp_hub.audit")
-    for handler in list(logger.handlers):
-        logger.removeHandler(handler)
-        handler.close()
-
-
 async def main_async(calls: int) -> None:
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
-        try:
-            report("UI off (fast)", await run_mode(Path(tmp), False, calls))
-            report("UI on (-Ui)", await run_mode(Path(tmp), True, calls))
-        finally:
-            _close_audit_handlers()
+        report("UI off (fast)", await run_mode(Path(tmp), False, calls))
+        report("UI on (-Ui)", await run_mode(Path(tmp), True, calls))
 
 
 def main(argv: list[str] | None = None) -> int:

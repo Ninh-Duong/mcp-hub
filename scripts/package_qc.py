@@ -8,8 +8,12 @@ from pathlib import Path
 
 
 HUB_ROOT = Path(__file__).resolve().parents[1]
+# Measured line+branch coverage of src/mcp_hub was 88%; the gate is that baseline rounded down to a multiple of 5.
+COVERAGE_FAIL_UNDER = 85
 OFFLINE_CHECKS = (
-    ("unit tests", ("-m", "unittest", "discover", "tests")),
+    ("lint", ("-m", "ruff", "check", ".")),
+    ("unit tests", ("-m", "coverage", "run", "-m", "unittest", "discover", "tests")),
+    ("coverage", ("-m", "coverage", "report", f"--fail-under={COVERAGE_FAIL_UNDER}")),
     ("leak check", ("scripts/check_leaks.py",)),
     ("code standards", ("scripts/check_code_standards.py",)),
     ("compile check", ("-m", "compileall", "-q", "src", "scripts", "tests")),
@@ -33,7 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     for label, command in checks(args.live_smoke):
-        print(f"[QC] {label}: running")
+        print(f"[QC] {label}: running", flush=True)
         try:
             result = subprocess.run([sys.executable, *command], cwd=HUB_ROOT, check=False)
         except OSError as exc:
@@ -42,7 +46,7 @@ def main(argv: list[str] | None = None) -> int:
         if result.returncode:
             print(f"[QC] {label}: failed (exit {result.returncode})", file=sys.stderr)
             return result.returncode
-        print(f"[QC] {label}: passed")
+        print(f"[QC] {label}: passed", flush=True)
 
     if not args.live_smoke:
         print("[QC] live smoke: skipped (pass --live-smoke when child credentials are configured)")

@@ -11,13 +11,13 @@ import argparse
 import logging
 import os
 import re
-import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
 from typing import Callable, Iterable, Sequence
 
 from .audit import AuditLog
+from .children import child_environment
 from .config import HubConfig, PrepareSpec, RuntimeRequirement, ServerConfig, load_config
 
 _VERSION_RE = re.compile(r"(\d+)(?:\.(\d+))?(?:\.(\d+))?")
@@ -35,6 +35,37 @@ class CheckResult:
 
 Runner = Callable[..., subprocess.CompletedProcess]
 Which = Callable[[str], "str | None"]
+
+
+_DEFAULT_PATHEXT = ".COM;.EXE;.BAT;.CMD"
+
+
+def find_executable(name: str, path: str | None = None, platform: str = sys.platform) -> str | None:
+    """Find `name` in the absolute entries of PATH, like `shutil.which` but never in the current directory.
+
+    `shutil.which` searches the working directory first on Windows, so a planted `node.exe` or
+    `winget.exe` there would run. Names with a directory component and relative PATH entries
+    (including `.`) are never resolved.
+    """
+    if not name or os.path.dirname(name):
+        return None
+    search = os.environ.get("PATH", "") if path is None else path
+    entries = [entry for entry in search.split(os.pathsep) if entry and os.path.isabs(entry)]
+    for entry in entries:
+        for candidate_name in _candidate_names(name, platform):
+            candidate = os.path.join(entry, candidate_name)
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                return candidate
+    return None
+
+
+def _candidate_names(name: str, platform: str) -> list[str]:
+    if platform != "win32":
+        return [name]
+    extensions = [ext for ext in os.environ.get("PATHEXT", _DEFAULT_PATHEXT).split(";") if ext]
+    if any(name.lower().endswith(ext.lower()) for ext in extensions):
+        return [name]
+    return [name + ext for ext in extensions]
 
 
 def run_hidden(command: Sequence[str], *, cwd: str | None = None, env: dict[str, str] | None = None,
@@ -58,7 +89,7 @@ def format_version(version: tuple[int, ...]) -> str:
 
 
 def installed_version(requirement: RuntimeRequirement, *, runner: Runner = run_hidden,
-                      which: Which = shutil.which) -> tuple[int, ...] | None:
+                      which: Which = find_executable) -> tuple[int, ...] | None:
     executable = which(requirement.name)
     if executable is None:
         return None
@@ -70,7 +101,7 @@ def installed_version(requirement: RuntimeRequirement, *, runner: Runner = run_h
 
 
 def install_runtime(requirement: RuntimeRequirement, *, upgrade: bool, runner: Runner = run_hidden,
-                    which: Which = shutil.which, platform: str = sys.platform) -> bool:
+                    which: Which = find_executable, platform: str = sys.platform) -> bool:
     winget = which("winget") if platform == "win32" and requirement.winget_id else None
     if winget is None:
         return False
@@ -118,7 +149,7 @@ def refresh_windows_path(env: dict[str, str] | None = None,
 
 
 def ensure_runtime(server_id: str, requirement: RuntimeRequirement, *, install: bool,
-                   runner: Runner = run_hidden, which: Which = shutil.which,
+                   runner: Runner = run_hidden, which: Which = find_executable,
                    platform: str = sys.platform) -> CheckResult:
     wanted = format_version(requirement.min_version)
     version = installed_version(requirement, runner=runner, which=which)
@@ -138,9 +169,10 @@ def ensure_runtime(server_id: str, requirement: RuntimeRequirement, *, install: 
 
 
 def run_prepare(server: ServerConfig, spec: PrepareSpec, *, runner: Runner = run_hidden,
-                which: Which = shutil.which) -> CheckResult:
+                which: Which = find_executable) -> CheckResult:
     executable = which(spec.command[0]) or spec.command[0]
-    env = {**os.environ, **server.env}
+    # The same variables the child gets at runtime, never the Hub's whole environment.
+    env = child_environment(server)
     try:
         result = runner([executable, *spec.command[1:]], cwd=str(server.cwd), env=env,
                         timeout=spec.timeout_seconds)
@@ -156,7 +188,7 @@ def run_prepare(server: ServerConfig, spec: PrepareSpec, *, runner: Runner = run
 
 
 def check_server(server: ServerConfig, *, install: bool, runner: Runner = run_hidden,
-                 which: Which = shutil.which, platform: str = sys.platform) -> list[CheckResult]:
+                 which: Which = find_executable, platform: str = sys.platform) -> list[CheckResult]:
     spec = server.prepare
     if spec is None:
         return []
@@ -172,7 +204,7 @@ def check_server(server: ServerConfig, *, install: bool, runner: Runner = run_hi
 
 
 def run_preflight(config: HubConfig, *, install: bool, runner: Runner = run_hidden,
-                  which: Which = shutil.which, platform: str = sys.platform) -> list[CheckResult]:
+                  which: Which = find_executable, platform: str = sys.platform) -> list[CheckResult]:
     results: list[CheckResult] = []
     for server in config.servers.values():
         results.extend(check_server(server, install=install, runner=runner, which=which, platform=platform))

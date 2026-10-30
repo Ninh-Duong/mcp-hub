@@ -1,6 +1,17 @@
+"""A minimal stdio child MCP for tests and the call-path benchmark.
+
+Test-only behaviors, controlled by environment variables:
+- FAKE_CHILD_STDERR: a line written to stderr at start.
+- FAKE_CHILD_HANG_INITIALIZE=1: write `pid=<pid>` to stderr and never answer (not even initialize).
+- FAKE_CHILD_HOOKS=1: `echo_unicode` with text `exit` exits the process; `badutf8` writes invalid
+  UTF-8 to stdout before answering; `badutf8-exit` writes invalid UTF-8 and exits.
+"""
 from __future__ import annotations
 
 import asyncio
+import os
+import sys
+import time
 
 from mcp.server import Server, ServerRequestContext
 from mcp.server.stdio import stdio_server
@@ -28,7 +39,20 @@ async def list_tools(_ctx: ServerRequestContext, _params: PaginatedRequestParams
     )])
 
 
+# The protocol pipe, duplicated before the SDK diverts fd 1 to stderr while serving.
+_WIRE: int | None = None
+
+
+def _run_hook(text: str) -> None:
+    if text in ("badutf8", "badutf8-exit") and _WIRE is not None:
+        os.write(_WIRE, bytes([0xFF, 0xFE]) + b" not utf-8 " + bytes([0xC3]) + b"\n")
+    if text in ("exit", "badutf8-exit"):
+        os._exit(3)
+
+
 async def call_tool(_ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
+    if os.environ.get("FAKE_CHILD_HOOKS") == "1":
+        _run_hook(params.arguments["text"])
     return CallToolResult(content=[TextContent(type="text", text=f"naïve café 🌺 {params.arguments['text']}")])
 
 
@@ -46,6 +70,14 @@ async def get_prompt(_ctx: ServerRequestContext, params: GetPromptRequestParams)
 
 
 async def main() -> None:
+    global _WIRE
+    if os.environ.get("FAKE_CHILD_HOOKS") == "1":
+        _WIRE = os.dup(1)
+    if os.environ.get("FAKE_CHILD_STDERR"):
+        print(os.environ["FAKE_CHILD_STDERR"], file=sys.stderr, flush=True)
+    if os.environ.get("FAKE_CHILD_HANG_INITIALIZE") == "1":
+        print(f"pid={os.getpid()}", file=sys.stderr, flush=True)
+        time.sleep(3600)
     server = Server(
         "fake-child",
         on_list_tools=list_tools,

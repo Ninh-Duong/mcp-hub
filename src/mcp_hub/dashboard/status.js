@@ -31,10 +31,18 @@ export function renderClients(clientList) {
   $("clients").replaceChildren(...cards);
 }
 
+// Why a role cannot run (`unavailable` in /dashboard/api/status) -> locale key.
+const UNAVAILABLE_KEYS = { "windows-only": "agents.windowsOnly", "package-missing": "agents.packageMissing" };
+
+function agentState(agent) {
+  if (agent.configured) return t("agents.ready");
+  return t(UNAVAILABLE_KEYS[agent.unavailable] || "agents.notConfigured");
+}
+
 function agentCard(name, agent) {
   const card = element("div", "agent");
   const provider = `${agent.provider || t("agents.noProvider")} · ${agent.model || t("agents.noModel")}`;
-  const state = element("span", agent.configured ? "ready" : "", agent.configured ? t("agents.ready") : t("agents.notConfigured"));
+  const state = element("span", agent.configured ? "ready" : "", agentState(agent));
   card.append(element("strong", "", name), element("span", "", provider), state);
   return card;
 }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import subprocess
 from collections.abc import Sequence
 from pathlib import Path
@@ -124,12 +125,16 @@ class DashboardHandlers:
             return JSONResponse({"jobs": jobs})
         except (TypeError, ValueError):
             return JSONResponse({"error": "Invalid job page."}, status_code=400)
+        except OSError:
+            return _job_data_unreadable()
 
     async def job(self, request: Request) -> Response:
         try:
             return JSONResponse(await asyncio.to_thread(self.job_runner.get_job, request.path_params["job_id"]))
         except KeyError:
             return _job_not_found()
+        except OSError:
+            return _job_data_unreadable()
 
     async def detail(self, request: Request) -> Response:
         try:
@@ -143,6 +148,8 @@ class DashboardHandlers:
             return JSONResponse({"error": "Job detail not found or expired."}, status_code=404)
         except (TypeError, ValueError):
             return JSONResponse({"error": "Invalid detail page."}, status_code=400)
+        except OSError:
+            return _job_data_unreadable()
 
     async def approval_code(self, request: Request) -> Response:
         try:
@@ -156,22 +163,26 @@ class DashboardHandlers:
             preview = await asyncio.to_thread(self.job_runner.pending_approval_preview, request.path_params["job_id"])
         except KeyError:
             return _job_not_found()
+        except OSError:
+            return _job_data_unreadable()
         if preview is None:
             return JSONResponse({"error": "No pending write."}, status_code=404)
         return JSONResponse(preview)
 
     async def approve(self, request: Request) -> Response:
         try:
-            accepted = self.job_runner.approve_from_dashboard(request.path_params["job_id"])
+            accepted = await self.job_runner.approve_from_dashboard(request.path_params["job_id"])
         except KeyError:
             return _job_not_found()
         return JSONResponse({"approved": accepted})
 
     async def cancel(self, request: Request) -> Response:
         try:
-            return JSONResponse(self.job_runner.cancel_job(request.path_params["job_id"]))
+            return JSONResponse(await self.job_runner.cancel_job(request.path_params["job_id"]))
         except KeyError:
             return _job_not_found()
+        except ValueError:
+            return JSONResponse({"error": "Job can no longer be cancelled."}, status_code=409)
 
     async def service_control(self, request: Request) -> Response:
         command = request.path_params["command"]
@@ -179,7 +190,10 @@ class DashboardHandlers:
             return JSONResponse({"error": "Unsupported control."}, status_code=404)
         # A restart keeps the extensions this Hub runs with (for example -Ui).
         flags = [flag for extension in self.extensions for flag in extension.hubctl_flags] if command == "restart" else []
-        self.launch_control([command, *flags])
+        try:
+            self.launch_control([command, *flags])
+        except OSError:
+            return JSONResponse({"error": "Service control is available only on Windows."}, status_code=503)
         return JSONResponse({"accepted": True, "command": command})
 
     async def request_shutdown(self, _request: Request) -> Response:
@@ -209,12 +223,25 @@ def _job_not_found() -> Response:
     return JSONResponse({"error": "Job not found."}, status_code=404)
 
 
+def _job_data_unreadable() -> Response:
+    """Encrypted job data could not be decrypted (for example a DPAPI failure); no details are returned."""
+    return JSONResponse({"error": "Job data could not be decrypted."}, status_code=500)
+
+
+def windows_powershell() -> str:
+    """Windows PowerShell by absolute path, so a `powershell.exe` in the working directory or on PATH never runs."""
+    system_root = os.environ.get("SystemRoot")
+    if not system_root:
+        raise OSError("SystemRoot is not set; service control requires Windows")
+    return str(Path(system_root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe")
+
+
 def _launch_control(arguments: list[str]) -> None:
     """Run `hubctl.ps1 <command> [flags]` detached, without a window."""
     script = HUB_ROOT / "scripts" / "hubctl.ps1"
     creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     subprocess.Popen(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", str(script), *arguments],
+        [windows_powershell(), "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", str(script), *arguments],
         cwd=HUB_ROOT,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,

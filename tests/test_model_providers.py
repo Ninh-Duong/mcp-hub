@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -83,6 +82,36 @@ class ModelProviderTest(unittest.TestCase):
         with self.assertRaises(ProviderError) as caught:
             asyncio.run(failing.complete([], [TOOL]))
         self.assertNotIn("do-not-leak-this-key", str(caught.exception))
+
+    def test_openai_responses_are_not_stored(self) -> None:
+        from mcp_hub.agents.providers import OpenAIProvider
+
+        client = SimpleNamespace(responses=SimpleNamespace(create=AsyncMock(return_value=SimpleNamespace(output=[]))))
+        asyncio.run(OpenAIProvider("test-model", "test-only-key", client=client).complete([], [TOOL]))
+        self.assertIs(client.responses.create.await_args.kwargs["store"], False)
+
+    def test_sdk_clients_get_an_explicit_retry_limit_and_the_timeout(self) -> None:
+        import sys
+        from unittest.mock import MagicMock, patch
+
+        from mcp_hub.agents.providers import (
+            DEFAULT_TIMEOUT_SECONDS, MAX_RETRIES, AnthropicProvider, GeminiProvider, OpenAIProvider,
+        )
+
+        openai, anthropic, genai = MagicMock(), MagicMock(), MagicMock()
+        google = MagicMock(genai=genai)
+        modules = {"openai": openai, "anthropic": anthropic, "google": google, "google.genai": genai}
+        with patch.dict(sys.modules, modules):
+            OpenAIProvider("test-model", "test-only-key")._create_client()
+            AnthropicProvider("test-model", "test-only-key")._create_client()
+            GeminiProvider("test-model", "test-only-key")._create_client()
+        self.assertEqual(MAX_RETRIES, 2)
+        for factory in (openai.AsyncOpenAI, anthropic.AsyncAnthropic):
+            self.assertEqual(factory.call_args.kwargs["max_retries"], MAX_RETRIES)
+            self.assertEqual(factory.call_args.kwargs["timeout"], DEFAULT_TIMEOUT_SECONDS)
+        options = genai.Client.call_args.kwargs["http_options"]
+        self.assertEqual(options["retry_options"], {"attempts": MAX_RETRIES + 1})
+        self.assertEqual(options["timeout"], int(DEFAULT_TIMEOUT_SECONDS * 1000))
 
 
 if __name__ == "__main__":

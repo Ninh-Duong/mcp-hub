@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import importlib.machinery
+import importlib.util
+import re
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -18,9 +22,9 @@ class BootstrapScriptsTest(unittest.TestCase):
         self.assertIn("[Console]::Error.WriteLine", windows)
         self.assertIn("$output = Invoke-Expression $installer 2>&1", windows)
         self.assertIn("if ($installExitCode -ne 0)", windows)
-        self.assertIn("sh >&2", unix)
+        self.assertIn('"$uv_installer" >&2', unix)
         self.assertIn('"$uv_bin" python install "$python_version" >&2', unix)
-        self.assertIn('if ! curl -LsSf https://astral.sh/uv/install.sh | sh >&2; then', unix)
+        self.assertIn('if ! sh "$uv_installer" >&2; then', unix)
         self.assertIn('[switch]$Service', windows)
         self.assertIn('[switch]$Bridge', windows)
         self.assertIn('[string]$ClientName', windows)
@@ -37,6 +41,22 @@ class BootstrapScriptsTest(unittest.TestCase):
                 self.assertIn("python install", script)
                 self.assertIn("run --locked", script)
 
+    def test_uv_installer_is_pinned_and_verified_before_it_runs(self) -> None:
+        windows = (HUB_ROOT / "scripts" / "start.ps1").read_text(encoding="utf-8")
+        unix = (HUB_ROOT / "scripts" / "start.sh").read_text(encoding="utf-8")
+        version = re.search(r'\$uvVersion = "(\d+\.\d+\.\d+)"', windows).group(1)
+        self.assertIn(f'uv_version="{version}"', unix, "both launchers install the same uv version")
+        for script, hash_line in ((windows, r'\$uvInstallerSha256 = "([0-9a-f]{64})"'),
+                                  (unix, r'uv_installer_sha256="([0-9a-f]{64})"')):
+            with self.subTest(script=script[:30]):
+                self.assertRegex(script, hash_line)
+                self.assertNotIn("https://astral.sh/uv/install.", script)
+        self.assertIn('"https://astral.sh/uv/$uvVersion/install.ps1"', windows)
+        self.assertIn('"https://astral.sh/uv/$uv_version/install.sh"', unix)
+        self.assertLess(windows.index("-ne $uvInstallerSha256"), windows.index("Invoke-Expression $installer"))
+        self.assertLess(unix.index('!= "$uv_installer_sha256"'), unix.index('sh "$uv_installer"'))
+        self.assertNotIn("| sh", unix)
+
     def test_shared_service_control_uses_per_user_task_and_local_health(self) -> None:
         script = (HUB_ROOT / "scripts" / "hubctl.ps1").read_text(encoding="utf-8")
         launcher = (HUB_ROOT / "scripts" / "service_launcher.pyw").read_text(encoding="utf-8")
@@ -46,6 +66,9 @@ class BootstrapScriptsTest(unittest.TestCase):
         self.assertIn("pythonw.exe", script)
         self.assertIn("-AllowStartIfOnBatteries", script)
         self.assertIn("-DontStopIfGoingOnBatteries", script)
+        self.assertIn("-RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)", script)
+        self.assertIn("stdout=subprocess.DEVNULL", launcher)
+        self.assertIn("stderr=service_err", launcher)
         self.assertIn("service_launcher.pyw", script)
         self.assertIn("sys._base_executable", script)
         self.assertIn("CREATE_NO_WINDOW", launcher)
@@ -58,6 +81,8 @@ class BootstrapScriptsTest(unittest.TestCase):
         self.assertIn('" --install"', script)
         self.assertIn('"preflight" { exit (Invoke-Preflight) }', script)
         self.assertNotIn("Start-Process -FilePath $powershell", script)
+        self.assertIn('Join-Path $env:SystemRoot "System32', script)
+        self.assertNotIn("Get-Command powershell.exe", script)
         self.assertIn('"$url/health"', script)
         self.assertIn('http://127.0.0.1:8765', script)
         self.assertIn('"$url/dashboard/pair"', script)
@@ -70,6 +95,32 @@ class BootstrapScriptsTest(unittest.TestCase):
         self.assertIn("return [string]$serviceConfig.token", script)
         self.assertIn('"Bearer $(Get-ServiceToken)"', script)
 
+
+    def test_service_launcher_rotates_an_oversized_stderr_file_at_start(self) -> None:
+        path = HUB_ROOT / "scripts" / "service_launcher.pyw"
+        loader = importlib.machinery.SourceFileLoader("service_launcher", str(path))
+        spec = importlib.util.spec_from_loader("service_launcher", loader)
+        launcher = importlib.util.module_from_spec(spec)
+        loader.exec_module(launcher)
+        with tempfile.TemporaryDirectory() as tmp:
+            logs = Path(tmp) / "logs"
+            logs.mkdir()
+            (logs / "mcp-hub-service.err").write_bytes(b"x" * (launcher.SERVICE_ERR_MAX_BYTES + 1))
+            with launcher.open_service_err(logs) as err:
+                err.write(b"new run")
+            self.assertEqual((logs / "mcp-hub-service.err").read_bytes(), b"new run")
+            self.assertEqual((logs / "mcp-hub-service.err.1").stat().st_size, launcher.SERVICE_ERR_MAX_BYTES + 1)
+            with launcher.open_service_err(logs) as err:
+                err.write(b" appended")
+            self.assertEqual((logs / "mcp-hub-service.err").read_bytes(), b"new run appended")
+
+    def test_install_restricts_a_checkout_other_accounts_can_write(self) -> None:
+        script = (HUB_ROOT / "scripts" / "hubctl.ps1").read_text(encoding="utf-8")
+        register = script[script.index("function Register-HubTask"):script.index("function Write-ConnectedClients")]
+        self.assertLess(register.index("Protect-HubCheckout"), register.index("Register-ScheduledTask"))
+        self.assertIn("if (Test-OthersCanWrite -Path $repoRoot)", script)
+        self.assertIn('icacls $repoRoot /inheritance:r /grant:r "${UserId}:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F"', script)
+        self.assertIn("(Test-OthersCanWrite -Path $repoRoot)) { throw", script)
 
     def test_ui_flag_writes_a_one_shot_launch_file_and_default_start_removes_it(self) -> None:
         script = (HUB_ROOT / "scripts" / "hubctl.ps1").read_text(encoding="utf-8")

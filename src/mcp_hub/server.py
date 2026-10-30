@@ -6,12 +6,12 @@ import logging
 import os
 import re
 from contextlib import AsyncExitStack
+from pathlib import Path
 from time import perf_counter
 from typing import Any, NamedTuple
 
 import anyio
-from mcp import Client, StdioServerParameters
-from mcp.client.stdio import stdio_client
+from mcp import Client
 from mcp.server import Server, ServerRequestContext
 from mcp.server.stdio import stdio_server
 from mcp.shared.exceptions import MCPError
@@ -32,8 +32,9 @@ from mcp.types import (
     Tool,
 )
 
-from .audit import AuditLog, redact
-from .config import HUB_ROOT, HubConfig, ServerConfig, ToolRoute, load_config
+from .audit import AuditLog, default_log_dir, describe_exception, redact
+from .children import Backoff, ChildOpener, ChildSupervisor, ChildUnavailable, open_stdio_client
+from .config import HUB_ROOT, HubConfig, ServerConfig, ToolRoute, is_sensitive_key, load_config
 from .extensions import ActivitySource, CallObserver, empty_activity
 from .result_cache import ResultCache
 
@@ -67,6 +68,7 @@ class HubRuntime:
     def __init__(self, config: HubConfig, audit: AuditLog) -> None:
         self.config = config
         self.audit = audit
+        # Live sessions only: a child's entry exists exactly while it is connected.
         self.clients: dict[str, Client] = {}
         self.routes: dict[str, ToolRoute] = {}
         self.public_tools: list[Tool] = []
@@ -74,7 +76,18 @@ class HubRuntime:
         self.observers: tuple[CallObserver, ...] = ()
         self.activity_source: ActivitySource | None = None
         self.result_cache = ResultCache()
+        # Child supervision settings; tests replace them before `connect`.
+        self.child_opener: ChildOpener = open_stdio_client
+        self.child_backoff = Backoff()
+        # Child stderr logs sit next to the audit log: logs/children/<server-id>.log by default.
+        audit_path = getattr(audit, "path", None)
+        self.child_log_dir: Path = (
+            audit_path.parent if isinstance(audit_path, Path) else default_log_dir()
+        ) / "children"
+        self.supervisors: dict[str, ChildSupervisor] = {}
+        self._discovered: dict[str, dict[str, Tool]] = {}
         self._read_only: set[str] = set()
+        self._starting = False
 
     def add_observer(self, observer: CallObserver) -> None:
         self.observers = (*self.observers, observer)
@@ -88,98 +101,89 @@ class HubRuntime:
                 self._observer_failed(exc)
 
     async def connect(self, stack: AsyncExitStack) -> None:
-        # A failing child is skipped so the remaining children stay usable.
-        discovered: dict[str, dict[str, Tool]] = {}
-        for server_id, server_config in self.config.servers.items():
-            tools = await self._connect_one(stack, server_config)
-            if tools is not None:
-                discovered[server_id] = tools
-        self._register_routes(discovered)
-        self.public_tools.insert(0, _hub_status_tool())
+        """Start one supervisor per child and wait until each has connected or failed its first attempt.
+
+        Children connect in parallel, each bounded by its `connectTimeoutSeconds`; a failing child is
+        retried in the background so the remaining children stay usable. `stack` stops them all.
+        """
+        for server_config in self.config.servers.values():
+            self._add_child_secrets(server_config)
+            self.supervisors[server_config.server_id] = ChildSupervisor(
+                server_config, self.audit, self.child_connected, self.child_lost,
+                log_dir=self.child_log_dir, opener=self.child_opener, backoff=self.child_backoff,
+            )
+        stack.push_async_callback(self.close_children)
+        self._starting = True
+        for supervisor in self.supervisors.values():
+            supervisor.start()
+        await asyncio.gather(*(supervisor.wait_first_attempt() for supervisor in self.supervisors.values()))
+        self._starting = False
+        self._register_routes()
         self.audit.write(
             "hub.tools.registered",
             tool_count=len(self.public_tools),
             tools=[tool.name for tool in self.public_tools],
         )
 
-    async def _connect_one(self, stack: AsyncExitStack, server_config: ServerConfig) -> dict[str, Tool] | None:
-        server_id = server_config.server_id
-        self.audit.add_secrets(server_config.env.values())
+    async def close_children(self) -> None:
+        """Stop every supervisor and its child process; no reconnect follows."""
+        await asyncio.gather(*(supervisor.stop() for supervisor in self.supervisors.values()))
+
+    def _add_child_secrets(self, server_config: ServerConfig) -> None:
+        """Redact the child's secrets: sensitive config values and env/inherited values under sensitive names.
+
+        Plain values such as PATH, TEMP, or USERPROFILE are not secrets; redacting them would garble errors.
+        """
         self.audit.add_secrets(server_config.secret_values)
-        self.audit.add_secrets(os.environ.get(name, "") for name in server_config.inherit_env)
-        try:
-            client = await self._connect_server(stack, server_config)
-            tools = await self._list_all_tools(client)
-        except Exception as exc:
-            # _connect_server has already logged the RuntimeError it raises.
-            if not isinstance(exc, RuntimeError):
-                self.audit.write(
-                    "server.list_tools.failed",
-                    level=logging.ERROR,
-                    server=server_id,
-                    error_type=type(exc).__name__,
-                    error=str(exc),
-                )
-            return None
-        self.clients[server_id] = client
-        self.discovered_tool_counts[server_id] = len(tools)
-        self.audit.write("server.connected", server=server_id, tools_count=len(tools))
-        return tools
-
-    def _register_routes(self, discovered: dict[str, dict[str, Tool]]) -> None:
-        for route in self.config.routes:
-            child_tool = discovered.get(route.server_id, {}).get(route.tool_name)
-            if child_tool is None:
-                self.audit.write(
-                    "route.skipped",
-                    level=logging.WARNING,
-                    feature=route.feature,
-                    server=route.server_id,
-                    tool=route.tool_name,
-                    reason="server unavailable" if route.server_id not in discovered else "tool not found",
-                )
-                continue
-            self.routes[route.exposed_name] = route
-            self.public_tools.append(_public_tool(route, child_tool))
-            if _is_read_only(child_tool):
-                self._read_only.add(route.exposed_name)
-
-    async def _connect_server(self, stack: AsyncExitStack, config: ServerConfig) -> Client:
-        child_env = {name: os.environ[name] for name in config.inherit_env if name in os.environ}
-        child_env.update(config.env)
-        params = StdioServerParameters(
-            command=config.command,
-            args=list(config.args),
-            env=child_env,
-            cwd=str(config.cwd),
+        self.audit.add_secrets(value for name, value in server_config.env.items() if is_sensitive_key(name))
+        self.audit.add_secrets(
+            os.environ.get(name, "") for name in server_config.inherit_env if is_sensitive_key(name)
         )
-        child_stderr = open(os.devnull, "w", encoding="utf-8")
-        stack.callback(child_stderr.close)
-        client = Client(stdio_client(params, errlog=child_stderr))
-        try:
-            await stack.enter_async_context(client)
-            return client
-        except Exception as exc:
-            self.audit.write(
-                "server.connect.failed",
-                level=logging.ERROR,
-                server=config.server_id,
-                error_type=type(exc).__name__,
-                error=str(exc),
-            )
-            raise RuntimeError(f"Could not connect to child MCP '{config.server_id}' ({type(exc).__name__})") from exc
 
-    @staticmethod
-    async def _list_all_tools(client: Client) -> dict[str, Tool]:
-        found: dict[str, Tool] = {}
-        page = await client.list_tools()
-        while True:
-            for tool in page.tools:
-                found[tool.name] = tool
-            cursor = getattr(page, "next_cursor", None)
-            if not cursor:
-                return found
-            page = await client.list_tools(cursor=cursor)
+    def child_connected(self, server_id: str, client: Client, tools: dict[str, Tool]) -> None:
+        """Publish a child's live session and its tools (called by its supervisor)."""
+        self._discovered[server_id] = tools
+        self.discovered_tool_counts[server_id] = len(tools)
+        self.clients[server_id] = client
+        if self._starting:
+            return  # `connect` registers all routes once the first attempts are done
+        before = [tool.name for tool in self.public_tools]
+        self._register_routes(server_id)
+        after = [tool.name for tool in self.public_tools]
+        if after != before:
+            self.audit.write("hub.tools.registered", tool_count=len(after), tools=after)
+
+    def child_lost(self, server_id: str) -> None:
+        """Withdraw a child's session (called by its supervisor)."""
+        # Routes stay: calls fail fast with ChildUnavailable until the child reconnects.
+        self.clients.pop(server_id, None)
+
+    def _register_routes(self, only_server: str | None = None) -> None:
+        """Rebuild routes and public tools from the latest tools of each child.
+
+        `route.skipped` is written for every missing tool, or only for `only_server`'s after a reconnect.
+        """
+        routes: dict[str, ToolRoute] = {}
+        public_tools = [_hub_status_tool()]
+        read_only: set[str] = set()
+        for route in self.config.routes:
+            child_tool = self._discovered.get(route.server_id, {}).get(route.tool_name)
+            if child_tool is None:
+                if only_server in (None, route.server_id):
+                    self.audit.write(
+                        "route.skipped",
+                        level=logging.WARNING,
+                        feature=route.feature,
+                        server=route.server_id,
+                        tool=route.tool_name,
+                        reason="server unavailable" if route.server_id not in self._discovered else "tool not found",
+                    )
+                continue
+            routes[route.exposed_name] = route
+            public_tools.append(_public_tool(route, child_tool))
+            if _is_read_only(child_tool):
+                read_only.add(route.exposed_name)
+        self.routes, self.public_tools, self._read_only = routes, public_tools, read_only
 
     async def list_tools(
         self,
@@ -206,11 +210,17 @@ class HubRuntime:
         return tuple(dict.fromkeys((*self.config.detected, *self.config.servers, *self.config.unavailable)))
 
     def child_states(self) -> dict[str, str]:
-        """Each known child's state: connected, a configured reason (such as credentials required), or unavailable."""
-        return {
-            server_id: "connected" if server_id in self.clients else self.config.unavailable.get(server_id, "unavailable")
-            for server_id in self.child_ids()
-        }
+        """Each known child's state: connected, connecting, reconnecting, a configured reason
+        (such as disabled or credentials required), or unavailable."""
+        return {server_id: self._child_state(server_id) for server_id in self.child_ids()}
+
+    def _child_state(self, server_id: str) -> str:
+        if server_id in self.clients:
+            return "connected"
+        supervisor = self.supervisors.get(server_id)
+        if supervisor is not None:
+            return supervisor.state
+        return self.config.unavailable.get(server_id, "unavailable")
 
     def activity_snapshot(self) -> dict[str, Any]:
         """Live activity from the activity UI extension; empty when it is not installed."""
@@ -290,10 +300,7 @@ class HubRuntime:
         route = self.routes.get(name)
         if route is None:
             self.audit.write("tool.call.denied", level=logging.WARNING, request_id=request_id, tool=name)
-            return CallToolResult(
-                content=[TextContent(type="text", text="This tool is not enabled in the Hub configuration.")],
-                is_error=True,
-            )
+            return _error_result("This tool is not enabled in the Hub configuration.")
         tokens = self._observe_start(route, client_name, agent_role) if self.observers else None
         call = _ChildCall(route, request_id, tokens, perf_counter())
         self.audit.write(
@@ -305,13 +312,15 @@ class HubRuntime:
             self._complete_call(call, "interrupted", "CancelledError",
                                 "tool.call.interrupted", logging.WARNING, error_type="CancelledError")
             raise
+        except ChildUnavailable:
+            self._complete_call(call, "failed", "ChildUnavailable",
+                                "tool.call.failed", logging.ERROR, error_type="ChildUnavailable")
+            return _error_result(f"Child MCP {route.server_id} is reconnecting; retry shortly. request_id={request_id}")
         except Exception as exc:
-            self._complete_call(call, "failed", type(exc).__name__,
-                                "tool.call.failed", logging.ERROR, error_type=type(exc).__name__, error=str(exc))
-            return CallToolResult(
-                content=[TextContent(type="text", text=f"Child MCP call failed. See Hub log request_id={request_id}.")],
-                is_error=True,
-            )
+            error_type, error = describe_exception(exc)
+            self._complete_call(call, "failed", error_type, "tool.call.failed", logging.ERROR,
+                                error_type=error_type, error=error)
+            return _error_result(f"Child MCP call failed. See Hub log request_id={request_id}.")
         error_summary = _result_error_summary(result)
         if error_summary is not None:
             extra = {"error_summary": error_summary} if error_summary else {}
@@ -327,6 +336,7 @@ class HubRuntime:
         if route.cache_seconds > 0 and name in self._read_only:
             return await self.result_cache.get_or_call(
                 name, arguments, route.cache_seconds, lambda: self._call_child(route, arguments),
+                store_if=result_succeeded,
             )
         try:
             return await self._call_child(route, arguments), False
@@ -336,8 +346,11 @@ class HubRuntime:
                 self.result_cache.invalidate(self._server_tools(route.server_id))
 
     async def _call_child(self, route: ToolRoute, arguments: dict[str, Any]) -> CallToolResult:
+        client = self.clients.get(route.server_id)
+        if client is None:
+            raise ChildUnavailable(route.server_id)
         with anyio.fail_after(self.config.servers[route.server_id].timeout_seconds):
-            return await self.clients[route.server_id].call_tool(route.tool_name, arguments)
+            return await client.call_tool(route.tool_name, arguments)
 
     def _server_tools(self, server_id: str) -> list[str]:
         return [name for name, route in self.routes.items() if route.server_id == server_id]
@@ -402,6 +415,10 @@ def _hub_status_tool() -> Tool:
     )
 
 
+def _error_result(text: str) -> CallToolResult:
+    return CallToolResult(content=[TextContent(type="text", text=text)], is_error=True)
+
+
 def _is_read_only(tool: Tool) -> bool:
     annotations = getattr(tool, "annotations", None)
     if isinstance(annotations, dict):
@@ -441,15 +458,23 @@ _JOB_INSTRUCTIONS = (
 )
 
 
-def _result_error_summary(result: CallToolResult) -> str | None:
-    """None for a successful result; otherwise the redacted start of its first text block (may be empty)."""
-    text = ""
+def _first_text(result: CallToolResult) -> str:
     for block in getattr(result, "content", ()) or ():
         if isinstance(block, TextContent) and block.text.strip():
-            text = block.text.strip()
-            break
-    if not bool(getattr(result, "is_error", False)) and not text.startswith(_ERROR_PREFIXES):
+            return block.text.strip()
+    return ""
+
+
+def result_succeeded(result: CallToolResult) -> bool:
+    """The Hub's single failure check: not `is_error`, and the first text does not start with an error prefix."""
+    return not bool(getattr(result, "is_error", False)) and not _first_text(result).startswith(_ERROR_PREFIXES)
+
+
+def _result_error_summary(result: CallToolResult) -> str | None:
+    """None for a successful result; otherwise the redacted start of its first text block (may be empty)."""
+    if result_succeeded(result):
         return None
+    text = _first_text(result)
     # Truncate before the redaction regexes run; the margin keeps a secret cut at the limit matchable.
     return redact(text[:SUMMARY_LIMIT + _SUMMARY_REDACTION_MARGIN], limit=SUMMARY_LIMIT)
 

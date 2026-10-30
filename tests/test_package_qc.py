@@ -20,7 +20,9 @@ class PackageQcTest(unittest.TestCase):
 
         commands = [call.args[0] for call in run.call_args_list]
         self.assertEqual([command[1:] for command in commands], [
-            ["-m", "unittest", "discover", "tests"],
+            ["-m", "ruff", "check", "."],
+            ["-m", "coverage", "run", "-m", "unittest", "discover", "tests"],
+            ["-m", "coverage", "report", f"--fail-under={package_qc.COVERAGE_FAIL_UNDER}"],
             ["scripts/check_leaks.py"],
             ["scripts/check_code_standards.py"],
             ["-m", "compileall", "-q", "src", "scripts", "tests"],

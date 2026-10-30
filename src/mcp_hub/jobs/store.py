@@ -93,6 +93,10 @@ _TOOL_CALL_COLUMNS = (
     "server_id", "tool", "client", "agent_role", "started_at", "finished_at", "duration_ms", "state", "error_type",
 )
 _STATE_INDEX = _TOOL_CALL_COLUMNS.index("state")
+_APPROVAL_EXPIRED_SUMMARY = (
+    "The approval window ended before the pending write was approved; the write was not run "
+    "and the investigation did not resume."
+)
 _FINISHED_CALL_STATES = frozenset({"succeeded", "failed", "interrupted"})
 
 
@@ -133,6 +137,11 @@ class JobStore:
         self._connection.execute("PRAGMA synchronous=NORMAL")
         self._connection.execute("PRAGMA foreign_keys=ON")
         self._migrate()
+
+    @property
+    def encryption_available(self) -> bool:
+        """False when the protector cannot encrypt on this platform (DPAPI off Windows); jobs are then refused."""
+        return getattr(self.protector, "available", True) is not False
 
     def _migrate(self) -> None:
         self._connection.executescript(_SCHEMA)
@@ -191,13 +200,7 @@ class JobStore:
             ).fetchone()
             if row is None:
                 raise KeyError(job_id)
-            summary = None
-            if row["summary_blob"] is not None:
-                summary = self.protector.unprotect(row["summary_blob"]).decode("utf-8")
-            return {
-                "job_id": row["job_id"], "created_at": row["created_at"], "updated_at": row["updated_at"],
-                "state": row["state"], "summary": summary,
-            }
+            return self._job_row(row)
 
     def list_jobs(self, *, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         if not 1 <= limit <= 500 or offset < 0:
@@ -281,6 +284,19 @@ class JobStore:
             if self._connection.execute("SELECT 1 FROM jobs WHERE job_id=?", (job_id,)).fetchone() is None:
                 raise KeyError(job_id)
             self._insert_event(job_id, event, agent, tool, duration_ms, None, None, source_id)
+
+    def list_evidence_refs(self, job_id: str, *, agent: str | None = None) -> list[dict[str, Any]]:
+        """Every evidence (source) ID recorded for the job, optionally for one agent, in first-seen order."""
+        where, params = "job_id=? AND source_id IS NOT NULL", [job_id]
+        if agent is not None:
+            where, params = f"{where} AND agent=?", [job_id, agent]
+        with self._lock:
+            rows = self._connection.execute(
+                f"SELECT source_id,tool,agent,MIN(event_id) AS first_event FROM events WHERE {where} "
+                "GROUP BY source_id ORDER BY first_event",
+                params,
+            ).fetchall()
+            return [{"source_id": row["source_id"], "tool": row["tool"], "agent": row["agent"]} for row in rows]
 
     def list_events(self, job_id: str, *, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         if not 1 <= limit <= 500 or offset < 0:
@@ -419,6 +435,34 @@ class JobStore:
                 self._insert_event(row["job_id"], "job.interrupted", None, None, None, "running", "interrupted")
             return len(rows)
 
+    def expire_awaiting_approval(self, window: timedelta, *, job_id: str | None = None) -> list[str]:
+        """Settle jobs still awaiting approval after `window` from creation.
+
+        Each becomes `partial` with event `approval.expired`; its pending call is deleted and a
+        summary is written when it has none. Returns the settled job IDs.
+        """
+        now = self._timestamp()
+        cutoff = datetime.fromisoformat(now) - window
+        with self._lock, self._connection:
+            rows = self._connection.execute(
+                "SELECT job_id,created_at,summary_blob FROM jobs WHERE state='awaiting_approval'"
+            ).fetchall()
+            expired = [
+                row for row in rows
+                if job_id in (None, row["job_id"]) and datetime.fromisoformat(row["created_at"]) <= cutoff
+            ]
+            for row in expired:
+                self._expire_approval_row(row, now)
+            return [row["job_id"] for row in expired]
+
+    def _expire_approval_row(self, row: sqlite3.Row, now: str) -> None:
+        summary = row["summary_blob"] or self.protector.protect(_APPROVAL_EXPIRED_SUMMARY.encode("utf-8"))
+        self._connection.execute(
+            "UPDATE jobs SET state='partial',summary_blob=?,updated_at=? WHERE job_id=?", (summary, now, row["job_id"]),
+        )
+        self._connection.execute("DELETE FROM pending_calls WHERE job_id=?", (row["job_id"],))
+        self._insert_event(row["job_id"], "approval.expired", None, None, None, "awaiting_approval", "partial")
+
     def purge_expired(self) -> int:
         now = self._timestamp()
         tool_call_cutoff = _utc_timestamp(datetime.fromisoformat(now) - self.retention)
@@ -512,10 +556,16 @@ class JobStore:
         )
 
     def _job_row(self, row: sqlite3.Row) -> dict[str, Any]:
-        summary = self.protector.unprotect(row["summary_blob"]).decode("utf-8") if row["summary_blob"] else None
+        """One job's metadata; a summary that cannot be decrypted is reported as unavailable, not raised."""
+        summary, unavailable = None, False
+        if row["summary_blob"]:
+            try:
+                summary = self.protector.unprotect(row["summary_blob"]).decode("utf-8")
+            except (OSError, ValueError):  # DPAPI failure, foreign blob, or invalid UTF-8
+                unavailable = True
         return {
             "job_id": row["job_id"], "created_at": row["created_at"], "updated_at": row["updated_at"],
-            "state": row["state"], "summary": summary,
+            "state": row["state"], "summary": summary, "summary_unavailable": unavailable,
         }
 
     def _timestamp(self) -> str:
