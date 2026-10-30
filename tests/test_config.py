@@ -3,8 +3,10 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from mcp_hub.config import HUB_ROOT, PRIVATE_ROOT, ConfigError, load_config
+from mcp_hub import config
+from mcp_hub.config import HUB_ROOT, PRIVATE_ROOT, ConfigError, PrepareSpec, RuntimeRequirement, load_config
 
 
 class LoadConfigTest(unittest.TestCase):
@@ -137,6 +139,55 @@ class LoadConfigTest(unittest.TestCase):
                 {"server": "child", "name": "t", "exposeAs": "a" * 129},
             ]}})
 
+    def load_with_prepare(self, prepare: object):
+        rel = self.tmp.relative_to(HUB_ROOT).as_posix()
+        servers = {"child": {"enabled": True, "configFile": f"{rel}/child.json", "prepare": prepare}}
+        return self.load(self.server(), servers=servers)
+
+    def test_prepare_is_absent_by_default(self) -> None:
+        self.assertIsNone(self.load(self.server()).prepare)
+
+    def test_valid_prepare_is_parsed(self) -> None:
+        child = self.load_with_prepare({
+            "command": ["node", "start.mjs", "--preflight"],
+            "runtime": {"name": "node", "minVersion": "22.1", "winget": "OpenJS.NodeJS.LTS"},
+            "timeoutSeconds": 120,
+        })
+        self.assertEqual(child.prepare, PrepareSpec(
+            command=("node", "start.mjs", "--preflight"),
+            runtime=RuntimeRequirement("node", (22, 1), "OpenJS.NodeJS.LTS"),
+            timeout_seconds=120.0,
+        ))
+
+    def test_prepare_without_runtime_uses_default_timeout(self) -> None:
+        child = self.load_with_prepare({"command": ["make"]})
+        self.assertEqual(child.prepare, PrepareSpec(command=("make",)))
+        self.assertEqual(child.prepare.timeout_seconds, 900.0)
+
+    def test_invalid_prepare_command_is_rejected(self) -> None:
+        for prepare in ([], {}, {"command": []}, {"command": "node start.mjs"}, {"command": ["node", 1]}, {"command": ["node", " "]}):
+            with self.subTest(prepare=prepare), self.assertRaisesRegex(ConfigError, "server child prepare"):
+                self.load_with_prepare(prepare)
+
+    def test_invalid_prepare_runtime_is_rejected(self) -> None:
+        cases = (
+            ({"name": "node", "minVersion": "22"}, "minVersion"),
+            ({"name": "node", "minVersion": "v22.0.0"}, "minVersion"),
+            ({"name": "node", "minVersion": 22}, "minVersion"),
+            ({"name": "node", "minVersion": "22.0.0.1"}, "minVersion"),
+            ({"name": " ", "minVersion": "22.0.0"}, "runtime name"),
+            ({"name": "node", "minVersion": "22.0.0", "winget": ""}, "runtime winget"),
+            ("node", "runtime must be an object"),
+        )
+        for runtime, error in cases:
+            with self.subTest(runtime=runtime), self.assertRaisesRegex(ConfigError, error):
+                self.load_with_prepare({"command": ["node"], "runtime": runtime})
+
+    def test_invalid_prepare_timeout_is_rejected(self) -> None:
+        for timeout in (True, 0, -5, "60", float("nan"), float("inf"), 10**1000):
+            with self.subTest(timeout=timeout), self.assertRaisesRegex(ConfigError, "prepare timeoutSeconds"):
+                self.load_with_prepare({"command": ["node"], "timeoutSeconds": timeout})
+
     def test_config_file_must_be_inside_private_root(self) -> None:
         with self.assertRaisesRegex(ConfigError, "inside config/private"):
             load_config(HUB_ROOT / "config" / "hub.example.json")
@@ -176,6 +227,69 @@ class LoadConfigTest(unittest.TestCase):
                 self.load(self.server(), features={"f": {"enabled": True, "tools": [
                     {"server": "child", "name": "t", "exposeAs": name},
                 ]}})
+
+    def load_route(self, **tool):
+        features = {"f": {"enabled": True, "tools": [{"server": "child", "name": "t", **tool}]}}
+        return self.load_config(self.server(), features=features).routes[0]
+
+    def test_cache_seconds_defaults_to_zero(self) -> None:
+        self.assertEqual(self.load_route().cache_seconds, 0.0)
+
+    def test_valid_cache_seconds_are_parsed(self) -> None:
+        for value, expected in ((0, 0.0), (60, 60.0), (2.5, 2.5)):
+            with self.subTest(value=value):
+                route = self.load_route(cacheSeconds=value)
+                self.assertEqual(route.cache_seconds, expected)
+                self.assertIsInstance(route.cache_seconds, float)
+
+    def test_invalid_cache_seconds_are_rejected_with_feature_and_tool(self) -> None:
+        for value in (-1, True, False, "60", None, float("inf"), float("nan"), 10**400):
+            with self.subTest(value=value), self.assertRaisesRegex(ConfigError, "feature f tool t cacheSeconds"):
+                self.load_route(cacheSeconds=value)
+
+
+class DefaultPrepareTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.parent = Path(self.tmp.name).resolve()
+        self.root = self.parent / "mcp-hub"
+        (self.root / "config" / "mcps").mkdir(parents=True)
+        (self.root / "config" / "private").mkdir(parents=True)
+        source = HUB_ROOT / "config"
+        shutil.copy2(source / "hub.example.json", self.root / "config" / "hub.example.json")
+        for path in (source / "mcps").glob("mcp-*.example.json"):
+            shutil.copy2(path, self.root / "config" / "mcps" / path.name)
+        for name in ("mcp-server-logs", "mcp-pr-companion", "mcp-read-source"):
+            (self.parent / name).mkdir()
+        self.patches = [
+            patch.object(config, "HUB_ROOT", self.root),
+            patch.object(config, "PRIVATE_ROOT", self.root / "config" / "private"),
+            patch.object(config, "_DEFAULT_CONFIG", self.root / "config" / "private" / "hub.json"),
+        ]
+        for item in self.patches:
+            item.start()
+
+    def tearDown(self) -> None:
+        for item in reversed(self.patches):
+            item.stop()
+        self.tmp.cleanup()
+
+    def test_example_prepare_defaults_reach_server_config(self) -> None:
+        servers = load_config().servers
+        self.assertEqual(servers["mcp-server-logs"].prepare, PrepareSpec(
+            command=("node", "start.mjs", "--preflight"),
+            runtime=RuntimeRequirement("node", (22, 0, 0), "OpenJS.NodeJS.LTS"),
+        ))
+        self.assertEqual(servers["mcp-pr-companion"].prepare, PrepareSpec(
+            command=("node", "bin/cli.js", "prepare"),
+            runtime=RuntimeRequirement("node", (20, 12, 0), "OpenJS.NodeJS.LTS"),
+        ))
+        self.assertIsNone(servers["mcp-read-source"].prepare)
+
+    def test_private_prepare_replaces_the_default(self) -> None:
+        private = {"version": 1, "servers": {"mcp-server-logs": {"prepare": {"command": ["npm", "ci"]}}}, "features": {}}
+        (self.root / "config" / "private" / "hub.json").write_text(json.dumps(private), encoding="utf-8")
+        self.assertEqual(load_config().servers["mcp-server-logs"].prepare, PrepareSpec(command=("npm", "ci")))
 
 
 if __name__ == "__main__":

@@ -58,6 +58,27 @@ Add a new server **disabled** and allowlist only the tools that are needed. For 
 - `exposeAs` is optional and defaults to `<id>__<tool>`. It must match `[A-Za-z0-9_-]{1,128}` and be unique across the Hub. A short prefix is fine (Jira uses `jira__`).
 - A feature that references a disabled server makes the Hub refuse to start. Keep the new feature `"enabled": false` too, until step 5.
 
+### Declare start prerequisites (`prepare`)
+
+When the child needs a system runtime or a dependency/build step, declare it once in the child's server entry in the tracked `config/hub.example.json`. Do not add install steps to scripts or docs elsewhere. The pre-start check (`python -m mcp_hub.preflight`, run by `hubctl start`) reads it for every enabled child:
+
+```json
+"<id>": {
+  "enabled": false,
+  "configFile": "config/private/mcps/<id>.json",
+  "prepare": {
+    "runtime": { "name": "node", "minVersion": "22.0.0", "winget": "OpenJS.NodeJS.LTS" },
+    "command": ["node", "start.mjs", "--preflight"],
+    "timeoutSeconds": 900
+  }
+}
+```
+
+- `runtime` is optional. `name` is the executable looked up on `PATH` and queried with `--version`; `minVersion` is `MAJOR.MINOR[.PATCH]`; `winget` is the package ID used to install or upgrade it on Windows.
+- `command` is required: an argument array run in the child's `cwd` with the child's `env`. It must be idempotent and quick when nothing changed, and it must not print secrets. The Hub does not show its output.
+- `timeoutSeconds` is optional (default 900).
+- A child that runs on the Hub's own virtual environment needs no `prepare`; add its Python packages to `pyproject.toml` instead.
+
 ## 4. Write the contract
 
 Create `docs/mcps/<id>.md` from the template in [mcps/README.md](mcps/README.md). The Hub serves this file to clients as the `<id>` prompt, so write it for an agent that will call the tools. Include the read-only smoke tool and its expected success behavior.

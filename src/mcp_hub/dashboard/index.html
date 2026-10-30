@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="vi">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
-  <title>mcp-hub · Bảng điều khiển</title>
+  <title data-i18n="page.title">mcp-hub · Dashboard</title>
   <link rel="stylesheet" href="/dashboard/style.css">
 </head>
 <body>
@@ -14,24 +14,32 @@
       <h1>mcp-hub</h1>
     </div>
     <div class="controls">
-      <span id="health" class="health"><i></i><span>Đang kiểm tra…</span></span>
-      <button id="restart" class="button secondary">Khởi động lại</button>
-      <button id="stop" class="button danger">Dừng Hub</button>
+      <span id="health" class="health"><i></i><span data-i18n="health.checking">Checking…</span></span>
+      <label class="language-picker">
+        <span class="visually-hidden" data-i18n="controls.language">Language</span>
+        <select id="language" data-i18n-attr="title:controls.language">
+          <option value="en">EN</option>
+          <option value="vi">VI</option>
+        </select>
+      </label>
+      <button id="restart" class="button secondary" data-i18n="controls.restart">Restart</button>
+      <button id="stop" class="button danger" data-i18n="controls.stop">Stop Hub</button>
     </div>
   </header>
 
   <main>
-    <section class="panel farm-panel" aria-labelledby="farm-title">
+    <p id="activity-ui-hint" class="panel ui-hint" hidden data-i18n="activityUi.hint">Fast mode: the live barn, daily activity, and connected clients are off. To see them, run: hubctl open -Ui</p>
+    <section id="farm-panel" class="panel farm-panel" hidden aria-labelledby="farm-title">
       <div class="panel-heading">
-        <div><p class="eyebrow">MCP RUNTIME</p><h2 id="farm-title">Chuồng trâu</h2></div>
-        <div class="herder" aria-label="mcp-hub điều phối MCP con">
+        <div><p class="eyebrow">MCP RUNTIME</p><h2 id="farm-title" data-i18n="barn.title">MCP barn</h2></div>
+        <div class="herder" aria-label="mcp-hub herds the child MCPs" data-i18n-attr="aria-label:barn.herderLabel">
           <svg viewBox="0 0 36 44" aria-hidden="true"><circle cx="18" cy="8" r="6"/><path d="M18 16v15m-9-8 9-6 9 6M18 31l-7 10m7-10 7 10"/></svg>
           <span>mcp-hub</span>
         </div>
       </div>
-      <p class="farm-caption">Rảnh thì ở chuồng. Có lời gọi tool thì ra ruộng làm việc.</p>
-      <p id="motion-note" class="motion-note" role="status" hidden>Trình duyệt đang bật chế độ giảm chuyển động nên trâu đứng yên. Tắt chế độ này để xem hoạt ảnh.</p>
-      <div id="children" class="pixel-world" role="group" aria-label="Bản đồ chuồng và ruộng của các MCP con">
+      <p class="farm-caption" data-i18n="barn.caption">Idle MCPs rest in the barn. A tool call sends them out to work the field.</p>
+      <p id="motion-note" class="motion-note" role="status" hidden data-i18n="barn.motionNote">Your browser has reduced motion turned on, so the buffaloes stand still. Turn it off to see the animation.</p>
+      <div id="children" class="pixel-world" role="group" aria-label="Map of the barn and field for the child MCPs" data-i18n-attr="aria-label:barn.mapLabel">
         <svg class="world-background" viewBox="0 0 480 270" preserveAspectRatio="none" aria-hidden="true" shape-rendering="crispEdges">
           <defs>
             <pattern id="grass-tiles" width="16" height="16" patternUnits="userSpaceOnUse">
@@ -60,70 +68,74 @@
           <path d="M267 32h201M267 237h201" stroke="#55783e" stroke-width="5"/>
           <path d="M286 22v16M318 22v16M350 22v16M382 22v16M414 22v16M446 22v16" stroke="#55783e" stroke-width="4"/>
           <g fill="#fff0c4" font-family="monospace" font-size="10" font-weight="700">
-            <text x="28" y="39">CHUỒNG</text><text x="414" y="39">RUỘNG</text>
+            <text x="28" y="39" data-i18n="barn.sign.barn">BARN</text><text x="414" y="39" data-i18n="barn.sign.field">FIELD</text>
           </g>
           <g fill="#5a472e"><rect x="15" y="248" width="56" height="12"/><rect x="267" y="248" width="72" height="12"/></g>
-          <g fill="#fff0c4" font-family="monospace" font-size="8"><text x="21" y="257">MCP HUB</text><text x="275" y="257">LỐI CÀY</text></g>
+          <g fill="#fff0c4" font-family="monospace" font-size="8"><text x="21" y="257">MCP HUB</text><text x="275" y="257" data-i18n="barn.sign.path">PLOW PATH</text></g>
         </svg>
-        <div class="world-toolbar"><span>CHUỒNG MCP</span><span>★ <b id="active-count">0</b> ĐANG LÀM</span><span id="live-status" class="live-status">ĐANG KẾT NỐI</span></div>
-        <span id="world-empty" class="world-empty muted">Đang tải MCP con…</span>
+        <div class="world-toolbar"><span data-i18n="barn.toolbar.title">MCP BARN</span><span>★ <b id="active-count">0</b> <span data-i18n="barn.toolbar.working">WORKING</span></span><span id="live-status" class="live-status" data-i18n="live.connecting">CONNECTING</span></div>
+        <span id="world-empty" class="world-empty muted" data-i18n="barn.loading">Loading child MCPs…</span>
       </div>
       <aside id="buffalo-detail" class="buffalo-detail" hidden aria-live="polite"></aside>
     </section>
 
-    <section class="panel daily-panel" aria-labelledby="daily-title">
+    <section id="daily-panel" class="panel daily-panel" hidden aria-labelledby="daily-title">
       <div class="panel-heading daily-heading">
-        <div><p class="eyebrow">NHẬT KÝ MCP</p><h2 id="daily-title">Hoạt động trong ngày</h2></div>
+        <div><p class="eyebrow" data-i18n="activity.eyebrow">MCP LOG</p><h2 id="daily-title" data-i18n="activity.title">Daily activity</h2></div>
         <div class="activity-controls">
-          <label for="activity-date">Ngày</label><input id="activity-date" type="date">
-          <label for="activity-sort">Xếp hạng</label>
-          <select id="activity-sort"><option value="calls">Số lượt gọi</option><option value="duration">Tổng thời lượng</option></select>
+          <label for="activity-date" data-i18n="activity.date">Date</label><input id="activity-date" type="date">
+          <label for="activity-sort" data-i18n="activity.sort">Rank by</label>
+          <select id="activity-sort"><option value="calls" data-i18n="activity.sort.calls">Call count</option><option value="duration" data-i18n="activity.sort.duration">Total duration</option></select>
         </div>
       </div>
-      <div id="activity-summary" class="activity-summary" aria-live="polite"><span class="muted">Đang tải thống kê…</span></div>
+      <div id="activity-summary" class="activity-summary" aria-live="polite"><span class="muted" data-i18n="activity.loadingSummary">Loading statistics…</span></div>
       <div class="activity-filters">
-        <label>MCP con <select id="activity-child"><option value="">Tất cả</option></select></label>
-        <label>AI client <select id="activity-client"><option value="">Tất cả</option></select></label>
-        <label>Tool <select id="activity-tool"><option value="">Tất cả</option></select></label>
+        <label><span data-i18n="activity.filter.child">Child MCP</span> <select id="activity-child"><option value="" data-i18n="common.all">All</option></select></label>
+        <label><span data-i18n="activity.filter.client">AI client</span> <select id="activity-client"><option value="" data-i18n="common.all">All</option></select></label>
+        <label><span data-i18n="activity.filter.tool">Tool</span> <select id="activity-tool"><option value="" data-i18n="common.all">All</option></select></label>
       </div>
       <div class="activity-columns">
-        <article><h3>MCP con được gọi nhiều</h3><div id="activity-ranking" class="ranking-list"><span class="muted">Đang tải…</span></div></article>
-        <article><h3>Lịch sử lời gọi</h3><div id="activity-events" class="activity-events"><span class="muted">Đang tải…</span></div></article>
+        <article><h3 data-i18n="activity.ranking.title">Most-called child MCPs</h3><div id="activity-ranking" class="ranking-list"><span class="muted" data-i18n="common.loading">Loading…</span></div></article>
+        <article><h3 data-i18n="activity.events.title">Call history</h3><div id="activity-events" class="activity-events"><span class="muted" data-i18n="common.loading">Loading…</span></div></article>
       </div>
       <div class="activity-pagination">
-        <span id="activity-page-label" class="muted">Trang 1</span>
-        <div><button id="activity-prev" class="button secondary small" disabled>Trước</button> <button id="activity-next" class="button secondary small" disabled>Tiếp</button></div>
+        <span id="activity-page-label" class="muted" data-i18n="activity.pageFirst">Page 1</span>
+        <div><button id="activity-prev" class="button secondary small" disabled data-i18n="activity.prev">Previous</button> <button id="activity-next" class="button secondary small" disabled data-i18n="activity.next">Next</button></div>
       </div>
     </section>
 
     <section class="overview">
-      <article class="panel">
-        <div class="panel-heading"><div><p class="eyebrow">ĐIỀU TRA</p><h2>Sub-agent</h2></div></div>
-        <div id="agents" class="agent-list"><span class="muted">Đang tải…</span></div>
+      <article id="clients-panel" class="panel" hidden>
+        <div class="panel-heading"><div><p class="eyebrow"><span data-i18n="clients.eyebrow">CONNECTIONS</span> · <b id="client-count">0</b></p><h2 data-i18n="clients.title">Connected AI clients</h2></div></div>
+        <div id="clients" class="agent-list"><span class="muted" data-i18n="common.loading">Loading…</span></div>
       </article>
       <article class="panel">
-        <div class="panel-heading"><div><p class="eyebrow">PHẠM VI</p><h2>Project alias</h2></div></div>
-        <div id="projects" class="chips"><span class="muted">Đang tải…</span></div>
+        <div class="panel-heading"><div><p class="eyebrow" data-i18n="agents.eyebrow">INVESTIGATION</p><h2 data-i18n="agents.title">Sub-agents</h2></div></div>
+        <div id="agents" class="agent-list"><span class="muted" data-i18n="common.loading">Loading…</span></div>
+      </article>
+      <article class="panel">
+        <div class="panel-heading"><div><p class="eyebrow" data-i18n="projects.eyebrow">SCOPE</p><h2 data-i18n="projects.title">Project aliases</h2></div></div>
+        <div id="projects" class="chips"><span class="muted" data-i18n="common.loading">Loading…</span></div>
       </article>
     </section>
 
     <section class="workspace">
       <article class="panel jobs-panel">
         <div class="panel-heading">
-          <div><p class="eyebrow">DANH SÁCH CHUNG</p><h2>Investigation jobs</h2></div>
-          <button id="refresh" class="button quiet">Làm mới</button>
+          <div><p class="eyebrow" data-i18n="jobs.eyebrow">SHARED QUEUE</p><h2 data-i18n="jobs.title">Investigation jobs</h2></div>
+          <button id="refresh" class="button quiet" data-i18n="jobs.refresh">Refresh</button>
         </div>
-        <div id="jobs" class="job-list"><p class="muted">Đang tải job…</p></div>
+        <div id="jobs" class="job-list"><p class="muted" data-i18n="jobs.loading">Loading jobs…</p></div>
       </article>
 
       <article class="panel detail-panel">
-        <div class="panel-heading"><div><p class="eyebrow">CHI TIẾT</p><h2 id="detail-title">Chọn một job</h2></div></div>
-        <div id="detail" class="empty-state">Job, bằng chứng và timeline sẽ xuất hiện ở đây.</div>
+        <div class="panel-heading"><div><p class="eyebrow" data-i18n="detail.eyebrow">DETAILS</p><h2 id="detail-title" data-i18n="detail.placeholderTitle">Select a job</h2></div></div>
+        <div id="detail" class="empty-state"><span data-i18n="detail.placeholder">The job, its evidence, and its timeline appear here.</span></div>
       </article>
     </section>
     <p id="notice" class="notice" role="status" aria-live="polite"></p>
   </main>
 
-  <script src="/dashboard/app.js" defer></script>
+  <script type="module" src="/dashboard/app.js"></script>
 </body>
 </html>

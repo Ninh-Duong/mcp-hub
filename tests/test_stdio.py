@@ -75,7 +75,7 @@ class StdioCompatibilityTest(unittest.TestCase):
 
                 result = await client.call_tool("fake__echo_unicode", {"text": "mcp-hub"})
                 self.assertFalse(result.is_error)
-                self.assertEqual(result.content[0].text, "Xin chào 🌺 mcp-hub")
+                self.assertEqual(result.content[0].text, "naïve café 🌺 mcp-hub")
 
 
 if __name__ == "__main__":

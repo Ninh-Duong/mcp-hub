@@ -1,171 +1,142 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
-from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Callable
 
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
+from starlette.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from starlette.routing import Route
 
 from ..config import HUB_ROOT
-from ..jobs.store import MAX_ACTIVITY_OFFSET
+from ..extensions import DashboardExtension, status_flags
 from .sessions import DashboardSessions
 
 
 DASHBOARD_ROOT = Path(__file__).parent
+SESSION_MAX_AGE_SECONDS = 12 * 60 * 60
+PAIRING_TTL_SECONDS = 120
+
+_JAVASCRIPT = "application/javascript"
+# barn.js, activity.js, and stream.js belong to the activity UI; app.js imports them only when it is on.
+_JS_MODULES = (
+    "app.js", "api.js", "dom.js", "i18n.js", "state.js", "status.js", "jobs.js", "ui_extension.js",
+    "barn.js", "activity.js", "stream.js",
+)
+
+# Published path below /dashboard/ -> (file relative to DASHBOARD_ROOT, media type).
+# Only these files are served; every other path under /dashboard/ returns 404.
+STATIC_FILES: dict[str, tuple[str, str]] = {
+    **{name: (name, _JAVASCRIPT) for name in _JS_MODULES},
+    "style.css": ("style.css", "text/css"),
+    "locales/en.json": ("locales/en.json", "application/json"),
+    "locales/vi.json": ("locales/vi.json", "application/json"),
+}
 
 
-def create_dashboard_routes(
-    runtime: Any,
-    job_runner: Any,
-    sessions: DashboardSessions,
-    *,
-    control_launcher: Callable[[str], None] | None = None,
-    shutdown_callback: Callable[[], None] | None = None,
-) -> list[Route]:
-    launch_control = control_launcher or _launch_control
+class DashboardHandlers:
+    """Request handlers for the dashboard page, its static assets, and its JSON API."""
 
-    async def dashboard_entry(request: Request) -> Response:
+    def __init__(
+        self,
+        runtime: Any,
+        job_runner: Any,
+        sessions: DashboardSessions,
+        *,
+        control_launcher: Callable[[list[str]], None] | None = None,
+        shutdown_callback: Callable[[], None] | None = None,
+        extensions: Sequence[DashboardExtension] = (),
+    ) -> None:
+        self.runtime = runtime
+        self.job_runner = job_runner
+        self.sessions = sessions
+        self.launch_control = control_launcher or _launch_control
+        self.shutdown_callback = shutdown_callback
+        self.extensions = tuple(extensions)
+
+    def routes(self) -> list[Route]:
+        extension_routes = [route for extension in self.extensions for route in extension.routes]
+        return [
+            Route("/dashboard", self.dashboard_entry, methods=["GET"]),
+            Route("/dashboard/", self.dashboard_entry, methods=["GET"]),
+            Route("/dashboard/pair", self.issue_pairing, methods=["POST"]),
+            Route("/dashboard/api/status", self.status, methods=["GET"]),
+            *extension_routes,
+            Route("/dashboard/api/jobs", self.jobs, methods=["GET"]),
+            Route("/dashboard/api/jobs/{job_id:str}", self.job, methods=["GET"]),
+            Route("/dashboard/api/jobs/{job_id:str}/details/{source_id:str}", self.detail, methods=["GET"]),
+            Route("/dashboard/api/jobs/{job_id:str}/approval-code", self.approval_code, methods=["GET"]),
+            Route("/dashboard/api/jobs/{job_id:str}/pending-call", self.pending_call, methods=["GET"]),
+            Route("/dashboard/api/jobs/{job_id:str}/approve", self.approve, methods=["POST"]),
+            Route("/dashboard/api/jobs/{job_id:str}/cancel", self.cancel, methods=["POST"]),
+            Route("/dashboard/api/control/{command:str}", self.service_control, methods=["POST"]),
+            Route("/dashboard/api/service/shutdown", self.request_shutdown, methods=["POST"]),
+            # Keep last: it matches any remaining GET path below /dashboard/.
+            Route("/dashboard/{asset:path}", self.static_asset, methods=["GET"]),
+        ]
+
+    async def dashboard_entry(self, request: Request) -> Response:
         pair = request.query_params.get("pair")
-        if pair:
-            session = sessions.consume_pairing_token(pair)
-            if not session:
-                return JSONResponse({"error": "Dashboard pairing token is invalid or expired."}, status_code=401)
-            response = RedirectResponse("/dashboard/", status_code=303)
-            response.set_cookie(
-                "hub_session", session, httponly=True, samesite="strict", path="/dashboard", max_age=12 * 60 * 60,
-            )
-            return response
-        return FileResponse(DASHBOARD_ROOT / "index.html", media_type="text/html; charset=utf-8")
-
-    async def issue_pairing(request: Request) -> Response:
-        token = sessions.issue_pairing_token()
-        return JSONResponse({"pairing_token": token, "expires_in_seconds": 120})
-
-    def status_payload() -> dict[str, Any]:
-        children = {
-            server_id: "connected" if server_id in runtime.clients else runtime.config.unavailable.get(server_id, "unavailable")
-            for server_id in dict.fromkeys((*runtime.config.detected, *runtime.config.servers, *runtime.config.unavailable))
-        }
-        return {
-            "ok": True, "children": children, "agents": job_runner.agent_status(),
-            "projects": job_runner.list_projects(),
-            "activity": runtime.activity_snapshot() if hasattr(runtime, "activity_snapshot") else {"children": {}, "events": []},
-        }
-
-    async def status(_request: Request) -> Response:
-        return JSONResponse(status_payload())
-
-    async def activity_stream(_request: Request) -> Response:
-        subscribe = getattr(runtime, "subscribe_activity", None)
-        unsubscribe = getattr(runtime, "unsubscribe_activity", None)
-        if not callable(subscribe) or not callable(unsubscribe):
-            return JSONResponse({"error": "Live activity is unavailable."}, status_code=503)
-        subscriber = subscribe()
-
-        def snapshot() -> dict[str, Any]:
-            children = {
-                server_id: "connected" if server_id in runtime.clients else runtime.config.unavailable.get(server_id, "unavailable")
-                for server_id in dict.fromkeys((*runtime.config.detected, *runtime.config.servers, *runtime.config.unavailable))
-            }
-            activity = runtime.activity_snapshot()
-            return {"children": children, "activity": activity}
-
-        async def messages():
-            try:
-                current = snapshot()
-                activity = current["activity"]
-                stream_id = activity.get("stream_id", "unknown")
-                sequence = activity.get("sequence", 0)
-                yield _sse_message("snapshot", current, f"{stream_id}:{sequence}")
-                while True:
-                    try:
-                        event = await asyncio.wait_for(subscriber.get(), timeout=15)
-                    except asyncio.TimeoutError:
-                        yield ": keep-alive\n\n"
-                        continue
-                    if event.get("resync"):
-                        current = snapshot()
-                        activity = current["activity"]
-                        stream_id = activity.get("stream_id", "unknown")
-                        sequence = activity.get("sequence", 0)
-                        yield _sse_message("snapshot", current, f"{stream_id}:{sequence}")
-                        continue
-                    event_id = f"{event.get('stream_id', 'unknown')}:{event.get('sequence', 0)}"
-                    yield _sse_message("activity", event, event_id)
-            finally:
-                unsubscribe(subscriber)
-
-        return StreamingResponse(
-            messages(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache, no-transform",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-            },
+        if not pair:
+            return FileResponse(DASHBOARD_ROOT / "index.html", media_type="text/html; charset=utf-8")
+        session = self.sessions.consume_pairing_token(pair)
+        if not session:
+            return JSONResponse({"error": "Dashboard pairing token is invalid or expired."}, status_code=401)
+        response = RedirectResponse("/dashboard/", status_code=303)
+        response.set_cookie(
+            "hub_session", session, httponly=True, samesite="strict", path="/dashboard", max_age=SESSION_MAX_AGE_SECONDS,
         )
+        return response
 
-    async def activity(request: Request) -> Response:
-        store = getattr(job_runner, "store", None)
-        if store is None or not hasattr(store, "activity_report"):
-            return JSONResponse({"error": "Activity history is unavailable."}, status_code=503)
-        date_text = request.query_params.get("date") or date.today().isoformat()
-        try:
-            selected = date.fromisoformat(date_text)
-            offset = max(0, int(request.query_params.get("offset", "0")))
-            if offset > MAX_ACTIVITY_OFFSET:
-                raise ValueError("Activity offset is too large")
-            limit = min(250, max(1, int(request.query_params.get("limit", "100"))))
-        except (TypeError, ValueError):
-            return JSONResponse({"error": "Invalid activity query."}, status_code=400)
-        sort_by = request.query_params.get("sort", "calls")
-        if sort_by not in {"calls", "duration"}:
-            return JSONResponse({"error": "Invalid activity sort."}, status_code=400)
-        start = datetime.combine(selected, time.min).astimezone().astimezone(timezone.utc)
-        end = datetime.combine(selected + timedelta(days=1), time.min).astimezone().astimezone(timezone.utc)
-        try:
-            report = store.activity_report(
-                start,
-                end,
-                server_id=request.query_params.get("server_id") or None,
-                client=request.query_params.get("client") or None,
-                tool=request.query_params.get("tool") or None,
-                sort_by=sort_by,
-                offset=offset,
-                limit=limit,
-            )
-        except ValueError:
-            return JSONResponse({"error": "Invalid activity query."}, status_code=400)
-        return JSONResponse({
-            **report,
-            "date": selected.isoformat(),
-            "timezone": str(datetime.now().astimezone().tzinfo),
-        })
+    async def static_asset(self, request: Request) -> Response:
+        entry = STATIC_FILES.get(request.path_params["asset"])
+        if entry is None:
+            return JSONResponse({"error": "Not found."}, status_code=404)
+        file_name, media_type = entry
+        return FileResponse(DASHBOARD_ROOT / file_name, media_type=media_type)
 
-    async def jobs(request: Request) -> Response:
+    async def issue_pairing(self, _request: Request) -> Response:
+        token = self.sessions.issue_pairing_token()
+        return JSONResponse({"pairing_token": token, "expires_in_seconds": PAIRING_TTL_SECONDS})
+
+    def status_payload(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "ok": True,
+            "children": self.runtime.child_states(),
+            "agents": self.job_runner.agent_status(),
+            "projects": self.job_runner.list_projects(),
+            "extensions": status_flags(tuple(extension.name for extension in self.extensions)),
+        }
+        for extension in self.extensions:
+            payload.update(extension.status_fields())
+        return payload
+
+    async def status(self, _request: Request) -> Response:
+        return JSONResponse(self.status_payload())
+
+    async def jobs(self, request: Request) -> Response:
         try:
             limit = min(500, max(1, int(request.query_params.get("limit", "100"))))
             offset = max(0, int(request.query_params.get("offset", "0")))
-            return JSONResponse({"jobs": job_runner.list_jobs(limit=limit, offset=offset)})
+            jobs = await asyncio.to_thread(self.job_runner.list_jobs, limit=limit, offset=offset)
+            return JSONResponse({"jobs": jobs})
         except (TypeError, ValueError):
             return JSONResponse({"error": "Invalid job page."}, status_code=400)
 
-    async def job(request: Request) -> Response:
+    async def job(self, request: Request) -> Response:
         try:
-            return JSONResponse(job_runner.get_job(request.path_params["job_id"]))
+            return JSONResponse(await asyncio.to_thread(self.job_runner.get_job, request.path_params["job_id"]))
         except KeyError:
-            return JSONResponse({"error": "Job not found."}, status_code=404)
+            return _job_not_found()
 
-    async def detail(request: Request) -> Response:
+    async def detail(self, request: Request) -> Response:
         try:
             offset = max(0, int(request.query_params.get("offset", "0")))
             limit = min(10000, max(1, int(request.query_params.get("limit", "2000"))))
-            return JSONResponse(job_runner.store.get_detail_page(
+            return JSONResponse(await asyncio.to_thread(
+                self.job_runner.store.get_detail_page,
                 request.path_params["job_id"], request.path_params["source_id"], offset=offset, limit=limit,
             ))
         except KeyError:
@@ -173,81 +144,77 @@ def create_dashboard_routes(
         except (TypeError, ValueError):
             return JSONResponse({"error": "Invalid detail page."}, status_code=400)
 
-    async def approval_code(request: Request) -> Response:
+    async def approval_code(self, request: Request) -> Response:
         try:
-            code = job_runner.get_approval_code(request.path_params["job_id"])
+            code = await asyncio.to_thread(self.job_runner.get_approval_code, request.path_params["job_id"])
         except KeyError:
-            return JSONResponse({"error": "Job not found."}, status_code=404)
-        if not code:
-            return JSONResponse({"approval_code": None})
-        return JSONResponse({"approval_code": code})
+            return _job_not_found()
+        return JSONResponse({"approval_code": code or None})
 
-    async def pending_call(request: Request) -> Response:
+    async def pending_call(self, request: Request) -> Response:
         try:
-            preview = job_runner.pending_approval_preview(request.path_params["job_id"])
+            preview = await asyncio.to_thread(self.job_runner.pending_approval_preview, request.path_params["job_id"])
         except KeyError:
-            return JSONResponse({"error": "Job not found."}, status_code=404)
+            return _job_not_found()
         if preview is None:
             return JSONResponse({"error": "No pending write."}, status_code=404)
         return JSONResponse(preview)
 
-    async def approve(request: Request) -> Response:
+    async def approve(self, request: Request) -> Response:
         try:
-            accepted = job_runner.approve_from_dashboard(request.path_params["job_id"])
+            accepted = self.job_runner.approve_from_dashboard(request.path_params["job_id"])
         except KeyError:
-            return JSONResponse({"error": "Job not found."}, status_code=404)
+            return _job_not_found()
         return JSONResponse({"approved": accepted})
 
-    async def cancel(request: Request) -> Response:
+    async def cancel(self, request: Request) -> Response:
         try:
-            return JSONResponse(job_runner.cancel_job(request.path_params["job_id"]))
+            return JSONResponse(self.job_runner.cancel_job(request.path_params["job_id"]))
         except KeyError:
-            return JSONResponse({"error": "Job not found."}, status_code=404)
+            return _job_not_found()
 
-    async def service_control(request: Request) -> Response:
+    async def service_control(self, request: Request) -> Response:
         command = request.path_params["command"]
         if command not in {"stop", "restart"}:
             return JSONResponse({"error": "Unsupported control."}, status_code=404)
-        launch_control(command)
+        # A restart keeps the extensions this Hub runs with (for example -Ui).
+        flags = [flag for extension in self.extensions for flag in extension.hubctl_flags] if command == "restart" else []
+        self.launch_control([command, *flags])
         return JSONResponse({"accepted": True, "command": command})
 
-    async def request_shutdown(_request: Request) -> Response:
-        if shutdown_callback is None:
+    async def request_shutdown(self, _request: Request) -> Response:
+        if self.shutdown_callback is None:
             return JSONResponse({"error": "Service shutdown is unavailable."}, status_code=503)
-        shutdown_callback()
+        self.shutdown_callback()
         return JSONResponse({"accepted": True})
 
-    return [
-        Route("/dashboard", dashboard_entry, methods=["GET"]),
-        Route("/dashboard/", dashboard_entry, methods=["GET"]),
-        Route("/dashboard/app.js", lambda _request: FileResponse(DASHBOARD_ROOT / "app.js", media_type="application/javascript"), methods=["GET"]),
-        Route("/dashboard/style.css", lambda _request: FileResponse(DASHBOARD_ROOT / "style.css", media_type="text/css"), methods=["GET"]),
-        Route("/dashboard/pair", issue_pairing, methods=["POST"]),
-        Route("/dashboard/api/status", status, methods=["GET"]),
-        Route("/dashboard/api/activity", activity, methods=["GET"]),
-        Route("/dashboard/api/activity/stream", activity_stream, methods=["GET"]),
-        Route("/dashboard/api/jobs", jobs, methods=["GET"]),
-        Route("/dashboard/api/jobs/{job_id:str}", job, methods=["GET"]),
-        Route("/dashboard/api/jobs/{job_id:str}/details/{source_id:str}", detail, methods=["GET"]),
-        Route("/dashboard/api/jobs/{job_id:str}/approval-code", approval_code, methods=["GET"]),
-        Route("/dashboard/api/jobs/{job_id:str}/pending-call", pending_call, methods=["GET"]),
-        Route("/dashboard/api/jobs/{job_id:str}/approve", approve, methods=["POST"]),
-        Route("/dashboard/api/jobs/{job_id:str}/cancel", cancel, methods=["POST"]),
-        Route("/dashboard/api/control/{command:str}", service_control, methods=["POST"]),
-        Route("/dashboard/api/service/shutdown", request_shutdown, methods=["POST"]),
-    ]
+
+def create_dashboard_routes(
+    runtime: Any,
+    job_runner: Any,
+    sessions: DashboardSessions,
+    *,
+    control_launcher: Callable[[list[str]], None] | None = None,
+    shutdown_callback: Callable[[], None] | None = None,
+    extensions: Sequence[DashboardExtension] = (),
+) -> list[Route]:
+    handlers = DashboardHandlers(
+        runtime, job_runner, sessions,
+        control_launcher=control_launcher, shutdown_callback=shutdown_callback, extensions=extensions,
+    )
+    return handlers.routes()
 
 
-def _sse_message(event_name: str, data: dict[str, Any], event_id: str) -> str:
-    payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
-    return f"id: {event_id}\nevent: {event_name}\ndata: {payload}\n\n"
+def _job_not_found() -> Response:
+    return JSONResponse({"error": "Job not found."}, status_code=404)
 
 
-def _launch_control(command: str) -> None:
+def _launch_control(arguments: list[str]) -> None:
+    """Run `hubctl.ps1 <command> [flags]` detached, without a window."""
     script = HUB_ROOT / "scripts" / "hubctl.ps1"
     creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     subprocess.Popen(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", str(script), command],
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", str(script), *arguments],
         cwd=HUB_ROOT,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,

@@ -22,6 +22,7 @@ class PackageQcTest(unittest.TestCase):
         self.assertEqual([command[1:] for command in commands], [
             ["-m", "unittest", "discover", "tests"],
             ["scripts/check_leaks.py"],
+            ["scripts/check_code_standards.py"],
             ["-m", "compileall", "-q", "src", "scripts", "tests"],
         ])
 

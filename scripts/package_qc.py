@@ -11,6 +11,7 @@ HUB_ROOT = Path(__file__).resolve().parents[1]
 OFFLINE_CHECKS = (
     ("unit tests", ("-m", "unittest", "discover", "tests")),
     ("leak check", ("scripts/check_leaks.py",)),
+    ("code standards", ("scripts/check_code_standards.py",)),
     ("compile check", ("-m", "compileall", "-q", "src", "scripts", "tests")),
 )
 

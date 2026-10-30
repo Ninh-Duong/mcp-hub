@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hmac
+from collections.abc import Sequence
 from http.cookies import SimpleCookie
+from typing import Any
 from urllib.parse import parse_qs
 
 from starlette.requests import Request
@@ -25,48 +27,26 @@ class LocalBearerMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-
         headers = {key.lower(): value for key, value in scope.get("headers", [])}
+        secured_send = _with_security_headers(send, dashboard=scope.get("path", "").startswith("/dashboard"))
+        rejection = self._rejection(scope, headers)
+        if rejection is None:
+            await self.app(scope, receive, secured_send)
+        else:
+            await rejection(scope, receive, secured_send)
 
-        async def secured_send(message) -> None:
-            if message["type"] == "http.response.start":
-                response_headers = list(message.get("headers", []))
-                response_headers.extend([
-                    (b"x-content-type-options", b"nosniff"),
-                    (b"referrer-policy", b"no-referrer"),
-                ])
-                if scope.get("path", "").startswith("/dashboard"):
-                    response_headers.append((
-                        b"content-security-policy",
-                        b"default-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
-                    ))
-                message = {**message, "headers": response_headers}
-            await send(message)
-
+    def _rejection(self, scope: Scope, headers: dict[bytes, bytes]) -> Response | None:
         host = headers.get(b"host", b"").decode("latin-1")
         origin = headers.get(b"origin", b"").decode("latin-1")
         if host not in self.allowed_hosts:
-            response = PlainTextResponse("Invalid Host header", status_code=421)
-        elif origin and origin not in self.allowed_origins:
-            response = PlainTextResponse("Invalid Origin header", status_code=403)
-        elif scope.get("path") == "/health":
-            await self.app(scope, receive, secured_send)
-            return
-        elif self._dashboard_session_authorized(scope, headers):
-            await self.app(scope, receive, secured_send)
-            return
-        else:
-            if not self._bearer_authorized(headers):
-                response = PlainTextResponse(
-                    "Unauthorized",
-                    status_code=401,
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
-            else:
-                await self.app(scope, receive, secured_send)
-                return
-
-        await response(scope, receive, secured_send)
+            return PlainTextResponse("Invalid Host header", status_code=421)
+        if origin and origin not in self.allowed_origins:
+            return PlainTextResponse("Invalid Origin header", status_code=403)
+        if scope.get("path") == "/health":
+            return None
+        if self._dashboard_session_authorized(scope, headers) or self._bearer_authorized(headers):
+            return None
+        return PlainTextResponse("Unauthorized", status_code=401, headers={"WWW-Authenticate": "Bearer"})
 
     def _bearer_authorized(self, headers: dict[bytes, bytes]) -> bool:
         authorization = headers.get(b"authorization", b"")
@@ -93,6 +73,25 @@ class LocalBearerMiddleware:
         return False
 
 
+def _with_security_headers(send: Send, *, dashboard: bool) -> Send:
+    async def secured_send(message) -> None:
+        if message["type"] == "http.response.start":
+            response_headers = list(message.get("headers", []))
+            response_headers.extend([
+                (b"x-content-type-options", b"nosniff"),
+                (b"referrer-policy", b"no-referrer"),
+            ])
+            if dashboard:
+                response_headers.append((
+                    b"content-security-policy",
+                    b"default-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+                ))
+            message = {**message, "headers": response_headers}
+        await send(message)
+
+    return secured_send
+
+
 async def _health(_request: Request) -> Response:
     return JSONResponse({"ok": True})
 
@@ -105,7 +104,9 @@ def create_http_app(
     *,
     custom_routes=None,
     sessions=None,
+    middleware: Sequence[tuple[type, dict[str, Any]]] = (),
 ) -> ASGIApp:
+    """Build the authenticated app. `middleware` (class, options) pairs run inside the bearer check."""
     if host != "127.0.0.1":
         raise ValueError("The shared Hub must bind to 127.0.0.1")
     if not token:
@@ -123,5 +124,8 @@ def create_http_app(
             allowed_origins=[origin],
         ),
     )
+    for middleware_class, options in middleware:
+        # Added before the bearer check so it runs inside it: only authorized requests reach it.
+        app.add_middleware(middleware_class, **options)
     app.add_middleware(LocalBearerMiddleware, token=token, host=host, port=port, sessions=sessions)
     return app

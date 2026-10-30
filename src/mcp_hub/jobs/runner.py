@@ -11,8 +11,11 @@ from mcp.types import CallToolResult, TextContent, Tool
 from ..agents.config import AGENT_ROLES, AgentConfig
 from ..agents.coordinator import synthesize
 from ..agents.providers import AnthropicProvider, GeminiProvider, ModelProvider, OpenAIProvider
-from ..agents.specialists import SpecialistExecutor, SpecialistResult, SpecialistError, minimize_model_content
+from ..agents.specialists import (
+    SpecialistExecutor, SpecialistResult, SpecialistError, ToolCallOutcome, minimize_model_content,
+)
 from ..audit import SENSITIVE_FIELD_RE, redact
+from ..result_cache import cache_key
 from .policy import SideEffectPolicy
 from .projects import ProjectConfig, validate_project_env
 from .store import JobStore, TERMINAL_STATES
@@ -21,6 +24,39 @@ from .store import JobStore, TERMINAL_STATES
 MAX_ACTIVE_JOBS = 2
 MAX_JOB_SECONDS = 15 * 60
 MAX_CHILD_CALLS = 30
+
+
+_ENV = {"type": "string", "enum": ["dev", "stg", "prod"]}
+_JOB_ID = {"job_id": {"type": "string"}}
+# (name, description, properties, required, read-only hint) for each job tool the Hub exposes.
+_JOB_TOOLS: tuple[tuple[str, str, dict[str, Any], tuple[str, ...], bool], ...] = (
+    ("hub__list_projects", "List registered project aliases and their allowed environments without local roots.",
+     {}, (), True),
+    ("hub__submit_issue", "Start an asynchronous issue investigation using configured logs, source, Jira, and PR agents.",
+     {"project": {"type": "string"}, "question": {"type": "string"}, "env": _ENV,
+      "issue_key": {"type": "string"}, "rcid": {"type": "string"}},
+     ("project", "question"), False),
+    ("hub__get_job", "Get investigation state, summary, evidence references, and metadata timeline.",
+     _JOB_ID, ("job_id",), True),
+    ("hub__get_job_detail", "Read one bounded page of a stored, encrypted tool result by job and source ID.",
+     {**_JOB_ID, "source_id": {"type": "string"}, "offset": {"type": "integer", "minimum": 0},
+      "limit": {"type": "integer", "minimum": 1, "maximum": 10000}},
+     ("job_id", "source_id"), True),
+    ("hub__provide_job_input", "Supply a validated environment to an investigation waiting for input.",
+     {**_JOB_ID, "env": _ENV}, ("job_id", "env"), False),
+    ("hub__approve_job", "Approve the exact pending write in a job using a one-time code shown in the dashboard.",
+     {**_JOB_ID, "code": {"type": "string"}}, ("job_id", "code"), False),
+    ("hub__cancel_job", "Cancel a queued, waiting, or running investigation.",
+     _JOB_ID, ("job_id",), False),
+)
+
+
+def _object_schema(properties: dict[str, Any], required: tuple[str, ...]) -> dict[str, Any]:
+    schema: dict[str, Any] = {"type": "object", "properties": properties}
+    if required:
+        schema["required"] = list(required)
+    schema["additionalProperties"] = False
+    return schema
 
 
 def create_provider(config: AgentConfig) -> ModelProvider:
@@ -74,65 +110,19 @@ class JobRunner:
         self._approval_codes: dict[str, str] = {}
         self._tool_counts: dict[str, int] = {}
         self._tool_count_lock = asyncio.Lock()
+        # Per job: canonical (tool, arguments) key -> (source_id, result) of the first identical call.
+        self._job_results: dict[str, dict[str, tuple[str, CallToolResult]]] = {}
 
     @staticmethod
     def tool_definitions() -> list[Tool]:
         return [
             Tool(
-                name="hub__list_projects",
-                description="List registered project aliases and their allowed environments without local roots.",
-                inputSchema={"type": "object", "properties": {}, "additionalProperties": False},
-                annotations={"readOnlyHint": True},
-            ),
-            Tool(
-                name="hub__submit_issue",
-                description="Start an asynchronous issue investigation using configured logs, source, Jira, and PR agents.",
-                inputSchema={"type": "object", "properties": {
-                    "project": {"type": "string"}, "question": {"type": "string"},
-                    "env": {"type": "string", "enum": ["dev", "stg", "prod"]},
-                    "issue_key": {"type": "string"}, "rcid": {"type": "string"},
-                }, "required": ["project", "question"], "additionalProperties": False},
-                annotations={"readOnlyHint": False},
-            ),
-            Tool(
-                name="hub__get_job",
-                description="Get investigation state, summary, evidence references, and metadata timeline.",
-                inputSchema={"type": "object", "properties": {"job_id": {"type": "string"}},
-                             "required": ["job_id"], "additionalProperties": False},
-                annotations={"readOnlyHint": True},
-            ),
-            Tool(
-                name="hub__get_job_detail",
-                description="Read one bounded page of a stored, encrypted tool result by job and source ID.",
-                inputSchema={"type": "object", "properties": {
-                    "job_id": {"type": "string"}, "source_id": {"type": "string"},
-                    "offset": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 10000},
-                }, "required": ["job_id", "source_id"], "additionalProperties": False},
-                annotations={"readOnlyHint": True},
-            ),
-            Tool(
-                name="hub__provide_job_input",
-                description="Supply a validated environment to an investigation waiting for input.",
-                inputSchema={"type": "object", "properties": {
-                    "job_id": {"type": "string"}, "env": {"type": "string", "enum": ["dev", "stg", "prod"]},
-                }, "required": ["job_id", "env"], "additionalProperties": False},
-                annotations={"readOnlyHint": False},
-            ),
-            Tool(
-                name="hub__approve_job",
-                description="Approve the exact pending write in a job using a one-time code shown in the dashboard.",
-                inputSchema={"type": "object", "properties": {
-                    "job_id": {"type": "string"}, "code": {"type": "string"},
-                }, "required": ["job_id", "code"], "additionalProperties": False},
-                annotations={"readOnlyHint": False},
-            ),
-            Tool(
-                name="hub__cancel_job",
-                description="Cancel a queued, waiting, or running investigation.",
-                inputSchema={"type": "object", "properties": {"job_id": {"type": "string"}},
-                             "required": ["job_id"], "additionalProperties": False},
-                annotations={"readOnlyHint": False},
-            ),
+                name=name,
+                description=description,
+                inputSchema=_object_schema(properties, required),
+                annotations={"readOnlyHint": read_only},
+            )
+            for name, description, properties, required, read_only in _JOB_TOOLS
         ]
 
     async def call_tool(self, name: str, arguments: dict[str, Any] | None) -> CallToolResult:
@@ -378,32 +368,9 @@ class JobRunner:
             try:
                 async with asyncio.timeout(MAX_JOB_SECONDS):
                     findings, incomplete = await self._investigate(job_id)
-                request = self.store.get_request(job_id)
-                coordinator = self.providers.get("coordinator")
-                if coordinator is None:
-                    incomplete = True
-                    summary = _fallback_summary(findings, "Coordinator agent is not configured.")
-                else:
-                    try:
-                        audit = getattr(self.runtime, "audit", None)
-                        redactor = (
-                            (lambda text: audit.redact_content(text, limit=12000))
-                            if audit is not None else None
-                        )
-                        summary = await synthesize(
-                            coordinator,
-                            question=request["question"],
-                            project=request["project"],
-                            env=request["env"],
-                            issue_key=request.get("issue_key"),
-                            findings=findings,
-                            redactor=redactor,
-                        )
-                    except Exception as exc:
-                        incomplete = True
-                        summary = _fallback_summary(findings, f"Coordinator failed ({type(exc).__name__}).")
+                summary, synthesized = await self._summarize(job_id, findings)
                 self.store.save_summary(job_id, redact(summary, limit=4000))
-                final_state = "partial" if incomplete else "completed"
+                final_state = "partial" if incomplete or not synthesized else "completed"
                 self.store.transition_job(job_id, final_state, event=f"job.{final_state}")
             except asyncio.CancelledError:
                 if self.store.get_job(job_id)["state"] == "running":
@@ -411,18 +378,43 @@ class JobRunner:
                 raise
             except TimeoutError:
                 self.store.save_summary(job_id, _fallback_summary([], "Investigation reached the 15-minute time limit."))
-                state = self.store.get_job(job_id)["state"]
-                if state in {"running", "awaiting_approval"}:
+                if self.store.get_job(job_id)["state"] in {"running", "awaiting_approval"}:
                     self.store.transition_job(job_id, "partial", event="job.partial")
             except Exception as exc:
                 self.store.append_event(job_id, "job.failed", agent=None, tool=type(exc).__name__)
                 if self.store.get_job(job_id)["state"] == "running":
                     self.store.transition_job(job_id, "failed", event="job.failed")
             finally:
-                self._tool_counts.pop(job_id, None)
-                self._tasks.pop(job_id, None)
-                self._approval_events.pop(job_id, None)
-                self._approval_codes.pop(job_id, None)
+                self._forget(job_id)
+
+    def _forget(self, job_id: str) -> None:
+        self._tool_counts.pop(job_id, None)
+        self._job_results.pop(job_id, None)
+        self._tasks.pop(job_id, None)
+        self._approval_events.pop(job_id, None)
+        self._approval_codes.pop(job_id, None)
+
+    async def _summarize(self, job_id: str, findings: list[SpecialistResult]) -> tuple[str, bool]:
+        """Return the coordinator summary, or a fallback and False when no coordinator could write one."""
+        request = self.store.get_request(job_id)
+        coordinator = self.providers.get("coordinator")
+        if coordinator is None:
+            return _fallback_summary(findings, "Coordinator agent is not configured."), False
+        audit = getattr(self.runtime, "audit", None)
+        redactor = (lambda text: audit.redact_content(text, limit=12000)) if audit is not None else None
+        try:
+            summary = await synthesize(
+                coordinator,
+                question=request["question"],
+                project=request["project"],
+                env=request["env"],
+                issue_key=request.get("issue_key"),
+                findings=findings,
+                redactor=redactor,
+            )
+        except Exception as exc:
+            return _fallback_summary(findings, f"Coordinator failed ({type(exc).__name__})."), False
+        return summary, True
 
     async def _investigate(self, job_id: str) -> tuple[list[SpecialistResult], bool]:
         request = self.store.get_request(job_id)
@@ -477,30 +469,35 @@ class JobRunner:
         arguments: dict[str, Any],
         tool: Tool,
         source_id: str,
+    ) -> ToolCallOutcome:
+        """Run one specialist tool call; an identical earlier call in the job is reused, not repeated."""
+        key = cache_key(name, arguments)
+        earlier = self._job_results.get(job_id, {}).get(key) if key is not None else None
+        if earlier is not None:
+            self.store.append_event(job_id, "tool.call.reused", agent=role, tool=name)
+            return ToolCallOutcome(earlier[1].model_copy(deep=True), earlier[0], reused=True)
+        result = await self._call_child_once(job_id, role, name, arguments, tool, source_id)
+        if key is not None:
+            self._job_results.setdefault(job_id, {})[key] = (source_id, result.model_copy(deep=True))
+        return ToolCallOutcome(result, source_id)
+
+    async def _call_child_once(
+        self,
+        job_id: str,
+        role: str,
+        name: str,
+        arguments: dict[str, Any],
+        tool: Tool,
+        source_id: str,
     ) -> CallToolResult:
         async with self._tool_count_lock:
             count = self._tool_counts.get(job_id, 0) + 1
             self._tool_counts[job_id] = count
         if count > MAX_CHILD_CALLS:
             raise SpecialistError("Job reached the 30 child-tool call limit")
-
         read_only = getattr(getattr(tool, "annotations", None), "read_only_hint", None)
-        if self.policy.requires_approval(name, read_only_hint=read_only):
-            code = self.store.create_pending_call(job_id, name, arguments, agent=role)
-            self._approval_codes[job_id] = code
-            event = self._approval_events.setdefault(job_id, asyncio.Event())
-            self.store.append_event(job_id, "approval.code_issued", agent=role, tool=name)
-            await event.wait()
-            if self.store.get_job(job_id)["state"] == "cancelled":
-                raise asyncio.CancelledError
-            try:
-                approved_name, approved_args = self.store.consume_approved_call(job_id)
-            except KeyError:
-                raise SpecialistError("Pending write approval is no longer available") from None
-            if approved_name != name or approved_args != arguments:
-                raise SpecialistError("Approved operation does not match the pending tool call")
-            arguments = approved_args
-
+        if self.policy.requires_approval(name, read_only_hint=read_only, arguments=arguments):
+            arguments = await self._await_approval(job_id, role, name, arguments)
         started = asyncio.get_running_loop().time()
         result = await self.runtime.call_child_tool(
             name,
@@ -519,6 +516,23 @@ class JobRunner:
             duration_ms=elapsed,
         )
         return result
+
+    async def _await_approval(self, job_id: str, role: str, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Hold a write until the dashboard code approves exactly this call; return the approved arguments."""
+        code = self.store.create_pending_call(job_id, name, arguments, agent=role)
+        self._approval_codes[job_id] = code
+        event = self._approval_events.setdefault(job_id, asyncio.Event())
+        self.store.append_event(job_id, "approval.code_issued", agent=role, tool=name)
+        await event.wait()
+        if self.store.get_job(job_id)["state"] == "cancelled":
+            raise asyncio.CancelledError
+        try:
+            approved_name, approved_args = self.store.consume_approved_call(job_id)
+        except KeyError:
+            raise SpecialistError("Pending write approval is no longer available") from None
+        if approved_name != name or approved_args != arguments:
+            raise SpecialistError("Approved operation does not match the pending tool call")
+        return approved_args
 
     @staticmethod
     def _json(value: Any) -> CallToolResult:

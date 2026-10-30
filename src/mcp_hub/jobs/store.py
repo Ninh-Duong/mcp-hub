@@ -9,7 +9,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Iterable, Protocol
 
 from ..config import PRIVATE_ROOT
 from ..security.dpapi import DPAPIProtector
@@ -28,6 +28,72 @@ TRANSITIONS = {
     "awaiting_approval": {"running", "partial", "failed", "cancelled"},
     "completed": set(), "partial": set(), "failed": set(), "interrupted": set(), "cancelled": set(),
 }
+
+
+_SCHEMA = """
+    CREATE TABLE IF NOT EXISTS jobs (
+        job_id TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        state TEXT NOT NULL,
+        request_blob BLOB,
+        summary_blob BLOB,
+        expires_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS events (
+        event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id TEXT NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL,
+        event TEXT NOT NULL,
+        agent TEXT,
+        tool TEXT,
+        source_id TEXT,
+        duration_ms INTEGER,
+        from_state TEXT,
+        to_state TEXT
+    );
+    CREATE TABLE IF NOT EXISTS details (
+        job_id TEXT NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE,
+        source_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        result_blob BLOB NOT NULL,
+        PRIMARY KEY (job_id, source_id)
+    );
+    CREATE TABLE IF NOT EXISTS pending_calls (
+        job_id TEXT PRIMARY KEY REFERENCES jobs(job_id) ON DELETE CASCADE,
+        tool_name TEXT NOT NULL,
+        agent TEXT,
+        arguments_blob BLOB NOT NULL,
+        code_hash TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        approved INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS tool_calls (
+        call_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        server_id TEXT NOT NULL,
+        tool TEXT NOT NULL,
+        client TEXT NOT NULL,
+        agent_role TEXT,
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        duration_ms INTEGER,
+        state TEXT NOT NULL CHECK (state IN ('running', 'succeeded', 'failed', 'interrupted')),
+        error_type TEXT
+    );
+    CREATE INDEX IF NOT EXISTS jobs_updated_idx ON jobs(updated_at DESC);
+    CREATE INDEX IF NOT EXISTS events_job_idx ON events(job_id, event_id);
+    CREATE INDEX IF NOT EXISTS details_expiry_idx ON details(expires_at);
+    CREATE INDEX IF NOT EXISTS tool_calls_started_idx ON tool_calls(started_at DESC);
+    CREATE INDEX IF NOT EXISTS tool_calls_child_idx ON tool_calls(server_id, started_at DESC);
+"""
+
+_FAILED = "SUM(CASE WHEN state='failed' THEN 1 ELSE 0 END)"
+_TOOL_CALL_COLUMNS = (
+    "server_id", "tool", "client", "agent_role", "started_at", "finished_at", "duration_ms", "state", "error_type",
+)
+_STATE_INDEX = _TOOL_CALL_COLUMNS.index("state")
+_FINISHED_CALL_STATES = frozenset({"succeeded", "failed", "interrupted"})
 
 
 class Protector(Protocol):
@@ -63,70 +129,23 @@ class JobStore:
         self._connection = sqlite3.connect(self.path, check_same_thread=False)
         self._connection.row_factory = sqlite3.Row
         self._connection.execute("PRAGMA journal_mode=WAL")
+        # WAL with NORMAL stays consistent after a crash; only the last commits can be lost on power failure.
+        self._connection.execute("PRAGMA synchronous=NORMAL")
         self._connection.execute("PRAGMA foreign_keys=ON")
-        self._connection.executescript("""
-            CREATE TABLE IF NOT EXISTS jobs (
-                job_id TEXT PRIMARY KEY,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                state TEXT NOT NULL,
-                request_blob BLOB,
-                summary_blob BLOB,
-                expires_at TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS events (
-                event_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                job_id TEXT NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE,
-                created_at TEXT NOT NULL,
-                event TEXT NOT NULL,
-                agent TEXT,
-                tool TEXT,
-                source_id TEXT,
-                duration_ms INTEGER,
-                from_state TEXT,
-                to_state TEXT
-            );
-            CREATE TABLE IF NOT EXISTS details (
-                job_id TEXT NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE,
-                source_id TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                expires_at TEXT NOT NULL,
-                result_blob BLOB NOT NULL,
-                PRIMARY KEY (job_id, source_id)
-            );
-            CREATE TABLE IF NOT EXISTS pending_calls (
-                job_id TEXT PRIMARY KEY REFERENCES jobs(job_id) ON DELETE CASCADE,
-                tool_name TEXT NOT NULL,
-                agent TEXT,
-                arguments_blob BLOB NOT NULL,
-                code_hash TEXT NOT NULL,
-                expires_at TEXT NOT NULL,
-                approved INTEGER NOT NULL DEFAULT 0
-            );
-            CREATE TABLE IF NOT EXISTS tool_calls (
-                call_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                server_id TEXT NOT NULL,
-                tool TEXT NOT NULL,
-                client TEXT NOT NULL,
-                agent_role TEXT,
-                started_at TEXT NOT NULL,
-                finished_at TEXT,
-                duration_ms INTEGER,
-                state TEXT NOT NULL CHECK (state IN ('running', 'succeeded', 'failed', 'interrupted')),
-                error_type TEXT
-            );
-            CREATE INDEX IF NOT EXISTS jobs_updated_idx ON jobs(updated_at DESC);
-            CREATE INDEX IF NOT EXISTS events_job_idx ON events(job_id, event_id);
-            CREATE INDEX IF NOT EXISTS details_expiry_idx ON details(expires_at);
-            CREATE INDEX IF NOT EXISTS tool_calls_started_idx ON tool_calls(started_at DESC);
-            CREATE INDEX IF NOT EXISTS tool_calls_child_idx ON tool_calls(server_id, started_at DESC);
-        """)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        self._connection.executescript(_SCHEMA)
         event_columns = {row["name"] for row in self._connection.execute("PRAGMA table_info(events)")}
         if "source_id" not in event_columns:
             self._connection.execute("ALTER TABLE events ADD COLUMN source_id TEXT")
         pending_columns = {row["name"] for row in self._connection.execute("PRAGMA table_info(pending_calls)")}
         if "agent" not in pending_columns:
             self._connection.execute("ALTER TABLE pending_calls ADD COLUMN agent TEXT")
+        # Calls are now written once they finish; settle rows an older version left running.
+        self._connection.execute(
+            "UPDATE tool_calls SET state='interrupted', finished_at=started_at WHERE state='running'"
+        )
         self._connection.commit()
 
     def close(self) -> None:
@@ -408,54 +427,23 @@ class JobStore:
             self._connection.execute("DELETE FROM tool_calls WHERE started_at<?", (tool_call_cutoff,))
             return cursor.rowcount
 
-    def begin_tool_call(
-        self,
-        *,
-        server_id: str,
-        tool: str,
-        client: str,
-        agent_role: str | None = None,
-    ) -> int:
-        with self._lock, self._connection:
-            cursor = self._connection.execute(
-                "INSERT INTO tool_calls(server_id, tool, client, agent_role, started_at, state) "
-                "VALUES (?, ?, ?, ?, ?, 'running')",
-                (server_id, tool, client, agent_role, self._timestamp()),
-            )
-            return int(cursor.lastrowid)
+    def record_tool_calls(self, records: Iterable[Any]) -> int:
+        """Insert finished calls in one statement and one commit.
 
-    def finish_tool_call(
-        self,
-        call_id: int,
-        state: str,
-        *,
-        duration_ms: int,
-        error_type: str | None = None,
-    ) -> None:
-        if state not in {"succeeded", "failed", "interrupted"}:
-            raise ValueError(f"Invalid tool call state: {state}")
+        Each record has the `_TOOL_CALL_COLUMNS` attributes (see `activity_ui.tracker.ToolCallRecord`).
+        """
+        rows = [tuple(getattr(record, column) for column in _TOOL_CALL_COLUMNS) for record in records]
+        if not rows:
+            return 0
+        if any(row[_STATE_INDEX] not in _FINISHED_CALL_STATES for row in rows):
+            raise ValueError("Invalid tool call state")
+        placeholders = ",".join([f"({','.join('?' * len(_TOOL_CALL_COLUMNS))})"] * len(rows))
+        values = [value for row in rows for value in row]
         with self._lock, self._connection:
             self._connection.execute(
-                "UPDATE tool_calls SET finished_at=?, duration_ms=?, state=?, error_type=? WHERE call_id=?",
-                (self._timestamp(), max(0, duration_ms), state, error_type, call_id),
+                f"INSERT INTO tool_calls({','.join(_TOOL_CALL_COLUMNS)}) VALUES {placeholders}", values,
             )
-
-    def mark_tool_calls_interrupted(self) -> int:
-        now = self._timestamp()
-        now_dt = datetime.fromisoformat(now)
-        with self._lock, self._connection:
-            rows = self._connection.execute(
-                "SELECT call_id, started_at FROM tool_calls WHERE state='running'"
-            ).fetchall()
-            for row in rows:
-                started = datetime.fromisoformat(row["started_at"])
-                duration_ms = round(max(0.0, (now_dt - started).total_seconds()) * 1000)
-                self._connection.execute(
-                    "UPDATE tool_calls SET finished_at=?, duration_ms=?, state='interrupted' "
-                    "WHERE call_id=?",
-                    (now, duration_ms, row["call_id"]),
-                )
-            return len(rows)
+        return len(rows)
 
     def activity_report(
         self,
@@ -475,57 +463,42 @@ class JobStore:
         if offset > MAX_ACTIVITY_OFFSET:
             raise ValueError("Activity offset is too large")
         page_limit = max(1, min(250, limit))
-        start_at, end_at = _utc_timestamp(start), _utc_timestamp(end)
-        clauses = ["started_at>=?", "started_at<?"]
-        values: list[Any] = [start_at, end_at]
-        for column, value in (("server_id", server_id), ("client", client), ("tool", tool)):
-            if value:
-                clauses.append(f"{column}=?")
-                values.append(value)
-        where = " AND ".join(clauses)
+        where, values = _activity_filters(start, end, server_id=server_id, client=client, tool=tool)
         order = "calls DESC, duration_ms DESC" if sort_by == "calls" else "duration_ms DESC, calls DESC"
         with self._lock:
-            summary = self._connection.execute(
+            rows = self._activity_rows(where, values, order, page_limit, offset)
+        return _summarize_activity(rows, offset, page_limit)
+
+    def _activity_rows(
+        self, where: str, values: list[Any], order: str, limit: int, offset: int,
+    ) -> dict[str, Any]:
+        def fetch(sql: str, params: list[Any] = values) -> list[sqlite3.Row]:
+            return self._connection.execute(sql, params).fetchall()
+
+        return {
+            "summary": fetch(
                 f"SELECT COUNT(*) AS total_calls, COALESCE(SUM(duration_ms), 0) AS total_duration_ms, "
-                f"SUM(CASE WHEN state='failed' THEN 1 ELSE 0 END) AS failures, "
-                f"SUM(CASE WHEN state='interrupted' THEN 1 ELSE 0 END) AS interrupted "
-                f"FROM tool_calls WHERE {where}", values,
-            ).fetchone()
-            by_child = self._connection.execute(
+                f"{_FAILED} AS failures, SUM(CASE WHEN state='interrupted' THEN 1 ELSE 0 END) AS interrupted "
+                f"FROM tool_calls WHERE {where}"
+            )[0],
+            "by_child": fetch(
                 f"SELECT server_id, COUNT(*) AS calls, COALESCE(SUM(duration_ms), 0) AS duration_ms, "
-                f"SUM(CASE WHEN state='failed' THEN 1 ELSE 0 END) AS failures "
-                f"FROM tool_calls WHERE {where} GROUP BY server_id ORDER BY {order}, server_id", values,
-            ).fetchall()
-            by_tool = self._connection.execute(
+                f"{_FAILED} AS failures FROM tool_calls WHERE {where} GROUP BY server_id ORDER BY {order}, server_id"
+            ),
+            "by_tool": fetch(
                 f"SELECT tool, COUNT(*) AS calls, COALESCE(SUM(duration_ms), 0) AS duration_ms, "
-                f"SUM(CASE WHEN state='failed' THEN 1 ELSE 0 END) AS failures "
-                f"FROM tool_calls WHERE {where} GROUP BY tool ORDER BY calls DESC, tool", values,
-            ).fetchall()
-            by_client = self._connection.execute(
+                f"{_FAILED} AS failures FROM tool_calls WHERE {where} GROUP BY tool ORDER BY calls DESC, tool"
+            ),
+            "by_client": fetch(
                 f"SELECT client, COUNT(*) AS calls FROM tool_calls WHERE {where} "
-                f"GROUP BY client ORDER BY calls DESC, client", values,
-            ).fetchall()
-            events = self._connection.execute(
+                f"GROUP BY client ORDER BY calls DESC, client"
+            ),
+            "events": fetch(
                 f"SELECT call_id, server_id, tool, client, agent_role, started_at, finished_at, "
                 f"duration_ms, state, error_type FROM tool_calls WHERE {where} "
                 f"ORDER BY started_at DESC, call_id DESC LIMIT ? OFFSET ?",
-                [*values, page_limit, offset],
-            ).fetchall()
-        event_rows = [dict(row) for row in events]
-        return {
-            "summary": {
-                "total_calls": summary["total_calls"],
-                "total_duration_ms": summary["total_duration_ms"],
-                "failures": summary["failures"] or 0,
-                "interrupted": summary["interrupted"] or 0,
-            },
-            "by_child": [dict(row) for row in by_child],
-            "by_tool": [dict(row) for row in by_tool],
-            "by_client": [dict(row) for row in by_client],
-            "events": event_rows,
-            "has_more": offset + len(event_rows) < summary["total_calls"],
-            "offset": offset,
-            "limit": page_limit,
+                [*values, limit, offset],
+            ),
         }
 
     def _insert_event(
@@ -553,3 +526,35 @@ class JobStore:
 
     def _seal(self, value: Any) -> bytes:
         return self.protector.protect(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+
+
+def _activity_filters(
+    start: datetime, end: datetime, *, server_id: str | None, client: str | None, tool: str | None,
+) -> tuple[str, list[Any]]:
+    clauses = ["started_at>=?", "started_at<?"]
+    values: list[Any] = [_utc_timestamp(start), _utc_timestamp(end)]
+    for column, value in (("server_id", server_id), ("client", client), ("tool", tool)):
+        if value:
+            clauses.append(f"{column}=?")
+            values.append(value)
+    return " AND ".join(clauses), values
+
+
+def _summarize_activity(rows: dict[str, Any], offset: int, limit: int) -> dict[str, Any]:
+    summary = rows["summary"]
+    events = [dict(row) for row in rows["events"]]
+    return {
+        "summary": {
+            "total_calls": summary["total_calls"],
+            "total_duration_ms": summary["total_duration_ms"],
+            "failures": summary["failures"] or 0,
+            "interrupted": summary["interrupted"] or 0,
+        },
+        "by_child": [dict(row) for row in rows["by_child"]],
+        "by_tool": [dict(row) for row in rows["by_tool"]],
+        "by_client": [dict(row) for row in rows["by_client"]],
+        "events": events,
+        "has_more": offset + len(events) < summary["total_calls"],
+        "offset": offset,
+        "limit": limit,
+    }

@@ -41,6 +41,11 @@ class DefaultConfigTest(unittest.TestCase):
         self.assertEqual(set(loaded.servers), {"mcp-server-logs", "mcp-jira-sync", "mcp-pr-companion"})
         self.assertEqual(loaded.unavailable, {})
         self.assertIn("logs__query_logs", {route.exposed_name for route in loaded.routes})
+        ttl = {route.exposed_name: route.cache_seconds for route in loaded.routes}
+        self.assertEqual(ttl["jira__check_connection"], 300.0)
+        self.assertEqual(ttl["logs__search_openobserve_logs"], 60.0)
+        self.assertEqual(ttl["jira__sync_ticket"], 0.0)
+        self.assertEqual(ttl["pr__get_pr_comments"], 0.0)
 
     def test_templates_point_every_child_at_its_hub_section(self):
         for name in ("mcp-server-logs", "mcp-jira-sync", "mcp-pr-companion"):

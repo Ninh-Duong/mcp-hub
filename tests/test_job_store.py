@@ -5,6 +5,14 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from mcp_hub.activity_ui.tracker import ToolCallRecord
+
+
+def _call(tool: str = "query_logs", *, server_id: str = "mcp-server-logs", client: str = "Codex",
+          agent_role: str | None = None, state: str = "succeeded", duration_ms: int = 10,
+          started_at: str = "2026-10-28T00:00:00+00:00") -> ToolCallRecord:
+    return ToolCallRecord(server_id, tool, client, agent_role, started_at, started_at, duration_ms, state, None)
+
 
 class FakeProtector:
     def protect(self, data: bytes) -> bytes:
@@ -69,11 +77,9 @@ class JobStoreTest(unittest.TestCase):
             self.store.get_detail_page(job_id, "source-1", offset=0, limit=100)
 
     def test_activity_calls_persist_safe_metadata_and_can_be_aggregated(self) -> None:
-        call_id = self.store.begin_tool_call(
-            server_id="mcp-server-logs", tool="query_logs", client="Antigravity", agent_role="logs",
-        )
-        self.now += timedelta(seconds=2)
-        self.store.finish_tool_call(call_id, "succeeded", duration_ms=2000)
+        self.assertEqual(self.store.record_tool_calls([
+            _call(client="Antigravity", agent_role="logs", duration_ms=2000),
+        ]), 1)
         raw_db = (Path(self.temp.name) / "jobs.sqlite3").read_bytes()
 
         report = self.store.activity_report(
@@ -94,11 +100,7 @@ class JobStoreTest(unittest.TestCase):
         self.assertFalse({"arguments", "result", "prompt"} & columns)
 
     def test_activity_pagination_reports_whether_more_rows_exist(self) -> None:
-        for tool in ("first_tool", "second_tool"):
-            call_id = self.store.begin_tool_call(
-                server_id="mcp-server-logs", tool=tool, client="Codex",
-            )
-            self.store.finish_tool_call(call_id, "succeeded", duration_ms=10)
+        self.store.record_tool_calls([_call("first_tool"), _call("second_tool")])
 
         start = datetime(2026, 10, 28, tzinfo=timezone.utc)
         end = datetime(2026, 10, 29, tzinfo=timezone.utc)
@@ -118,17 +120,39 @@ class JobStoreTest(unittest.TestCase):
                 offset=2**63,
             )
 
-    def test_running_calls_are_marked_interrupted_and_expire_after_thirty_days(self) -> None:
-        self.store.begin_tool_call(
-            server_id="mcp-jira-sync", tool="check_connection", client="Codex",
-        )
-        self.store.mark_tool_calls_interrupted()
+    def test_batch_insert_writes_all_rows_and_rejects_unknown_states(self) -> None:
+        self.assertEqual(self.store.record_tool_calls([]), 0)
+        self.store.record_tool_calls([_call(f"tool_{index}") for index in range(50)])
         report = self.store.activity_report(
-            datetime(2026, 10, 28, tzinfo=timezone.utc),
-            datetime(2026, 10, 29, tzinfo=timezone.utc),
+            datetime(2026, 10, 28, tzinfo=timezone.utc), datetime(2026, 10, 29, tzinfo=timezone.utc),
         )
+        self.assertEqual(report["summary"]["total_calls"], 50)
+        with self.assertRaises(ValueError):
+            self.store.record_tool_calls([_call(state="running")])
+
+    def test_store_uses_normal_synchronous_mode_under_wal(self) -> None:
+        mode = self.store._connection.execute("PRAGMA synchronous").fetchone()[0]
+        self.assertEqual(mode, 1)  # NORMAL
+
+    def test_rows_left_running_by_an_older_version_are_settled_on_open(self) -> None:
+        from mcp_hub.jobs.store import JobStore
+
+        self.store._connection.execute(
+            "INSERT INTO tool_calls(server_id, tool, client, started_at, state) VALUES "
+            "('mcp-jira-sync', 'check_connection', 'Codex', '2026-10-28T00:00:00+00:00', 'running')"
+        )
+        self.store._connection.commit()
+        reopened = JobStore(Path(self.temp.name) / "jobs.sqlite3", protector=FakeProtector(), clock=lambda: self.now)
+        try:
+            report = reopened.activity_report(
+                datetime(2026, 10, 28, tzinfo=timezone.utc), datetime(2026, 10, 29, tzinfo=timezone.utc),
+            )
+        finally:
+            reopened.close()
         self.assertEqual(report["events"][0]["state"], "interrupted")
 
+    def test_tool_calls_expire_after_thirty_days(self) -> None:
+        self.store.record_tool_calls([_call(server_id="mcp-jira-sync", tool="check_connection")])
         self.now += timedelta(days=31)
         self.store.purge_expired()
         expired = self.store.activity_report(

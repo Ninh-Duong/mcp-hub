@@ -26,7 +26,10 @@ h3 { font-size: 14px; }
 .health.ok i { background: #20a36a; box-shadow: 0 0 0 3px #e2f4eb; }
 .health.bad i { background: #d04437; box-shadow: 0 0 0 3px #fde8e7; }
 main { max-width: 1440px; margin: 0 auto; padding: 24px 32px 40px; }
-.overview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }
+.overview { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }
+.overview:has(> .panel[hidden]) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.panel[hidden] { display: none; }
+.ui-hint { margin-bottom: 16px; color: var(--muted); font-size: 12px; }
 .workspace { display: grid; grid-template-columns: minmax(310px, .85fr) minmax(0, 1.4fr); gap: 16px; align-items: start; }
 .panel { min-width: 0; padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: 0 2px 8px #172b4d08; }
 .panel-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
@@ -144,7 +147,7 @@ main { max-width: 1440px; margin: 0 auto; padding: 24px 32px 40px; }
   .topbar { align-items: flex-start; padding: 18px; }
   .controls { flex-wrap: wrap; justify-content: flex-end; }
   main { padding: 16px; }
-  .overview, .workspace { grid-template-columns: 1fr; }
+  .overview, .overview:has(> .panel[hidden]), .workspace { grid-template-columns: 1fr; }
   .daily-heading { align-items: flex-start; flex-direction: column; }
   .activity-columns { grid-template-columns: 1fr; }
 }
@@ -166,3 +169,5 @@ main { max-width: 1440px; margin: 0 auto; padding: 24px 32px 40px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; }
 }
+.language-picker select { min-height: 32px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 7px; background: #f2f4f7; color: var(--ink); font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

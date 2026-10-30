@@ -17,6 +17,10 @@ When changing child source, follow the Hub's shared [child MCP compatibility con
 
 - `<exposed_name>`: <what it does>. Read-only | Writes <what, where>. Input: <key args>. Output: <shape>.
 
+## Hub result cache
+
+- `cacheSeconds` per tool in `config/hub.example.json` (read-only tools only; 0 for writes and for data the child must not cache in memory). Cached answers are logged as `tool.call.cached`.
+
 ## Care
 
 - <tools to avoid for smoke tests, rate limits, destructive operations, data boundaries>

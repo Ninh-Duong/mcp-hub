@@ -14,8 +14,8 @@ class FakeRuntime:
     config = SimpleNamespace(detected=("sample-child",), servers={"sample-child": object()}, unavailable={})
     clients = {"sample-child": object()}
 
-    def __init__(self):
-        self.subscribers = set()
+    def child_states(self):
+        return {"sample-child": "connected"}
 
     def activity_snapshot(self):
         return {
@@ -23,12 +23,17 @@ class FakeRuntime:
             "events": [], "sequence": 0, "stream_id": "fake-stream",
         }
 
-    def subscribe_activity(self):
+
+class FakeTracker:
+    def __init__(self):
+        self.subscribers = set()
+
+    def subscribe(self):
         queue = asyncio.Queue(maxsize=4)
         self.subscribers.add(queue)
         return queue
 
-    def unsubscribe_activity(self, queue):
+    def unsubscribe(self, queue):
         self.subscribers.discard(queue)
 
 
@@ -65,16 +70,30 @@ class FakeActivityStore:
 
 
 class DashboardAPITest(unittest.TestCase):
+    """The dashboard with the activity UI extension installed."""
+
     def setUp(self) -> None:
+        from mcp_hub.activity_ui.routes import ActivityRoutes
         from mcp_hub.dashboard.api import create_dashboard_routes
         from mcp_hub.dashboard.sessions import DashboardSessions
+        from mcp_hub.extensions import ACTIVITY_UI, DashboardExtension
         from mcp_hub.http import create_http_app
 
         self.token = "test-dashboard-bearer-token-value"
         self.sessions = DashboardSessions()
         self.jobs = FakeJobRunner()
         self.runtime = FakeRuntime()
-        self.routes = create_dashboard_routes(self.runtime, self.jobs, self.sessions, control_launcher=lambda _cmd: None)
+        self.tracker = FakeTracker()
+        self.launched = []
+        extension = DashboardExtension(
+            name=ACTIVITY_UI,
+            routes=ActivityRoutes(self.runtime, self.tracker, self.jobs.store).routes(),
+            status_fields=lambda: {"activity": self.runtime.activity_snapshot(), "clients": []},
+            hubctl_flags=("-Ui",),
+        )
+        self.routes = create_dashboard_routes(
+            self.runtime, self.jobs, self.sessions, control_launcher=self.launched.append, extensions=(extension,),
+        )
         self.app = create_http_app(
             Server("dashboard-test"), self.token, host="127.0.0.1", port=8765,
             custom_routes=self.routes, sessions=self.sessions,
@@ -107,6 +126,7 @@ class DashboardAPITest(unittest.TestCase):
         self.assertIn("frame-ancestors 'none'", dashboard.headers.get("content-security-policy", ""))
         self.assertEqual(status.json()["children"]["sample-child"], "connected")
         self.assertEqual(status.json()["activity"]["children"]["sample-child"]["tool_count"], 2)
+        self.assertEqual(status.json()["extensions"], {"activityUi": True})
         self.assertNotIn(self.token, status.text)
 
     def test_dashboard_rejects_cross_origin_requests(self) -> None:
@@ -142,7 +162,7 @@ class DashboardAPITest(unittest.TestCase):
             response = await route.endpoint(Request(scope))
             chunks = response.body_iterator
             snapshot = await anext(chunks)
-            subscriber = next(iter(self.runtime.subscribers))
+            subscriber = next(iter(self.tracker.subscribers))
             await subscriber.put({"resync": True})
             resync = await anext(chunks)
             await subscriber.put({
@@ -164,7 +184,7 @@ class DashboardAPITest(unittest.TestCase):
         self.assertIn("event: activity", event_text)
         self.assertIn('"call_id":4', event_text)
         self.assertNotIn("arguments", event_text)
-        self.assertFalse(self.runtime.subscribers)
+        self.assertFalse(self.tracker.subscribers)
 
     def test_daily_activity_api_requires_pairing_and_applies_filters(self) -> None:
         with TestClient(self.app, follow_redirects=False) as client:
@@ -233,6 +253,51 @@ class DashboardAPITest(unittest.TestCase):
         self.assertIn("[REDACTED]", response.json()["arguments_preview"])
         self.assertNotIn(self.token, response.text)
 
+    def _paired_client(self, client: TestClient) -> None:
+        pair = client.post(
+            "/dashboard/pair",
+            headers={"Host": "127.0.0.1:8765", "Authorization": f"Bearer {self.token}"},
+        ).json()["pairing_token"]
+        client.get(f"/dashboard/?pair={pair}", headers={"Host": "127.0.0.1:8765"})
+
+    def test_static_assets_are_served_from_allowlist_with_media_types(self) -> None:
+        from mcp_hub.dashboard.api import DASHBOARD_ROOT, STATIC_FILES
+
+        with TestClient(self.app) as client:
+            denied = client.get("/dashboard/app.js", headers={"Host": "127.0.0.1:8765"})
+            self._paired_client(client)
+            responses = {
+                path: client.get(f"/dashboard/{path}", headers={"Host": "127.0.0.1:8765"})
+                for path in ("app.js", "i18n.js", "barn.js", "style.css", "locales/en.json", "locales/vi.json")
+            }
+
+        self.assertEqual(denied.status_code, 401)
+        for path, response in responses.items():
+            self.assertEqual(response.status_code, 200, path)
+            self.assertIn("default-src 'self'", response.headers.get("content-security-policy", ""))
+        for path in ("app.js", "i18n.js", "barn.js"):
+            self.assertTrue(responses[path].headers["content-type"].startswith("application/javascript"))
+        self.assertTrue(responses["style.css"].headers["content-type"].startswith("text/css"))
+        for path in ("locales/en.json", "locales/vi.json"):
+            self.assertTrue(responses[path].headers["content-type"].startswith("application/json"))
+            self.assertIsInstance(responses[path].json(), dict)
+        published_modules = {path for path in STATIC_FILES if path.endswith(".js")}
+        self.assertEqual(published_modules, {path.name for path in DASHBOARD_ROOT.glob("*.js")})
+
+    def test_static_assets_outside_allowlist_return_not_found(self) -> None:
+        with TestClient(self.app) as client:
+            self._paired_client(client)
+            responses = [
+                client.get(f"/dashboard/{path}", headers={"Host": "127.0.0.1:8765"})
+                for path in (
+                    "api.py", "sessions.py", "index.html", "locales/fr.json", "locales/",
+                    "missing.js", "..%2Fapi.py", "locales/..%2F..%2Fdashboard%2Fapi.py", "locales/../api.py",
+                )
+            ]
+        for response in responses:
+            self.assertEqual(response.status_code, 404, response.url)
+            self.assertNotIn("from __future__", response.text)
+
     def test_authenticated_shutdown_requests_cooperative_service_exit(self) -> None:
         from mcp_hub.dashboard.api import create_dashboard_routes
 
@@ -256,6 +321,71 @@ class DashboardAPITest(unittest.TestCase):
         self.assertEqual(accepted.status_code, 200)
         self.assertEqual(accepted.json(), {"accepted": True})
         self.assertEqual(shutdown_requests, [True])
+
+    def test_restart_keeps_the_activity_ui_flag_and_stop_does_not_need_it(self) -> None:
+        with TestClient(self.app) as client:
+            self._paired_client(client)
+            for command in ("restart", "stop"):
+                client.post(f"/dashboard/api/control/{command}", headers={"Host": "127.0.0.1:8765"})
+        self.assertEqual(self.launched, [["restart", "-Ui"], ["stop"]])
+
+
+class CoreDashboardTest(unittest.TestCase):
+    """The default fast mode: no activity UI extension."""
+
+    def setUp(self) -> None:
+        from mcp_hub.dashboard.api import create_dashboard_routes
+        from mcp_hub.dashboard.sessions import DashboardSessions
+        from mcp_hub.http import create_http_app
+
+        self.token = "test-dashboard-bearer-token-value"
+        self.sessions = DashboardSessions()
+        self.jobs = FakeJobRunner()
+        self.launched = []
+        routes = create_dashboard_routes(FakeRuntime(), self.jobs, self.sessions, control_launcher=self.launched.append)
+        self.app = create_http_app(Server("core-dashboard"), self.token, custom_routes=routes, sessions=self.sessions)
+        self.headers = {"Host": "127.0.0.1:8765", "Authorization": f"Bearer {self.token}"}
+
+    def test_status_reports_the_extension_off_without_activity_or_clients(self) -> None:
+        with TestClient(self.app) as client:
+            status = client.get("/dashboard/api/status", headers=self.headers).json()
+        self.assertEqual(status["extensions"], {"activityUi": False})
+        self.assertNotIn("activity", status)
+        self.assertNotIn("clients", status)
+
+    def test_activity_routes_are_not_served(self) -> None:
+        with TestClient(self.app) as client:
+            responses = [
+                client.get(path, headers=self.headers)
+                for path in ("/dashboard/api/activity?date=2026-10-28", "/dashboard/api/activity/stream")
+            ]
+        self.assertEqual([response.status_code for response in responses], [404, 404])
+
+    def test_restart_without_the_extension_has_no_flag(self) -> None:
+        with TestClient(self.app) as client:
+            client.post("/dashboard/api/control/restart", headers=self.headers)
+        self.assertEqual(self.launched, [["restart"]])
+
+    def test_blocking_job_reads_run_off_the_event_loop(self) -> None:
+        import asyncio as real_asyncio
+        from unittest.mock import patch
+
+        from mcp_hub.dashboard import api as dashboard_api
+
+        offloaded = []
+        original = real_asyncio.to_thread
+
+        async def recording_to_thread(function, *args, **kwargs):
+            offloaded.append(function.__name__)
+            return await original(function, *args, **kwargs)
+
+        self.jobs.list_jobs = lambda **_page: []
+        self.jobs.get_job = lambda _job_id: {"job_id": "a"}
+        with patch.object(dashboard_api.asyncio, "to_thread", recording_to_thread), TestClient(self.app) as client:
+            client.get("/dashboard/api/jobs", headers=self.headers)
+            client.get("/dashboard/api/jobs/a", headers=self.headers)
+            client.get("/dashboard/api/jobs/pending-job/pending-call", headers=self.headers)
+        self.assertEqual(offloaded, ["<lambda>", "<lambda>", "pending_approval_preview"])
 
 
 if __name__ == "__main__":

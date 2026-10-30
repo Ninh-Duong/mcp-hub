@@ -3,7 +3,15 @@
   "servers": {
     "mcp-server-logs": {
       "enabled": false,
-      "configFile": "config/private/mcps/mcp-server-logs.json"
+      "configFile": "config/private/mcps/mcp-server-logs.json",
+      "prepare": {
+        "runtime": {
+          "name": "node",
+          "minVersion": "22.0.0",
+          "winget": "OpenJS.NodeJS.LTS"
+        },
+        "command": ["node", "start.mjs", "--preflight"]
+      }
     },
     "mcp-jira-sync": {
       "enabled": false,
@@ -11,7 +19,15 @@
     },
     "mcp-pr-companion": {
       "enabled": false,
-      "configFile": "config/private/mcps/mcp-pr-companion.json"
+      "configFile": "config/private/mcps/mcp-pr-companion.json",
+      "prepare": {
+        "runtime": {
+          "name": "node",
+          "minVersion": "20.12.0",
+          "winget": "OpenJS.NodeJS.LTS"
+        },
+        "command": ["node", "bin/cli.js", "prepare"]
+      }
     },
     "mcp-read-source": {
       "enabled": false,
@@ -25,47 +41,56 @@
         {
           "server": "mcp-server-logs",
           "name": "list_log_providers",
-          "exposeAs": "logs__list_log_providers"
+          "exposeAs": "logs__list_log_providers",
+          "cacheSeconds": 120
         },
         {
           "server": "mcp-server-logs",
           "name": "query_logs",
-          "exposeAs": "logs__query_logs"
+          "exposeAs": "logs__query_logs",
+          "cacheSeconds": 60
         },
         {
           "server": "mcp-server-logs",
           "name": "list_openobserve_organizations",
-          "exposeAs": "logs__list_openobserve_organizations"
+          "exposeAs": "logs__list_openobserve_organizations",
+          "cacheSeconds": 300
         },
         {
           "server": "mcp-server-logs",
           "name": "list_openobserve_streams",
-          "exposeAs": "logs__list_openobserve_streams"
+          "exposeAs": "logs__list_openobserve_streams",
+          "cacheSeconds": 120
         },
         {
           "server": "mcp-server-logs",
           "name": "list_openobserve_stream_schema",
-          "exposeAs": "logs__list_openobserve_stream_schema"
+          "exposeAs": "logs__list_openobserve_stream_schema",
+          "cacheSeconds": 120
         },
         {
           "server": "mcp-server-logs",
           "name": "list_openobserve_services",
-          "exposeAs": "logs__list_openobserve_services"
+          "exposeAs": "logs__list_openobserve_services",
+          "cacheSeconds": 120
         },
         {
           "server": "mcp-server-logs",
           "name": "get_openobserve_service_logs",
-          "exposeAs": "logs__get_openobserve_service_logs"
+          "exposeAs": "logs__get_openobserve_service_logs",
+          "cacheSeconds": 60
         },
         {
           "server": "mcp-server-logs",
           "name": "search_openobserve_logs",
-          "exposeAs": "logs__search_openobserve_logs"
+          "exposeAs": "logs__search_openobserve_logs",
+          "cacheSeconds": 60
         },
         {
           "server": "mcp-server-logs",
           "name": "find_openobserve_logs_by_rcid",
-          "exposeAs": "logs__find_openobserve_logs_by_rcid"
+          "exposeAs": "logs__find_openobserve_logs_by_rcid",
+          "cacheSeconds": 60
         },
         {
           "server": "mcp-server-logs",
@@ -75,12 +100,14 @@
         {
           "server": "mcp-server-logs",
           "name": "list_ai_context_snapshots",
-          "exposeAs": "logs__list_ai_context_snapshots"
+          "exposeAs": "logs__list_ai_context_snapshots",
+          "cacheSeconds": 120
         },
         {
           "server": "mcp-server-logs",
           "name": "read_ai_context",
-          "exposeAs": "logs__read_ai_context"
+          "exposeAs": "logs__read_ai_context",
+          "cacheSeconds": 60
         }
       ]
     },
@@ -90,12 +117,14 @@
         {
           "server": "mcp-jira-sync",
           "name": "jira_check_connection",
-          "exposeAs": "jira__check_connection"
+          "exposeAs": "jira__check_connection",
+          "cacheSeconds": 300
         },
         {
           "server": "mcp-jira-sync",
           "name": "jira_list_synced",
-          "exposeAs": "jira__list_synced"
+          "exposeAs": "jira__list_synced",
+          "cacheSeconds": 120
         },
         {
           "server": "mcp-jira-sync",
@@ -105,12 +134,14 @@
         {
           "server": "mcp-jira-sync",
           "name": "jira_read_ticket",
-          "exposeAs": "jira__read_ticket"
+          "exposeAs": "jira__read_ticket",
+          "cacheSeconds": 60
         },
         {
           "server": "mcp-jira-sync",
           "name": "jira_read_asset",
-          "exposeAs": "jira__read_asset"
+          "exposeAs": "jira__read_asset",
+          "cacheSeconds": 60
         }
       ]
     },
@@ -150,7 +181,8 @@
         {
           "server": "mcp-pr-companion",
           "name": "check_bitbucket_connection",
-          "exposeAs": "pr__check_bitbucket_connection"
+          "exposeAs": "pr__check_bitbucket_connection",
+          "cacheSeconds": 300
         },
         {
           "server": "mcp-pr-companion",
@@ -175,7 +207,8 @@
         {
           "server": "mcp-read-source",
           "name": "source__check_connection",
-          "exposeAs": "source__check_connection"
+          "exposeAs": "source__check_connection",
+          "cacheSeconds": 120
         },
         {
           "server": "mcp-read-source",

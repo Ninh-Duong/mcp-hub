@@ -29,7 +29,7 @@ async def list_tools(_ctx: ServerRequestContext, _params: PaginatedRequestParams
 
 
 async def call_tool(_ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
-    return CallToolResult(content=[TextContent(type="text", text=f"Xin chào 🌺 {params.arguments['text']}")])
+    return CallToolResult(content=[TextContent(type="text", text=f"naïve café 🌺 {params.arguments['text']}")])
 
 
 async def list_prompts(_ctx: ServerRequestContext, _params: PaginatedRequestParams | None) -> ListPromptsResult:

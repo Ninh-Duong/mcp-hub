@@ -67,11 +67,48 @@ Run from the Hub repository in a normal, non-administrator PowerShell session:
 .\scripts\hubctl.ps1 restart
 .\scripts\hubctl.ps1 stop
 .\scripts\hubctl.ps1 open
+.\scripts\hubctl.ps1 open -Ui    # restart with the activity UI (see below)
 ```
 
-The scheduled task runs the prepared environment through `pythonw.exe`, so the Hub stays in the background when a PowerShell or Windows Terminal window closes. The task is allowed to start and continue on battery. `hubctl install` prepares and synchronizes the locked environment before registering the task; `hubctl start` also prepares it when starting a stopped task. Run `hubctl install` again after changing the Python version or task setup.
+The per-user scheduled task `mcp-hub` runs the prepared environment through `pythonw.exe`, which starts the `mcp-hub-service.exe` process without a console. The Hub opens no window and stays in the background when a PowerShell or Windows Terminal window closes. An older registration named `mcp-hub-shared-service` ran `powershell.exe start.ps1 -Service`, which Windows Terminal shows as a tab; run `hubctl install` once to replace it. The task is allowed to start and continue on battery. Run `hubctl install` again after changing the Python version or task setup.
 
-The dashboard has live service/child/agent state and a shared job list. Its pixel buffalo barn shows each child MCP at rest or handling tool calls. The daily activity panel ranks MCPs by call count or total duration and lists the tools and labeled clients used, with filters by child, client, and tool. It reads only metadata retained for 30 days; it does not display tool arguments or results. It polls at one-second intervals while visible. Its stop and restart buttons invoke the same hidden `hubctl` helper. The helper sends an authenticated shutdown request; the Hub gives active HTTP requests up to 20 seconds to drain, then cancels them and closes its job runner and child MCP connections before the scheduled task exits. `hubctl` waits up to 45 seconds for a clean stop. If the service is stopped, use `hubctl start` or `hubctl open`; the dashboard cannot control a process that is not running. If the task is running but `/health` is unavailable, `hubctl stop` reports the condition rather than force-killing the task.
+### Pre-start checks
+
+`install`, `start`, `restart`, and `open` (when the Hub is stopped) run the same preparation before starting the task, so one command is enough on a fresh machine:
+
+1. Bootstrap uv and Python into the repository if they are missing, then sync the locked Hub environment (`uv sync --locked`).
+2. Run `python -m mcp_hub.preflight --install`. For each enabled child with a `prepare` block in `config/hub.example.json`, it checks the declared runtime and version (for example Node.js 22+ for `mcp-server-logs`, 20.12+ for `mcp-pr-companion`). A missing or outdated runtime is installed or upgraded with winget; Windows may show a UAC prompt. It then runs the child's own dependency step (`node start.mjs --preflight`, `node bin/cli.js prepare`) in the child repository.
+3. Start the task, wait for `/health`, and print the status.
+
+A child that still fails is reported (`preflight.check` in the Hub log) and the Hub starts with the remaining children. Child output is not printed; run the reported command in the child repository for details. `hubctl preflight` checks the runtimes only, without installing or starting anything, and exits non-zero when a requirement is not met:
+
+```powershell
+.\scripts\hubctl.ps1 preflight
+```
+
+The Hub service merges new `PATH` entries from the registry when it starts, so a runtime installed by winget is found without signing out.
+
+The dashboard has service/child/agent state and a shared job list. Its language selector switches the UI between English (default) and Vietnamese; the choice is remembered in the browser. It polls every 10 seconds while its tab is visible and stops while the tab is hidden. Its stop and restart buttons invoke the same hidden `hubctl` helper. The helper sends an authenticated shutdown request; the Hub gives active HTTP requests up to 20 seconds to drain, then cancels them and closes its job runner and child MCP connections before the scheduled task exits. `hubctl` waits up to 45 seconds for a clean stop. If the service is stopped, use `hubctl start` or `hubctl open`; the dashboard cannot control a process that is not running. If the task is running but `/health` is unavailable, `hubctl stop` reports the condition rather than force-killing the task.
+
+### Fast mode and the activity UI
+
+By default the Hub starts in **fast mode**: a tool call goes route, audit log, child, with no activity tracking, no client tracking, and no database write. The dashboard then shows a hint instead of the barn, daily activity, and connected-clients panels.
+
+The **activity UI** is an extension chosen at start. `hubctl start -Ui`, `restart -Ui`, `open -Ui`, and `install -Ui` write `config/private/launch.json` (`{"extensions": ["activity-ui"]}`, no secrets) just before starting the task; the service reads and deletes it at start. The next start without `-Ui`, including the logon-triggered one, is fast mode again; without `-Ui` the commands also remove a leftover file. `open -Ui` on a Hub running in fast mode prints a notice and restarts it with the UI. The dashboard's restart button keeps the current mode, and `hubctl status` prints it.
+
+With the activity UI on, the pixel buffalo barn shows each child MCP at rest or handling tool calls, and the daily activity panel ranks MCPs by call count or total duration and lists the tools and labeled clients used, with filters by child, client, and tool. It reads only metadata retained for 30 days; it does not display tool arguments or results. Live events stream over Server-Sent Events while the tab is visible, and the daily report refreshes at most once per 3 seconds after calls finish. A background batch writer stores each finished call as one row (up to 50 rows or 1 second per write), so the call path never touches the database. Calls still running when the Hub stops are stored as interrupted.
+
+### Connected AI clients
+
+This panel and the `Clients:` line of `hubctl status` need the activity UI (`-Ui`); in fast mode the Hub does not track clients.
+
+The dashboard panel **Connected AI clients** and `hubctl status` (`Clients:` line) show which AI clients use the shared Hub. 2026-07-28 MCP clients are stateless, so the Hub uses three signals, grouped by client name:
+
+- **Live, stdio bridge:** each `start.ps1 -Bridge` process holds a `subscriptions/listen` stream open while it runs and reopens it within 5 seconds after a Hub restart. The client appears on connect and leaves when its bridge exits. A Hub in fast mode does not serve this stream; the bridge then stops holding it until the bridge restarts. The bridge sets no read timeout of its own, so a child call can run for the child's full `timeoutSeconds`.
+- **Live, 2025-era HTTP session:** listed until the client deletes the session or it has been idle for 30 minutes.
+- **Recently active:** any other authenticated request, such as a stateless direct-HTTP client, lists its client for 30 minutes after the last request. A closed bridge or session also stays in this state for 30 minutes.
+
+Only client names and times are kept, in memory. Session IDs and tokens are never shown. A client configured with the legacy per-client launcher (`start.ps1` without `-Bridge`) runs its own Hub, so the shared service cannot see it.
 
 ## 4. Connect each AI client
 

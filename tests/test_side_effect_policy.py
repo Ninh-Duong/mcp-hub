@@ -16,6 +16,20 @@ class SideEffectPolicyTest(unittest.TestCase):
         self.assertTrue(policy.requires_approval("logs__export_openobserve_logs", read_only_hint=False))
         self.assertTrue(policy.requires_approval("unknown__write", read_only_hint=False))
 
+    def test_forced_jira_sync_waits_for_approval(self) -> None:
+        from mcp_hub.jobs.policy import SideEffectPolicy
+
+        policy = SideEffectPolicy()
+        for arguments in (None, {"issue_key": "EX-1"}, {"issue_key": "EX-1", "force": False}):
+            with self.subTest(arguments=arguments):
+                self.assertFalse(policy.requires_approval("jira__sync_ticket", read_only_hint=False, arguments=arguments))
+        for force in (True, "true", 1):
+            with self.subTest(force=force):
+                self.assertTrue(policy.requires_approval(
+                    "jira__sync_ticket", read_only_hint=False, arguments={"issue_key": "EX-1", "force": force},
+                ))
+        self.assertFalse(policy.requires_approval("pr__sync_my_open_prs", read_only_hint=False, arguments={"force": True}))
+
     def test_never_gates_read_only_tools(self) -> None:
         from mcp_hub.jobs.policy import SideEffectPolicy
 

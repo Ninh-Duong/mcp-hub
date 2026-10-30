@@ -49,17 +49,45 @@ class BootstrapScriptsTest(unittest.TestCase):
         self.assertIn("service_launcher.pyw", script)
         self.assertIn("sys._base_executable", script)
         self.assertIn("CREATE_NO_WINDOW", launcher)
-        self.assertIn('from mcp_hub.service import main; main()', launcher)
-        self.assertIn("Prepare-HubEnvironment", script)
+        self.assertIn('"mcp-hub-service.exe"', launcher)
+        self.assertIn('$taskName = "mcp-hub"', script)
+        self.assertIn('Unregister-ScheduledTask -TaskName $legacyTaskName', script)
+        self.assertIn("function Initialize-HubEnvironment", script)
+        self.assertIn("$startInfo.CreateNoWindow = $true", script)
+        self.assertIn('"-m mcp_hub.preflight"', script)
+        self.assertIn('" --install"', script)
+        self.assertIn('"preflight" { exit (Invoke-Preflight) }', script)
+        self.assertNotIn("Start-Process -FilePath $powershell", script)
         self.assertIn('"$url/health"', script)
         self.assertIn('http://127.0.0.1:8765', script)
         self.assertIn('"$url/dashboard/pair"', script)
         self.assertIn('Start-Process "$url/dashboard/?pair=$pair"', script)
         self.assertIn('"$url/dashboard/api/service/shutdown"', script)
+        self.assertIn('"$url/dashboard/api/status"', script)
+        self.assertIn('"Clients: {0}{1}"', script)
         self.assertNotIn("Stop-ScheduledTask", script)
         self.assertIn("Get-Content -LiteralPath $serviceConfigPath -Raw", script)
         self.assertIn("return [string]$serviceConfig.token", script)
         self.assertIn('"Bearer $(Get-ServiceToken)"', script)
+
+
+    def test_ui_flag_writes_a_one_shot_launch_file_and_default_start_removes_it(self) -> None:
+        script = (HUB_ROOT / "scripts" / "hubctl.ps1").read_text(encoding="utf-8")
+        self.assertIn("[switch]$Ui", script)
+        self.assertIn('$launchPath = Join-Path $repoRoot "config\\private\\launch.json"', script)
+        self.assertIn("""[IO.File]::WriteAllText($launchPath, '{"extensions": ["activity-ui"]}')""", script)
+        self.assertIn("Remove-Item -LiteralPath $launchPath -Force", script)
+        self.assertIn("if (-not $Ui) { Set-LaunchMode }", script)
+        # The launch file is written right before the task starts, never while a Hub is running.
+        self.assertLess(script.index("Set-LaunchMode -Ui:$Ui"), script.index("Start-ScheduledTask -TaskName $taskName"))
+        self.assertIn("-not (Test-HubActivityUi)", script)
+        for command in (
+            '"start" {\n        Start-HubTask -Ui:$Ui',
+            'Start-HubTask -Ui:$Ui\n        Write-Output "Restarted',
+            '"open" { Open-HubDashboard -Ui:$Ui }',
+            "Start-HubTask -SkipPrepare -Ui:$Ui",
+        ):
+            self.assertIn(command, script)
 
 
 if __name__ == "__main__":

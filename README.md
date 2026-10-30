@@ -25,14 +25,18 @@ bash scripts/start.sh
 After preparing this repository and the desired child MCPs, follow [the shared Agent Hub runbook](docs/operations/shared-agent-hub.md). The service starts at sign-in through Task Scheduler, listens only on loopback, and shares child connections and investigation jobs across local AI clients.
 
 ```powershell
-.\scripts\hubctl.ps1 install
+.\scripts\hubctl.ps1 install    # first time: register the task, then start
+.\scripts\hubctl.ps1 start      # check and install prerequisites, then start
 .\scripts\hubctl.ps1 status
 .\scripts\hubctl.ps1 open
+.\scripts\hubctl.ps1 open -Ui  # same, with the live activity UI (barn, daily activity, clients)
 ```
+
+Every start first syncs the locked Python environment and runs the pre-start checks: each enabled child's runtime (Node.js is installed or upgraded with winget when needed) and its dependency step. `hubctl preflight` only reports them. See [Pre-start checks](docs/operations/shared-agent-hub.md#pre-start-checks).
 
 Clients with a safe dynamic-header helper can connect over HTTP using `scripts/http_headers.ps1`. Other clients use the stdio bridge by passing `-Bridge -ClientName "<AI_CLIENT>"` to `scripts/start.ps1`. The existing stdio launcher remains available for development and per-client compatibility.
 
-`hubctl open` opens the paired localhost dashboard. Its pixel barn shows live child-tool activity; the daily panel ranks child MCPs and lists tool calls by client for the last 30 days. The report stores only tool/client names, timing, and call state. HTTP clients are labeled from MCP `clientInfo`; bridge entries can pass `-ClientName <AI_CLIENT>`.
+`hubctl open` opens the paired localhost dashboard, in English or Vietnamese (language selector in the top bar). The Hub starts in fast mode by default: tool calls are not tracked beyond the audit log. Add `-Ui` to `start`, `restart`, or `open` to run with the activity UI until the next start (see [Fast mode and the activity UI](docs/operations/shared-agent-hub.md#fast-mode-and-the-activity-ui)). With it, the pixel barn shows live child-tool activity; the daily panel ranks child MCPs and lists tool calls by client for the last 30 days. The report stores only tool/client names, timing, and call state. HTTP clients are labeled from MCP `clientInfo`; bridge entries can pass `-ClientName <AI_CLIENT>`. The **Connected AI clients** panel and `hubctl status` show which clients are connected now or were active in the last 30 minutes (see [Connected AI clients](docs/operations/shared-agent-hub.md#connected-ai-clients)).
 
 If `uv` is missing, the launcher installs it under the ignored `.tools/` directory without changing the global `PATH`. It then installs Python from `.python-version` when needed and runs `uv run --locked`, which creates or synchronizes the project environment from `uv.lock`. The first run needs internet access and write access to the repository and uv-managed data/cache directories. If download or installation fails, the launcher exits with a diagnostic on stderr before starting the Hub. Stdout stays reserved for MCP protocol traffic.
 
@@ -148,7 +152,9 @@ The command runs unit tests, the leak checker, and Python compile checks. It doe
 - `src/mcp_hub/server.py`: starts child clients, exposes allowlisted tools and per-child prompts, routes calls, and writes audit events. It uses the MCP SDK's low-level server so child JSON Schemas and annotations are forwarded unchanged.
 - `src/mcp_hub/audit.py`: rotating JSONL audit log with secret redaction.
 - `src/mcp_hub/service.py`, `http.py`, `bridge.py`: shared HTTP lifecycle, local auth, and stdio compatibility bridge.
-- `src/mcp_hub/jobs/`, `agents/`, `dashboard/`: bounded issue workflows, model adapters, encrypted results, and localhost dashboard with the pixel barn and 30-day child-call statistics.
+- `src/mcp_hub/jobs/`, `agents/`, `dashboard/`: bounded issue workflows, model adapters, encrypted results, and the localhost dashboard.
+- `src/mcp_hub/activity_ui/`: the optional activity UI extension (pixel barn, 30-day child-call statistics, connected clients), installed only with `-Ui`.
+- `scripts/bench_call_path.py`: measures tool-call latency with the activity UI off and on.
 - `scripts/private_config.py`: inspects or edits a private child config without printing secrets.
 - `scripts/check_leaks.py`: blocks machine paths, real emails, and private files from being committed.
 - `scripts/smoke.py`: read-only end-to-end check. For each enabled child it checks the Hub prompt and makes one read-only tool call (`CHECKS` table).

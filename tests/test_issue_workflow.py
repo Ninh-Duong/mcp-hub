@@ -222,6 +222,77 @@ class IssueWorkflowTest(unittest.TestCase):
             finally:
                 store.close()
 
+    def test_identical_tool_calls_in_one_job_reuse_the_first_result(self) -> None:
+        from types import SimpleNamespace
+
+        from mcp_hub.agents.config import AGENT_ROLES, AgentConfig
+        from mcp_hub.agents.providers import ModelToolCall, ModelTurn
+        from mcp_hub.jobs.projects import ProjectConfig
+        from mcp_hub.jobs.runner import JobRunner
+        from mcp_hub.jobs.store import JobStore
+
+        read_only = SimpleNamespace(read_only_hint=True)
+
+        class Runtime:
+            public_tools = [SimpleNamespace(name="logs__query_logs", input_schema={"type": "object"}, annotations=read_only)]
+            audit = type("Audit", (), {"redact_content": staticmethod(lambda value, limit=2000: value[:limit])})()
+
+            def __init__(self):
+                self.calls = []
+
+            async def call_child_tool(self, name, arguments, request_id, **metadata):
+                self.calls.append((name, arguments))
+                return CallToolResult(content=[TextContent(type="text", text=f"rows-{len(self.calls)}")])
+
+        class Provider:
+            """Asks for the same query twice (argument order differs), then a different one, then answers."""
+
+            def __init__(self):
+                self.turns = [
+                    ModelTurn("", (ModelToolCall("c1", "logs__query_logs", {"query": "a", "env": "dev"}),)),
+                    ModelTurn("", (ModelToolCall("c2", "logs__query_logs", {"env": "dev", "query": "a"}),)),
+                    ModelTurn("", (ModelToolCall("c3", "logs__query_logs", {"query": "b", "env": "dev"}),)),
+                    ModelTurn("Found it."),
+                ]
+                self.messages = []
+
+            async def complete(self, messages, tools, **kwargs):
+                self.messages = messages
+                return self.turns.pop(0)
+
+        provider = Provider()
+        agents = {role: AgentConfig(role, None, None) for role in AGENT_ROLES}
+        agents["logs"] = AgentConfig("logs", "openai", "test-model", "logs-secret")
+        runtime = Runtime()
+        with tempfile.TemporaryDirectory() as directory:
+            store = JobStore(Path(directory) / "jobs.sqlite3", protector=FakeProtector())
+            runner = JobRunner(
+                store=store, runtime=runtime, projects={"orders": ProjectConfig("orders", ("dev",))},
+                agents=agents, provider_factory=lambda config: provider,
+            )
+            try:
+                async def exercise():
+                    submitted = await runner.submit_issue(project="orders", question="Why?", env="dev")
+                    await runner.wait(submitted["job_id"])
+                    return submitted["job_id"]
+
+                job_id = asyncio.run(exercise())
+                self.assertEqual(runtime.calls, [
+                    ("logs__query_logs", {"query": "a", "env": "dev"}),
+                    ("logs__query_logs", {"query": "b", "env": "dev"}),
+                ])
+                job = runner.get_job(job_id)
+                events = [event["event"] for event in job["events"]]
+                self.assertEqual(events.count("tool.call.succeeded"), 2)
+                self.assertEqual(events.count("tool.call.reused"), 1)
+                self.assertEqual(len({ref["source_id"] for ref in job["evidence_refs"]}), 2)
+                tool_messages = [message for message in provider.messages if message["role"] == "tool"]
+                self.assertIn("rows-1", tool_messages[0]["content"])
+                self.assertIn("already ran in this job", tool_messages[1]["content"])
+                self.assertIn("rows-2", tool_messages[2]["content"])
+            finally:
+                store.close()
+
 
 if __name__ == "__main__":
     unittest.main()

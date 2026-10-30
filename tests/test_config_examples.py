@@ -48,5 +48,20 @@ class ConfigExamplesTest(unittest.TestCase):
                 self.assertIn(tool.get("server"), config["servers"])
 
 
+    def test_hub_example_cache_ttls_skip_writes_and_pr_data(self) -> None:
+        config = json.loads((HUB_ROOT / "config" / "hub.example.json").read_text(encoding="utf-8"))
+        ttl = {tool["name"]: tool.get("cacheSeconds", 0) for feature in config["features"].values() for tool in feature["tools"]}
+        for name in ("jira_sync_ticket", "export_openobserve_logs", "sync_my_open_prs", "get_pr_context_pack"):
+            self.assertEqual(ttl[name], 0, name)
+        pr_tools = {tool["name"] for tool in config["features"]["pr"]["tools"]} - {"check_bitbucket_connection"}
+        self.assertTrue(pr_tools)
+        self.assertEqual({ttl[name] for name in pr_tools}, {0})
+        for name in ("jira_check_connection", "check_bitbucket_connection", "list_openobserve_organizations"):
+            self.assertEqual(ttl[name], 300, name)
+        for name in ("search_openobserve_logs", "query_logs", "jira_read_ticket", "read_ai_context"):
+            self.assertEqual(ttl[name], 60, name)
+        self.assertTrue(all(isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0
+                            for value in ttl.values()))
+
 if __name__ == "__main__":
     unittest.main()

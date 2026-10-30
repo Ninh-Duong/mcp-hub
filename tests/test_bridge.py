@@ -4,7 +4,7 @@ import asyncio
 from contextlib import asynccontextmanager
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import anyio
 from mcp import Client
@@ -71,6 +71,71 @@ class StdioBridgeTest(unittest.TestCase):
             self.assertEqual(bridge_client_info().name, "unknown")
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(bridge_client_info().name, "unknown")
+
+
+class PresenceTest(unittest.TestCase):
+    def test_main_client_has_no_read_timeout_so_long_child_calls_finish(self) -> None:
+        from mcp_hub.bridge import BRIDGE_TIMEOUT
+
+        self.assertIsNone(BRIDGE_TIMEOUT.read)
+        self.assertEqual(BRIDGE_TIMEOUT.connect, 60.0)
+
+    def test_presence_retries_connection_errors_and_stops_on_method_not_found(self) -> None:
+        from mcp.shared.exceptions import MCPError
+        from mcp.types import METHOD_NOT_FOUND, Implementation
+
+        from mcp_hub import bridge
+
+        outcomes = [ConnectionError("hub restarting"), ExceptionGroup("wrapped", [MCPError(METHOD_NOT_FOUND, "nope")])]
+        attempts = []
+
+        async def listen_once(*_args):
+            attempts.append(True)
+            raise outcomes.pop(0)
+
+        async def no_sleep(_seconds):
+            return None
+
+        with patch.object(bridge, "_listen_once", listen_once), patch.object(bridge.asyncio, "sleep", no_sleep):
+            asyncio.run(asyncio.wait_for(bridge.hold_presence("url", "token", Implementation(name="x", version="1")), 5))
+        self.assertEqual(len(attempts), 2)
+
+    def test_presence_returns_against_a_hub_without_the_activity_ui(self) -> None:
+        import socket
+        import tempfile
+        from pathlib import Path
+
+        import uvicorn
+        from mcp.types import Implementation
+
+        from mcp_hub.audit import AuditLog
+        from mcp_hub.bridge import hold_presence
+        from mcp_hub.config import HubConfig
+        from mcp_hub.http import create_http_app
+        from mcp_hub.server import HubRuntime, create_mcp_server
+
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+        audit = Mock(spec=AuditLog)
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = HubRuntime(HubConfig(Path(tmp) / "hub.json", {}, ()), audit)
+            app = create_http_app(create_mcp_server(runtime), "token", port=port)
+
+            async def exercise() -> None:
+                http_server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="critical"))
+                task = asyncio.create_task(http_server.serve())
+                try:
+                    while not http_server.started:
+                        await asyncio.sleep(0.02)
+                    await asyncio.wait_for(hold_presence(
+                        f"http://127.0.0.1:{port}/mcp", "token", Implementation(name="bridge", version="1"),
+                    ), 10)
+                finally:
+                    http_server.should_exit = True
+                    await task
+
+            asyncio.run(exercise())
 
 
 if __name__ == "__main__":

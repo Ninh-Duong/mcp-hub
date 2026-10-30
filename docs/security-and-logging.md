@@ -49,5 +49,13 @@ When the Hub uses MCP `stdio`, stdout is reserved for protocol messages. Send ap
 | `tool.call.succeeded` | INFO | Call finished; includes `duration_ms`. |
 | `tool.call.failed` | ERROR | Exception, timeout (`error_type=TimeoutError`), or a child error result (`error_summary`, redacted). |
 | `tool.call.denied` | WARNING | A client called a tool that isn't allowlisted. |
+| `tool.call.cached` | INFO | A read-only call with a `cacheSeconds` TTL was answered from the Hub result cache (or joined an identical call in flight); the child was not called. Includes `duration_ms`. |
+| `tool.call.interrupted` | WARNING | The call was cancelled before the child answered. |
+| `preflight.check` | INFO / WARNING | A pre-start check of one child: `server`, `step` (runtime name or `prepare`), and `ok`. No child output. |
+| `extension.unknown` | WARNING | The launch file named an extension the Hub does not know; it is ignored. |
+| `extension.observer.failed` | ERROR | An extension observer raised; only `error_type` is logged and the tool call continues. |
+| `activity.persist.failed` / `activity.persist.dropped` | ERROR / WARNING | The activity UI could not write its batched call records, or dropped records because its queue was full. Only shown with `-Ui`. |
+
+In the job timeline (SQLite, not this log), `tool.call.reused` marks an identical call that an investigation job answered from its earlier result and evidence ID. `hub.started` also lists the loaded `extensions` (empty in the default fast mode). The result cache lives only in the Hub process memory and is cleared on restart; it never writes tool results to disk. A successful or failed call to a tool without `readOnlyHint=true` drops that child's cached results.
 
 To diagnose a failure, search for the `request_id` returned in the tool's error text.

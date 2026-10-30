@@ -31,4 +31,4 @@ mcp-hub-bridge = "mcp_hub.bridge:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-mcp_hub = ["dashboard/*.html", "dashboard/*.js", "dashboard/*.css"]
+mcp_hub = ["dashboard/*.html", "dashboard/*.js", "dashboard/*.css", "dashboard/locales/*.json"]

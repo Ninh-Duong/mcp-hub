@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 from mcp.types import CallToolRequestParams, CallToolResult, Implementation, TextContent
 
+from mcp_hub.activity_ui import install
 from mcp_hub.audit import AuditLog
 from mcp_hub.config import HubConfig, ServerConfig, ToolRoute
 from mcp_hub.jobs.store import JobStore
@@ -30,7 +31,9 @@ class ActivityRuntimeTest(unittest.IsolatedAsyncioTestCase):
             (ToolRoute("sample", "sample-child", "inspect", "sample-child__inspect"),),
         )
         self.store = JobStore(self.tmp / "jobs.sqlite3", protector=_FakeProtector())
-        self.runtime = HubRuntime(config, AuditLog(self.tmp / "audit.jsonl"), activity_store=self.store)
+        audit = AuditLog(self.tmp / "audit.jsonl")
+        self.runtime = HubRuntime(config, audit)
+        self.ui = install(self.runtime, store=self.store, audit=audit)
         self.runtime.clients["sample-child"] = _FakeClient()
         self.runtime.routes["sample-child__inspect"] = config.routes[0]
         self.runtime.discovered_tool_counts = {"sample-child": 3}
@@ -66,6 +69,7 @@ class ActivityRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("private_value", str(snapshot))
         self.assertNotIn("do-not-expose", str(snapshot))
 
+        await self.ui.close()
         report = self.store.activity_report(
             datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0),
             datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1),
@@ -75,7 +79,7 @@ class ActivityRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("do-not-expose", str(report))
 
     async def test_activity_subscribers_receive_ordered_call_events_without_arguments(self) -> None:
-        subscriber = self.runtime.subscribe_activity()
+        subscriber = self.ui.tracker.subscribe()
         await self.runtime.call_child_tool(
             "sample-child__inspect", {"secret": "must-not-stream"}, request_id="stream-test",
             client_name="Codex",
@@ -83,7 +87,7 @@ class ActivityRuntimeTest(unittest.IsolatedAsyncioTestCase):
 
         started = subscriber.get_nowait()
         finished = subscriber.get_nowait()
-        self.runtime.unsubscribe_activity(subscriber)
+        self.ui.tracker.unsubscribe(subscriber)
 
         self.assertEqual([started["state"], finished["state"]], ["started", "succeeded"])
         self.assertEqual(started["call_id"], finished["call_id"])
@@ -93,15 +97,15 @@ class ActivityRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("must-not-stream", str(finished))
 
     async def test_slow_activity_subscriber_is_told_to_resync(self) -> None:
-        subscriber = self.runtime.subscribe_activity()
+        subscriber = self.ui.tracker.subscribe()
         for call_id in range(257):
-            self.runtime._append_activity_event(
+            self.ui.tracker.append_event(
                 "sample-child", "inspect", "started", call_id=call_id,
             )
 
         self.assertEqual(subscriber.qsize(), 1)
         self.assertEqual(subscriber.get_nowait(), {"resync": True})
-        self.runtime.unsubscribe_activity(subscriber)
+        self.ui.tracker.unsubscribe(subscriber)
 
     async def test_call_records_client_and_investigation_role(self) -> None:
         await self.runtime.call_child_tool(
@@ -111,6 +115,7 @@ class ActivityRuntimeTest(unittest.IsolatedAsyncioTestCase):
 
         start = datetime.now(timezone.utc) - timedelta(minutes=1)
         end = datetime.now(timezone.utc) + timedelta(minutes=1)
+        await self.ui.close()
         report = self.store.activity_report(start, end)
         self.assertEqual(report["events"][0]["client"], "investigation")
         self.assertEqual(report["events"][0]["agent_role"], "logs")
@@ -127,6 +132,7 @@ class ActivityRuntimeTest(unittest.IsolatedAsyncioTestCase):
 
         start = datetime.now(timezone.utc) - timedelta(minutes=1)
         end = datetime.now(timezone.utc) + timedelta(minutes=1)
+        await self.ui.close()
         report = self.store.activity_report(start, end)
         self.assertEqual(report["events"][0]["client"], "Antigravity local")
 
@@ -143,15 +149,18 @@ class ActivityRuntimeTest(unittest.IsolatedAsyncioTestCase):
         await entered.wait()
         await asyncio.sleep(0)
         self.assertEqual(self.runtime.activity_snapshot()["children"]["sample-child"]["active_calls"], 2)
+        await self.ui.close()
         report = self.store.activity_report(
             datetime.now(timezone.utc) - timedelta(minutes=1),
             datetime.now(timezone.utc) + timedelta(minutes=1),
         )
-        self.assertEqual([event["state"] for event in report["events"]], ["running", "running"])
+        # Running calls stay in memory; a row is written once the call finishes.
+        self.assertEqual(report["events"], [])
 
         gate.set()
         await asyncio.gather(*calls)
         self.assertEqual(self.runtime.activity_snapshot()["children"]["sample-child"]["active_calls"], 0)
+        await self.ui.close()
         report = self.store.activity_report(
             datetime.now(timezone.utc) - timedelta(minutes=1),
             datetime.now(timezone.utc) + timedelta(minutes=1),
@@ -169,6 +178,7 @@ class ActivityRuntimeTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(asyncio.CancelledError):
             await call
 
+        await self.ui.close()
         report = self.store.activity_report(
             datetime.now(timezone.utc) - timedelta(minutes=1),
             datetime.now(timezone.utc) + timedelta(minutes=1),
@@ -184,6 +194,7 @@ class ActivityRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(child["last_state"], "failed")
         self.assertEqual(child["last_error_type"], "RuntimeError")
         self.assertNotIn("private-value-from-child", str(self.runtime.activity_snapshot()))
+        await self.ui.close()
         report = self.store.activity_report(
             datetime.now(timezone.utc) - timedelta(minutes=1),
             datetime.now(timezone.utc) + timedelta(minutes=1),

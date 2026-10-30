@@ -77,6 +77,7 @@ class InheritedEnvironmentRedactionTest(unittest.IsolatedAsyncioTestCase):
         result = await runtime.call_tool(SimpleNamespace(request_id="status"), CallToolRequestParams(name="hub__status", arguments={}))
         self.assertEqual(json.loads(result.content[0].text), {
             "detected": 1, "connected": 0, "children": {"mcp-jira-sync": "credentials required"},
+            "result_cache": {"hits": 0, "misses": 0, "entries": 0},
         })
         self.assertIn('"event": "tool.call.succeeded"', (self.tmp / "audit.jsonl").read_text(encoding="utf-8"))
 

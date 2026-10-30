@@ -38,6 +38,20 @@ class SpecialistResult:
     limitation: str | None = None
 
 
+@dataclass(frozen=True)
+class ToolCallOutcome:
+    """A child result and its evidence ID; `reused` means an identical earlier call in the job supplied it."""
+    result: CallToolResult
+    source_id: str
+    reused: bool = False
+
+
+_REUSED_NOTE = (
+    "This identical call already ran in this job; its result is the earlier tool message [{source_id}]. "
+    "Do not repeat identical calls."
+)
+
+
 def tools_for_role(role: str, tools: list[Any]) -> list[Any]:
     prefix = ROLE_PREFIXES.get(role)
     if prefix is None:
@@ -104,7 +118,7 @@ class SpecialistExecutor:
         runtime: Any,
         provider: ModelProvider,
         save_result: Callable[[str, str, Any], None],
-        call_tool: Callable[[str, str, str, dict[str, Any], Any, str], Awaitable[CallToolResult]],
+        call_tool: Callable[[str, str, str, dict[str, Any], Any, str], Awaitable[CallToolResult | ToolCallOutcome]],
         max_rounds: int = 8,
     ) -> None:
         self.runtime = runtime
@@ -117,19 +131,7 @@ class SpecialistExecutor:
         tools = tools_for_role(role, self.runtime.public_tools)
         if not tools:
             return SpecialistResult(role, "", (), "No connected tools are available for this specialist.")
-        role_doc = HUB_ROOT / "docs" / "agents" / f"{role}.md"
-        system = role_doc.read_text(encoding="utf-8") if role_doc.is_file() else "Use only your provided read-only tools and cite evidence."
-        audit = getattr(self.runtime, "audit", None)
-        redactor = (
-            (lambda text: audit.redact_content(text, limit=MAX_TOOL_RESULT_CHARS))
-            if audit is not None else None
-        )
-        messages: list[dict[str, Any]] = [
-            {"role": "system", "content": system},
-            {"role": "user", "content": minimize_model_content(
-                task, limit=MAX_TOOL_RESULT_CHARS, redactor=redactor,
-            )},
-        ]
+        messages = self._initial_messages(role, task)
         evidence: list[EvidenceRef] = []
         for _ in range(self.max_rounds):
             turn = await self.provider.complete(messages, tools)
@@ -137,25 +139,55 @@ class SpecialistExecutor:
                 return SpecialistResult(role, turn.text.strip(), tuple(evidence))
             tool_calls = []
             for call in turn.tool_calls:
-                tool = validate_tool_call(call, tools)
+                validate_tool_call(call, tools)
                 tool_calls.append({"id": call.call_id, "name": call.name, "arguments": call.arguments})
             messages.append({"role": "assistant", "content": turn.text, "tool_calls": tool_calls})
             for call in turn.tool_calls:
                 tool = validate_tool_call(call, tools)
-                source_id = f"{role}-{uuid.uuid4().hex[:8]}"
-                try:
-                    result = await self.call_tool(job_id, role, call.name, call.arguments, tool, source_id)
-                except SpecialistError:
-                    raise
-                except Exception as exc:
-                    raise SpecialistError(f"Child call failed ({type(exc).__name__})") from None
-                self.save_result(job_id, source_id, result.model_dump(mode="json"))
-                evidence.append(EvidenceRef(source_id, call.name, role))
-                messages.append({
-                    "role": "tool", "tool_call_id": call.call_id, "name": call.name,
-                    "content": minimize_model_content(
-                        result,
-                        redactor=lambda text: self.runtime.audit.redact_content(text, limit=MAX_TOOL_RESULT_CHARS),
-                    ),
-                })
+                ref = await self._run_tool_call(job_id, role, call, tool, messages)
+                if ref not in evidence:
+                    evidence.append(ref)
         return SpecialistResult(role, "", tuple(evidence), "Specialist reached its response-round limit.")
+
+    def _initial_messages(self, role: str, task: str) -> list[dict[str, Any]]:
+        role_doc = HUB_ROOT / "docs" / "agents" / f"{role}.md"
+        system = role_doc.read_text(encoding="utf-8") if role_doc.is_file() else "Use only your provided read-only tools and cite evidence."
+        audit = getattr(self.runtime, "audit", None)
+        redactor = (
+            (lambda text: audit.redact_content(text, limit=MAX_TOOL_RESULT_CHARS))
+            if audit is not None else None
+        )
+        return [
+            {"role": "system", "content": system},
+            {"role": "user", "content": minimize_model_content(
+                task, limit=MAX_TOOL_RESULT_CHARS, redactor=redactor,
+            )},
+        ]
+
+    async def _run_tool_call(
+        self, job_id: str, role: str, call: ModelToolCall, tool: Any, messages: list[dict[str, Any]],
+    ) -> EvidenceRef:
+        """Call one validated tool, store its result encrypted, and append a minimized copy to the conversation.
+
+        A result reused from an identical earlier call in the job keeps that call's source ID
+        and is neither stored again nor resent to the model.
+        """
+        source_id = f"{role}-{uuid.uuid4().hex[:8]}"
+        try:
+            outcome = await self.call_tool(job_id, role, call.name, call.arguments, tool, source_id)
+        except SpecialistError:
+            raise
+        except Exception as exc:
+            raise SpecialistError(f"Child call failed ({type(exc).__name__})") from None
+        if isinstance(outcome, CallToolResult):
+            outcome = ToolCallOutcome(outcome, source_id)
+        if outcome.reused:
+            content = _REUSED_NOTE.format(source_id=outcome.source_id)
+        else:
+            self.save_result(job_id, outcome.source_id, outcome.result.model_dump(mode="json"))
+            content = minimize_model_content(
+                outcome.result,
+                redactor=lambda text: self.runtime.audit.redact_content(text, limit=MAX_TOOL_RESULT_CHARS),
+            )
+        messages.append({"role": "tool", "tool_call_id": call.call_id, "name": call.name, "content": content})
+        return EvidenceRef(outcome.source_id, call.name, role)
