@@ -10,6 +10,7 @@
 | `scripts/smoke.py`, `scripts/package_qc.py` | Yes | Yes |
 | Shared service (`hubctl.ps1`: Task Scheduler, `pythonw.exe`), stdio bridge, `http_headers.ps1` | Yes | No |
 | Dashboard service controls (stop/restart run `hubctl.ps1`) | Yes | No (`503`) |
+| Desktop status app (`python -m mcp_hub.desktop`, Tk) | Yes, opened at logon by the `mcp-hub-status` task | Runs where Tk has a display, but shows **Not installed** without the shared service; no autostart, and Start Hub reports that it needs Windows |
 | Investigation jobs (`hub__submit_issue` …; job blobs encrypted with DPAPI) | Yes | No: `hub__submit_issue` returns `investigation jobs require Windows DPAPI`, and agent status shows it |
 | Preflight runtime install with winget | Yes | No: a missing runtime is reported; install it yourself |
 

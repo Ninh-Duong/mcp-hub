@@ -32,7 +32,15 @@ After preparing this repository and the desired child MCPs, follow [the shared A
 .\scripts\hubctl.ps1 status
 .\scripts\hubctl.ps1 open
 .\scripts\hubctl.ps1 open -Ui  # same, with the live activity UI (barn, daily activity, clients)
+.\scripts\hubctl.ps1 app       # open the desktop status app
 ```
+
+**Desktop status app.** `install` also registers a second logon task, `mcp-hub-status`. At every sign-in it opens a small window that shows:
+- whether the Hub is running, and in which mode;
+- whether each child MCP is connected;
+- with `-Ui`, the connected AI clients.
+
+The window has **Start Hub** and **Open dashboard** buttons, plus a light/dark theme switch and an EN/VI switch. Both choices are remembered. Turn autostart off with `Disable-ScheduledTask mcp-hub-status`. Design rules, states, and keys are in [docs/desktop-app.md](docs/desktop-app.md).
 
 Every start first syncs the locked Python environment and runs the pre-start checks: each enabled child's runtime (Node.js is installed or upgraded with winget when needed) and its dependency step. `hubctl preflight` only reports them. See [Pre-start checks](docs/operations/shared-agent-hub.md#pre-start-checks).
 
@@ -146,12 +154,13 @@ The command runs, stopping at the first failure: `ruff` lint, the unit tests und
 | Bootstrap, support matrix, QC steps, CI | [docs/packaging-and-qc.md](docs/packaging-and-qc.md) |
 | Design and plan history (not maintained; the docs above are current) | [docs/history/](docs/history/) |
 | Shared Windows service setup, operation and client migration | [docs/operations/shared-agent-hub.md](docs/operations/shared-agent-hub.md) |
+| Desktop status app: behavior, design keywords, states, locale keys | [docs/desktop-app.md](docs/desktop-app.md) |
 | Secrets, audit events, diagnosing failures | [docs/security-and-logging.md](docs/security-and-logging.md) |
 | Safe config templates | [config/hub.example.json](config/hub.example.json), [config/mcps/](config/mcps/) |
 
 ## Layout
 
-- `src/mcp_hub/`: the Hub package; [docs/architecture.md → Module layout](docs/architecture.md#module-layout) lists every module and the dependency direction.
+- `src/mcp_hub/`: the Hub package; [docs/architecture.md → Module layout](docs/architecture.md#module-layout) lists every module and the dependency direction. `desktop/` is the desktop status app and `control.py` the shared background `hubctl` launcher.
 - `config/`: tracked templates (`hub.example.json`, `mcps/*.example.json`); `config/private/` holds the user's ignored files (see [AGENTS.md → Private files](AGENTS.md#private-files)).
 - `scripts/`: launchers (`start.ps1`, `start.sh`), service control (`hubctl.ps1`, `service_launcher.pyw`, `http_headers.ps1`), `smoke.py`, `package_qc.py`, `check_leaks.py`, `check_code_standards.py`, `private_config.py` (inspect private configs without printing secrets), and `bench_call_path.py` (tool-call latency with the activity UI off and on).
 - `tests/`: offline unit tests, run by `package_qc.py` (or `uv run python -m unittest discover tests`).

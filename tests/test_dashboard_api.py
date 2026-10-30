@@ -379,13 +379,15 @@ class CoreDashboardTest(unittest.TestCase):
     def test_control_reports_unavailable_when_powershell_cannot_be_located(self) -> None:
         from unittest.mock import patch
 
-        from mcp_hub.dashboard import api
+        from pathlib import Path
 
-        with patch.dict(api.os.environ, {}, clear=True), self.assertRaises(OSError):
-            api.windows_powershell()
-        with patch.dict(api.os.environ, {"SystemRoot": "/sysroot"}):
+        from mcp_hub import control
+
+        with patch.dict(control.os.environ, {}, clear=True), self.assertRaises(OSError):
+            control.windows_powershell()
+        with patch.dict(control.os.environ, {"SystemRoot": "/sysroot"}):
             self.assertEqual(
-                api.Path(api.windows_powershell()).parts[-4:],
+                Path(control.windows_powershell()).parts[-4:],
                 ("System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
             )
         from mcp_hub.dashboard.api import create_dashboard_routes

@@ -1,6 +1,6 @@
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("install", "status", "start", "stop", "restart", "open", "preflight")]
+    [ValidateSet("install", "status", "start", "stop", "restart", "open", "preflight", "app")]
     [string]$Command = "status",
     # start, restart, open, install: also run the activity UI (barn, daily activity, connected clients).
     [switch]$Ui
@@ -9,6 +9,7 @@ param(
 $ErrorActionPreference = "Stop"
 $taskName = "mcp-hub"
 $legacyTaskName = "mcp-hub-shared-service"
+$statusAppTaskName = "mcp-hub-status"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $startScript = Join-Path $PSScriptRoot "start.ps1"
 $venvPython = Join-Path $repoRoot ".venv\Scripts\python.exe"
@@ -199,6 +200,27 @@ function Register-HubTask {
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
 }
 
+function Register-StatusAppTask {
+    # The desktop status window (docs/desktop-app.md) opens at every logon. pythonw has no console, and the
+    # venv's pythonw is not rewritten by uv sync the way a running entry-point exe would block it.
+    $pythonw = Join-Path $repoRoot ".venv\Scripts\pythonw.exe"
+    if (-not (Test-Path -LiteralPath $pythonw -PathType Leaf)) { throw "The Hub environment has no pythonw.exe. Run: hubctl install" }
+    $action = New-ScheduledTaskAction -Execute $pythonw -Argument "-m mcp_hub.desktop" -WorkingDirectory $repoRoot
+    $userId = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $userId
+    $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Limited
+    $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+    Register-ScheduledTask -TaskName $statusAppTaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
+}
+
+function Open-StatusApp {
+    if (-not (Get-ScheduledTask -TaskName $statusAppTaskName -ErrorAction SilentlyContinue)) {
+        throw "The desktop status app is not installed. Run: hubctl install"
+    }
+    # The app keeps a single instance, so starting it again while it runs opens nothing new.
+    Start-ScheduledTask -TaskName $statusAppTaskName
+}
+
 function Write-ConnectedClients {
     $headers = @{ Authorization = "Bearer $(Get-ServiceToken)" }
     $status = Invoke-RestMethod -Uri "$url/dashboard/api/status" -Method Get -Headers $headers -TimeoutSec 5
@@ -236,11 +258,14 @@ function Open-HubDashboard {
 
 switch ($Command) {
     "install" {
-        Initialize-HubEnvironment
+        # Stop first: a running service locks .venv\Scripts\mcp-hub-service.exe, which uv sync may need to replace.
         if (Test-HubHealth) { Stop-HubTask }
+        Initialize-HubEnvironment
         Register-HubTask
+        Register-StatusAppTask
         Start-HubTask -SkipPrepare -Ui:$Ui
-        Write-Output "Installed and started the per-user mcp-hub task."
+        Open-StatusApp
+        Write-Output "Installed and started the per-user mcp-hub task and the desktop status app."
     }
     "status" {
         Write-HubStatus
@@ -261,4 +286,5 @@ switch ($Command) {
         Write-Output "Restarted the mcp-hub scheduled task."
     }
     "open" { Open-HubDashboard -Ui:$Ui }
+    "app" { Open-StatusApp }
 }

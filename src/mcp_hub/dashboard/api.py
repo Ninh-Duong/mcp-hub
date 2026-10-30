@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
-import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Callable
@@ -11,7 +9,7 @@ from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from starlette.routing import Route
 
-from ..config import HUB_ROOT
+from ..control import launch_hubctl
 from ..extensions import DashboardExtension, status_flags
 from .sessions import DashboardSessions
 
@@ -53,7 +51,7 @@ class DashboardHandlers:
         self.runtime = runtime
         self.job_runner = job_runner
         self.sessions = sessions
-        self.launch_control = control_launcher or _launch_control
+        self.launch_control = control_launcher or launch_hubctl
         self.shutdown_callback = shutdown_callback
         self.extensions = tuple(extensions)
 
@@ -226,26 +224,3 @@ def _job_not_found() -> Response:
 def _job_data_unreadable() -> Response:
     """Encrypted job data could not be decrypted (for example a DPAPI failure); no details are returned."""
     return JSONResponse({"error": "Job data could not be decrypted."}, status_code=500)
-
-
-def windows_powershell() -> str:
-    """Windows PowerShell by absolute path, so a `powershell.exe` in the working directory or on PATH never runs."""
-    system_root = os.environ.get("SystemRoot")
-    if not system_root:
-        raise OSError("SystemRoot is not set; service control requires Windows")
-    return str(Path(system_root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe")
-
-
-def _launch_control(arguments: list[str]) -> None:
-    """Run `hubctl.ps1 <command> [flags]` detached, without a window."""
-    script = HUB_ROOT / "scripts" / "hubctl.ps1"
-    creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    subprocess.Popen(
-        [windows_powershell(), "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", str(script), *arguments],
-        cwd=HUB_ROOT,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        close_fds=True,
-        creationflags=creation_flags,
-    )

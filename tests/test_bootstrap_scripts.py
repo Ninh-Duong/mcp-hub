@@ -122,6 +122,24 @@ class BootstrapScriptsTest(unittest.TestCase):
         self.assertIn('icacls $repoRoot /inheritance:r /grant:r "${UserId}:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F"', script)
         self.assertIn("(Test-OthersCanWrite -Path $repoRoot)) { throw", script)
 
+    def test_install_registers_the_desktop_status_app_at_logon(self) -> None:
+        script = (HUB_ROOT / "scripts" / "hubctl.ps1").read_text(encoding="utf-8")
+        register = script[script.index("function Register-StatusAppTask"):script.index("function Open-StatusApp")]
+        self.assertIn('$statusAppTaskName = "mcp-hub-status"', script)
+        self.assertIn('".venv\\Scripts\\pythonw.exe"', register)
+        self.assertIn('-Argument "-m mcp_hub.desktop"', register)
+        self.assertIn("New-ScheduledTaskTrigger -AtLogOn", register)
+        self.assertIn("-RunLevel Limited", register)
+        self.assertNotIn("-RestartCount", register)
+        install = script[script.index('"install" {'):script.index('"status" {')]
+        self.assertLess(install.index("Register-HubTask"), install.index("Register-StatusAppTask"))
+        # The running service locks its entry-point exe, so it stops before the environment sync.
+        self.assertLess(install.index("Stop-HubTask"), install.index("Initialize-HubEnvironment"))
+        self.assertLess(install.index("Start-HubTask"), install.index("Open-StatusApp"))
+        self.assertIn('"preflight", "app")]', script)
+        self.assertIn('"app" { Open-StatusApp }', script)
+        self.assertIn("Start-ScheduledTask -TaskName $statusAppTaskName", script)
+
     def test_ui_flag_writes_a_one_shot_launch_file_and_default_start_removes_it(self) -> None:
         script = (HUB_ROOT / "scripts" / "hubctl.ps1").read_text(encoding="utf-8")
         self.assertIn("[switch]$Ui", script)

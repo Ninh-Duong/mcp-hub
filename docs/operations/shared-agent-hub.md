@@ -59,7 +59,7 @@ Run from the Hub repository in a normal, non-administrator PowerShell session:
 .\scripts\hubctl.ps1 open
 ```
 
-`install` registers a per-user Task Scheduler job at logon and starts the Hub. If another account can write to the checkout, it first restricts the checkout to you, SYSTEM, and Administrators, and it warns when the parent folder holding the child repositories is writable by others (see [security-and-logging.md](../security-and-logging.md)). The server listens only on `127.0.0.1:8765`. `open` starts the dashboard at `/dashboard/` using a one-use pairing token; it does not print the token. Use these commands for recovery and change activation:
+`install` registers a per-user Task Scheduler job at logon and starts the Hub. A Hub that is already running is stopped first, because the running service locks `.venv\Scripts\mcp-hub-service.exe` and the environment sync may need to replace it. If another account can write to the checkout, it first restricts the checkout to you, SYSTEM, and Administrators, and it warns when the parent folder holding the child repositories is writable by others (see [security-and-logging.md](../security-and-logging.md)). The server listens only on `127.0.0.1:8765`. `open` starts the dashboard at `/dashboard/` using a one-use pairing token; it does not print the token. Use these commands for recovery and change activation:
 
 ```powershell
 .\scripts\hubctl.ps1 status
@@ -70,7 +70,7 @@ Run from the Hub repository in a normal, non-administrator PowerShell session:
 .\scripts\hubctl.ps1 open -Ui    # restart with the activity UI (see below)
 ```
 
-The per-user scheduled task `mcp-hub` runs the prepared environment through `pythonw.exe`, which starts the `mcp-hub-service.exe` process without a console. The Hub opens no window and stays in the background when a PowerShell or Windows Terminal window closes. An older registration named `mcp-hub-shared-service` ran `powershell.exe start.ps1 -Service`, which Windows Terminal shows as a tab; run `hubctl install` once to replace it. The task is allowed to start and continue on battery. Run `hubctl install` again after changing the Python version or task setup.
+The per-user scheduled task `mcp-hub` runs the prepared environment through `pythonw.exe`, which starts the `mcp-hub-service.exe` process without a console. The Hub opens no window and stays in the background when a PowerShell or Windows Terminal window closes. `install` also registers the per-user task `mcp-hub-status`. At logon it opens the desktop status app (`.venv\Scripts\pythonw.exe -m mcp_hub.desktop`): a small window with the Hub state, each child MCP's connection, and, with `-Ui`, the connected AI clients. `hubctl app` opens it now. Only one copy runs, and closing the window exits it. To stop it opening at logon, run `Disable-ScheduledTask mcp-hub-status`. See [desktop-app.md](../desktop-app.md). An older registration named `mcp-hub-shared-service` ran `powershell.exe start.ps1 -Service`, which Windows Terminal shows as a tab; run `hubctl install` once to replace it. The task is allowed to start and continue on battery. Run `hubctl install` again after changing the Python version or task setup.
 
 ### Pre-start checks
 
