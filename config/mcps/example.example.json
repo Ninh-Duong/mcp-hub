@@ -1,0 +1,9 @@
+{
+  "transport": "stdio",
+  "command": ".venv/Scripts/python.exe",
+  "args": ["server.py"],
+  "cwd": "../<mcp-repository>",
+  "inheritEnv": ["PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE"],
+  "timeoutSeconds": 60,
+  "env": {}
+}

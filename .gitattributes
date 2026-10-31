@@ -1,0 +1,25 @@
+# Normalize text to LF in the repository; the working tree follows the platform unless pinned below.
+* text=auto
+
+*.py text
+*.pyw text
+*.md text
+*.json text
+*.js text
+*.css text
+*.html text
+*.toml text
+*.yml text
+*.lock text
+
+# Shell scripts must keep LF so bash can run them on any checkout.
+*.sh text eol=lf
+# Windows PowerShell scripts keep CRLF.
+*.ps1 text eol=crlf
+
+# Binary assets (none tracked yet).
+*.png binary
+*.ico binary
+*.jpg binary
+*.gif binary
+*.woff2 binary

@@ -1,0 +1,200 @@
+from __future__ import annotations
+
+import tempfile
+import unittest
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from mcp_hub.activity_ui.tracker import ToolCallRecord
+
+
+def _call(tool: str = "query_logs", *, server_id: str = "mcp-server-logs", client: str = "Codex",
+          agent_role: str | None = None, state: str = "succeeded", duration_ms: int = 10,
+          started_at: str = "2026-10-28T00:00:00+00:00") -> ToolCallRecord:
+    return ToolCallRecord(server_id, tool, client, agent_role, started_at, started_at, duration_ms, state, None)
+
+
+class FakeProtector:
+    def protect(self, data: bytes) -> bytes:
+        return b"enc:" + bytes(byte ^ 0xA5 for byte in data)
+
+    def unprotect(self, data: bytes) -> bytes:
+        if not data.startswith(b"enc:"):
+            raise ValueError("not protected")
+        return bytes(byte ^ 0xA5 for byte in data[4:])
+
+
+class JobStoreTest(unittest.TestCase):
+    def setUp(self) -> None:
+        from mcp_hub.jobs.store import JobStore
+
+        self.temp = tempfile.TemporaryDirectory()
+        self.now = datetime(2026, 10, 28, tzinfo=timezone.utc)
+        self.store = JobStore(
+            Path(self.temp.name) / "jobs.sqlite3",
+            protector=FakeProtector(),
+            clock=lambda: self.now,
+        )
+
+    def tearDown(self) -> None:
+        self.store.close()
+        self.temp.cleanup()
+
+    def test_encrypts_request_summary_and_details_and_returns_bounded_pages(self) -> None:
+        job_id = self.store.create_job(project="orders", question="Investigate ORD-1", env="prod")
+        self.store.transition_job(job_id, "running", event="job.started")
+        self.store.save_summary(job_id, "The service timed out.")
+        self.store.save_encrypted_result(job_id, "logs-1", {"message": "sample-sensitive-log", "line": 1})
+        raw_db = (Path(self.temp.name) / "jobs.sqlite3").read_bytes()
+
+        self.assertNotIn(b"Investigate ORD-1", raw_db)
+        self.assertNotIn(b"sample-sensitive-log", raw_db)
+        self.assertEqual(self.store.get_job(job_id)["summary"], "The service timed out.")
+        page = self.store.get_detail_page(job_id, "logs-1", offset=0, limit=12)
+        self.assertEqual(len(page["content"]), 12)
+        self.assertGreater(page["next_offset"], 0)
+
+    def test_job_list_tolerates_a_summary_that_cannot_be_decrypted(self) -> None:
+        class DpapiFailure(FakeProtector):
+            def unprotect(self, data: bytes) -> bytes:
+                if data.startswith(b"dpapi-broken"):
+                    raise OSError("DPAPI could not decrypt")
+                return super().unprotect(data)
+
+        self.store.protector = DpapiFailure()
+        good, foreign, broken = (self.store.create_job(project="orders", question="q") for _ in range(3))
+        for job_id in (good, foreign, broken):
+            self.store.save_summary(job_id, "kept")
+        self.store._connection.execute("UPDATE jobs SET summary_blob=? WHERE job_id=?", (b"foreign", foreign))
+        self.store._connection.execute("UPDATE jobs SET summary_blob=? WHERE job_id=?", (b"dpapi-broken", broken))
+        self.store._connection.commit()
+
+        rows = {row["job_id"]: row for row in self.store.list_jobs()}
+        self.assertEqual((rows[good]["summary"], rows[good]["summary_unavailable"]), ("kept", False))
+        for job_id in (foreign, broken):
+            self.assertIsNone(rows[job_id]["summary"])
+            self.assertTrue(rows[job_id]["summary_unavailable"])
+        self.assertTrue(self.store.get_job(broken)["summary_unavailable"])
+
+    def test_evidence_refs_cover_every_source_id_and_filter_by_agent(self) -> None:
+        job_id = self.store.create_job(project="orders", question="q")
+        for index in range(150):
+            self.store.append_event(job_id, "agent.started", agent="logs")
+        self.store.append_event(job_id, "tool.call.succeeded", agent="logs", tool="logs__query_logs", source_id="logs-1")
+        self.store.append_event(job_id, "tool.call.failed", agent="jira", tool="jira__read_ticket", source_id="jira-1")
+        self.assertEqual(len(self.store.list_events(job_id)), 100)
+        self.assertEqual([ref["source_id"] for ref in self.store.list_evidence_refs(job_id)], ["logs-1", "jira-1"])
+        self.assertEqual(self.store.list_evidence_refs(job_id, agent="jira"), [
+            {"source_id": "jira-1", "tool": "jira__read_ticket", "agent": "jira"},
+        ])
+
+    def test_rejects_invalid_state_transitions_and_marks_running_jobs_interrupted(self) -> None:
+        queued = self.store.create_job(project="orders", question="check")
+        with self.assertRaises(ValueError):
+            self.store.transition_job(queued, "completed", event="job.completed")
+
+        active = self.store.create_job(project="orders", question="check")
+        self.store.transition_job(active, "running", event="job.started")
+        interrupted = self.store.mark_running_interrupted()
+        self.assertEqual(interrupted, 1)
+        self.assertEqual(self.store.get_job(active)["state"], "interrupted")
+
+    def test_purges_detail_blobs_after_thirty_days(self) -> None:
+        job_id = self.store.create_job(project="orders", question="check")
+        self.store.save_encrypted_result(job_id, "source-1", {"value": "kept"})
+        self.now += timedelta(days=31)
+
+        self.assertEqual(self.store.purge_expired(), 1)
+        with self.assertRaises(KeyError):
+            self.store.get_job(job_id)
+        with self.assertRaises(KeyError):
+            self.store.get_detail_page(job_id, "source-1", offset=0, limit=100)
+
+    def test_activity_calls_persist_safe_metadata_and_can_be_aggregated(self) -> None:
+        self.assertEqual(self.store.record_tool_calls([
+            _call(client="Antigravity", agent_role="logs", duration_ms=2000),
+        ]), 1)
+        raw_db = (Path(self.temp.name) / "jobs.sqlite3").read_bytes()
+
+        report = self.store.activity_report(
+            datetime(2026, 10, 28, tzinfo=timezone.utc),
+            datetime(2026, 10, 29, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(report["summary"]["total_calls"], 1)
+        self.assertEqual(report["summary"]["total_duration_ms"], 2000)
+        self.assertEqual(report["by_child"][0]["server_id"], "mcp-server-logs")
+        self.assertEqual(report["by_tool"][0]["tool"], "query_logs")
+        self.assertEqual(report["by_client"][0]["client"], "Antigravity")
+        self.assertEqual(report["events"][0]["agent_role"], "logs")
+        self.assertNotIn(b"arguments", raw_db)
+        columns = {
+            row["name"] for row in self.store._connection.execute("PRAGMA table_info(tool_calls)").fetchall()
+        }
+        self.assertFalse({"arguments", "result", "prompt"} & columns)
+
+    def test_activity_pagination_reports_whether_more_rows_exist(self) -> None:
+        self.store.record_tool_calls([_call("first_tool"), _call("second_tool")])
+
+        start = datetime(2026, 10, 28, tzinfo=timezone.utc)
+        end = datetime(2026, 10, 29, tzinfo=timezone.utc)
+        first_page = self.store.activity_report(start, end, offset=0, limit=1)
+        last_page = self.store.activity_report(start, end, offset=1, limit=1)
+
+        self.assertEqual(len(first_page["events"]), 1)
+        self.assertTrue(first_page["has_more"])
+        self.assertEqual(len(last_page["events"]), 1)
+        self.assertFalse(last_page["has_more"])
+
+    def test_activity_report_rejects_an_unbounded_offset(self) -> None:
+        with self.assertRaises(ValueError):
+            self.store.activity_report(
+                datetime(2026, 10, 28, tzinfo=timezone.utc),
+                datetime(2026, 10, 29, tzinfo=timezone.utc),
+                offset=2**63,
+            )
+
+    def test_batch_insert_writes_all_rows_and_rejects_unknown_states(self) -> None:
+        self.assertEqual(self.store.record_tool_calls([]), 0)
+        self.store.record_tool_calls([_call(f"tool_{index}") for index in range(50)])
+        report = self.store.activity_report(
+            datetime(2026, 10, 28, tzinfo=timezone.utc), datetime(2026, 10, 29, tzinfo=timezone.utc),
+        )
+        self.assertEqual(report["summary"]["total_calls"], 50)
+        with self.assertRaises(ValueError):
+            self.store.record_tool_calls([_call(state="running")])
+
+    def test_store_uses_normal_synchronous_mode_under_wal(self) -> None:
+        mode = self.store._connection.execute("PRAGMA synchronous").fetchone()[0]
+        self.assertEqual(mode, 1)  # NORMAL
+
+    def test_rows_left_running_by_an_older_version_are_settled_on_open(self) -> None:
+        from mcp_hub.jobs.store import JobStore
+
+        self.store._connection.execute(
+            "INSERT INTO tool_calls(server_id, tool, client, started_at, state) VALUES "
+            "('mcp-jira-sync', 'check_connection', 'Codex', '2026-10-28T00:00:00+00:00', 'running')"
+        )
+        self.store._connection.commit()
+        reopened = JobStore(Path(self.temp.name) / "jobs.sqlite3", protector=FakeProtector(), clock=lambda: self.now)
+        try:
+            report = reopened.activity_report(
+                datetime(2026, 10, 28, tzinfo=timezone.utc), datetime(2026, 10, 29, tzinfo=timezone.utc),
+            )
+        finally:
+            reopened.close()
+        self.assertEqual(report["events"][0]["state"], "interrupted")
+
+    def test_tool_calls_expire_after_thirty_days(self) -> None:
+        self.store.record_tool_calls([_call(server_id="mcp-jira-sync", tool="check_connection")])
+        self.now += timedelta(days=31)
+        self.store.purge_expired()
+        expired = self.store.activity_report(
+            datetime(2026, 10, 28, tzinfo=timezone.utc),
+            datetime(2026, 10, 29, tzinfo=timezone.utc),
+        )
+        self.assertEqual(expired["summary"]["total_calls"], 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

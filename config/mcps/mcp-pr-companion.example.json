@@ -1,0 +1,18 @@
+{
+  "transport": "stdio",
+  "command": "node",
+  "args": ["bin/cli.js", "server"],
+  "cwd": "../mcp-pr-companion",
+  "inheritEnv": ["PATH", "PATHEXT", "COMSPEC", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE", "APPDATA", "LOCALAPPDATA"],
+  "timeoutSeconds": 300,
+  "env": {
+    "CENTRAL_CONFIG_PATH": "../mcp-hub/config/private/mcps/mcp-pr-companion.json"
+  },
+  "bitbucket": {
+    "email": "",
+    "api_token": "",
+    "workspace": "",
+    "repository": "",
+    "allowed_emails": ""
+  }
+}

@@ -1,0 +1,125 @@
+import asyncio
+import unittest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, call, patch
+
+from mcp.types import CallToolResult, TextContent
+
+from scripts.smoke import CHECKS, _has_organizations, _has_project_aliases, _is_connected, _probe, _report, main
+
+
+class SmokeChecksTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.check = _has_organizations
+
+    def test_no_ready_children_is_a_valid_hub_startup(self) -> None:
+        with patch("scripts.smoke.load_config", return_value=SimpleNamespace(servers={})), patch("builtins.print") as output:
+            with self.assertRaises(SystemExit) as result:
+                main()
+        self.assertEqual(result.exception.code, 0)
+        output.assert_called_once()
+
+    def test_logs_check_runs_for_each_openobserve_environment(self) -> None:
+        checks = CHECKS["mcp-server-logs"]
+        self.assertEqual([label for label, *_ in checks], ["dev", "stg", "prod"])
+        self.assertEqual({tool for _, tool, _, _ in checks}, {"logs__list_openobserve_organizations"})
+        self.assertEqual([args for _, _, args, _ in checks], [{"env": "dev"}, {"env": "stg"}, {"env": "prod"}])
+
+    def test_probe_calls_the_read_only_check_for_each_environment(self) -> None:
+        client = AsyncMock()
+        client.__aenter__.return_value = client
+        client.list_tools.return_value = SimpleNamespace(tools=[SimpleNamespace(name="logs__list_openobserve_organizations")])
+        client.list_prompts.return_value = SimpleNamespace(prompts=[SimpleNamespace(name="mcp-server-logs")])
+        client.call_tool.return_value = CallToolResult(content=[TextContent(type="text", text='{"organizations":[]}')])
+
+        with patch("scripts.smoke.stdio_client", return_value=object()), patch("scripts.smoke.Client", return_value=client):
+            connected, calls = asyncio.run(_probe(["mcp-server-logs"]))
+
+        self.assertEqual(connected, {"mcp-server-logs"})
+        self.assertEqual(calls["mcp-server-logs"], {"dev": True, "stg": True, "prod": True})
+        self.assertEqual(client.call_tool.await_args_list, [
+            call("logs__list_openobserve_organizations", {"env": "dev"}),
+            call("logs__list_openobserve_organizations", {"env": "stg"}),
+            call("logs__list_openobserve_organizations", {"env": "prod"}),
+        ])
+
+    def test_probe_skips_environments_without_an_account(self) -> None:
+        providers = '{"openobserve_environments":[{"env":"dev","configured":true},{"env":"stg","configured":false}]}'
+        client = AsyncMock()
+        client.__aenter__.return_value = client
+        client.list_tools.return_value = SimpleNamespace(tools=[
+            SimpleNamespace(name="logs__list_log_providers"), SimpleNamespace(name="logs__list_openobserve_organizations"),
+        ])
+        client.list_prompts.return_value = SimpleNamespace(prompts=[SimpleNamespace(name="mcp-server-logs")])
+        client.call_tool.side_effect = lambda tool, _args: CallToolResult(content=[TextContent(
+            type="text", text=providers if tool == "logs__list_log_providers" else '{"organizations":[]}',
+        )])
+
+        with patch("scripts.smoke.stdio_client", return_value=object()), patch("scripts.smoke.Client", return_value=client):
+            _, calls = asyncio.run(_probe(["mcp-server-logs"]))
+
+        self.assertEqual(calls["mcp-server-logs"], {"dev": True, "stg": None, "prod": True})
+        self.assertNotIn(call("logs__list_openobserve_organizations", {"env": "stg"}), client.call_tool.await_args_list)
+
+    def test_report_passes_with_unset_environment_but_not_when_all_are_unset(self) -> None:
+        connected = [{"server": "mcp-server-logs", "event": "server.connected", "tools_count": 12}]
+        ok, detail = _report("mcp-server-logs", {"mcp-server-logs"}, {"mcp-server-logs": {"dev": True, "stg": None, "prod": True}}, connected)
+        self.assertTrue(ok)
+        self.assertIn("dev=ok stg=unset prod=ok", detail)
+        ok, _ = _report("mcp-server-logs", {"mcp-server-logs"}, {"mcp-server-logs": {"dev": None, "stg": None, "prod": None}}, connected)
+        self.assertFalse(ok)
+
+    def test_logs_check_accepts_organizations_payload(self) -> None:
+        result = CallToolResult(content=[TextContent(type="text", text='{"organizations":[]}')])
+        self.assertTrue(self.check(result))
+
+    def test_logs_check_rejects_malformed_or_wrong_payload(self) -> None:
+        for text in ("not json", '{"organizations":"unexpected"}', "{}"):
+            with self.subTest(text=text):
+                result = CallToolResult(content=[TextContent(type="text", text=text)])
+                self.assertFalse(self.check(result))
+
+    def test_logs_check_rejects_error_result_even_with_valid_payload(self) -> None:
+        result = CallToolResult(content=[TextContent(type="text", text='{"organizations":[]}')], isError=True)
+        self.assertFalse(self.check(result))
+
+    def test_pr_companion_check_uses_the_bitbucket_health_tool(self) -> None:
+        self.assertEqual(CHECKS["mcp-pr-companion"], (("bitbucket", "pr__check_bitbucket_connection", {}, _is_connected),))
+
+    def test_pr_companion_check_requires_connected_true(self) -> None:
+        ok = CallToolResult(content=[TextContent(type="text", text='{"connected":true}')])
+        self.assertTrue(_is_connected(ok))
+        for text in ('{"connected":false}', '{"connected":"true"}', "{}", "not json"):
+            with self.subTest(text=text):
+                self.assertFalse(_is_connected(CallToolResult(content=[TextContent(type="text", text=text)])))
+        self.assertFalse(_is_connected(CallToolResult(content=[TextContent(type="text", text='{"connected":true}')], isError=True)))
+
+    def test_source_check_accepts_aliases_but_never_requires_a_registered_root(self) -> None:
+        self.assertEqual(CHECKS["mcp-read-source"][0][1], "source__check_connection")
+        self.assertTrue(_has_project_aliases(CallToolResult(content=[TextContent(type="text", text='{"configured_projects":[]}')])))
+        self.assertTrue(_has_project_aliases(CallToolResult(content=[TextContent(type="text", text='{"configured_projects":["app"]}')])))
+        self.assertFalse(_has_project_aliases(CallToolResult(content=[TextContent(type="text", text='{"configured_projects":"root/path"}')])))
+
+    def test_report_shows_status_for_all_environments(self) -> None:
+        ok, detail = _report(
+            "mcp-server-logs",
+            {"mcp-server-logs"},
+            {"mcp-server-logs": {"dev": True, "stg": True, "prod": True}},
+            [{"server": "mcp-server-logs", "event": "server.connected", "tools_count": 12}],
+        )
+        self.assertTrue(ok)
+        self.assertEqual(detail, "12 tools, logs__list_openobserve_organizations dev=ok stg=ok prod=ok")
+
+    def test_report_fails_when_one_environment_is_unavailable(self) -> None:
+        ok, detail = _report(
+            "mcp-server-logs",
+            {"mcp-server-logs"},
+            {"mcp-server-logs": {"dev": True, "stg": False, "prod": True}},
+            [{"server": "mcp-server-logs", "event": "server.connected", "tools_count": 12}],
+        )
+        self.assertFalse(ok)
+        self.assertIn("dev=ok stg=failed prod=ok", detail)
+
+
+if __name__ == "__main__":
+    unittest.main()

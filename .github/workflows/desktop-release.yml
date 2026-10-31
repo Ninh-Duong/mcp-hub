@@ -1,0 +1,57 @@
+name: Desktop release
+
+# Push a tag `v<project version>` (for example v0.1.1) to build the desktop app's installer from that commit and
+# publish it, with its SHA-256, as a GitHub Release. Running it by hand builds and checks the installer without
+# publishing. The installer is never committed (build/ and dist/ are ignored).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  installer:
+    name: Build the installer
+    runs-on: windows-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write # create the release and attach the installer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Check that the tag names the project version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $version = uv run --locked --python 3.12 python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])"
+          if ("v$version" -ne $env:GITHUB_REF_NAME) { throw "Tag $env:GITHUB_REF_NAME does not match the project version $version." }
+      - name: Run package QC
+        shell: pwsh
+        run: |
+          uv sync --locked --python 3.12
+          uv run --locked --python 3.12 python scripts/package_qc.py
+      - name: Install Inno Setup 6
+        run: choco install innosetup --no-progress -y
+      - name: Build the installer
+        shell: pwsh
+        run: uv run --locked --python 3.12 --group build python scripts/build_desktop.py
+      - name: Write its SHA-256
+        shell: pwsh
+        run: |
+          foreach ($installer in Get-ChildItem dist -Filter "mcp-hub-status-setup-*.exe") {
+              $hash = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              Set-Content -LiteralPath "$($installer.FullName).sha256" -Value "$hash  $($installer.Name)" -Encoding ascii -NoNewline
+          }
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $files = @(Get-ChildItem dist -Filter "mcp-hub-status-setup-*" | ForEach-Object FullName)
+          gh release create $env:GITHUB_REF_NAME @files --verify-tag --generate-notes --title "mcp-hub Status $env:GITHUB_REF_NAME"
