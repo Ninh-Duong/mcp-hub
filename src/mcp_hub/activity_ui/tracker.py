@@ -59,7 +59,7 @@ class ActivityTracker:
         self._last_call_id += 1
         call = ActivityCall(self._last_call_id, server_id, tool, client, agent_role, _now())
         state = self._children.setdefault(server_id, {"active": {}})
-        state["active"][call.call_id] = tool
+        state["active"][call.call_id] = {"tool": tool, "client": client}
         state.update(last_tool=tool, last_state="running", last_at=call.started_at)
         self.append_event(server_id, tool, "started", call_id=call.call_id, client=client, agent_role=agent_role)
         return call
@@ -69,7 +69,7 @@ class ActivityTracker:
         state = self._children[call.server_id]
         state["active"].pop(call.call_id, None)
         state.update(
-            last_tool=call.tool, last_state=state_name, last_duration_ms=duration_ms,
+            last_tool=call.tool, last_client=call.client, last_state=state_name, last_duration_ms=duration_ms,
             last_at=finished_at, last_error_type=error_type or None,
         )
         self.append_event(
@@ -142,9 +142,10 @@ class ActivityTracker:
         return {
             "tool_count": tool_counts.get(server_id, 0),
             "active_calls": len(active),
-            "active_tools": list(active.values()),
-            "active_call_details": [{"call_id": call_id, "tool": tool} for call_id, tool in active.items()],
+            "active_tools": [call["tool"] for call in active.values()],
+            "active_call_details": [{"call_id": call_id, **call} for call_id, call in active.items()],
             "last_tool": state.get("last_tool"),
+            "last_client": state.get("last_client"),
             "last_state": state.get("last_state"),
             "last_duration_ms": state.get("last_duration_ms"),
             "last_error_type": state.get("last_error_type"),

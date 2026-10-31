@@ -9,7 +9,7 @@ import uvicorn
 
 from .audit import AuditLog
 from .config import HubConfig, load_config
-from .extensions import ACTIVITY_UI, KNOWN_EXTENSIONS, read_launch_extensions
+from .extensions import ACTIVITY_UI, KNOWN_EXTENSIONS, read_launch_extensions, saved_extensions
 from .http import create_http_app
 from .agents.config import load_agent_configs
 from .dashboard.api import create_dashboard_routes
@@ -28,7 +28,7 @@ async def run_http() -> None:
     """Run the shared service on the loopback address and port from the private service configuration."""
     service_config = load_service_config()
     audit = AuditLog()
-    requested = read_launch_extensions(audit=audit)
+    requested = read_launch_extensions(audit=audit) | saved_extensions()
     config = _load_hub_config(audit)
     agent_configs = load_agent_configs()
     projects = load_projects()

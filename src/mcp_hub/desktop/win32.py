@@ -1,4 +1,4 @@
-"""Windows integration of the desktop app: window styling (DWM), single instance, theme, screen capture.
+"""Windows integration of the desktop app: window styling (DWM, acrylic), single instance, theme, screen capture.
 
 Every function degrades to a harmless default off Windows or on older builds, so the app still runs.
 """
@@ -13,13 +13,20 @@ MUTEX_NAME = "Local\\mcp-hub-status"
 ERROR_ALREADY_EXISTS = 183
 _PERSONALIZE_KEY = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
 
-# DwmSetWindowAttribute ids and values (Windows 11 22H2+ for the backdrop).
+# DwmSetWindowAttribute ids and values.
 DWMWA_USE_IMMERSIVE_DARK_MODE = 20
 DWMWA_WINDOW_CORNER_PREFERENCE = 33
-DWMWA_SYSTEMBACKDROP_TYPE = 38
 DWMWA_EXTENDED_FRAME_BOUNDS = 9
 DWMWCP_ROUND = 2
-DWMSBT_TRANSIENTWINDOW = 3  # acrylic: a blurred, tinted view of what is behind the window
+# SetWindowCompositionAttribute accent policy: a tinted acrylic blur of what is behind the window.
+# Unlike the documented DWMWA_SYSTEMBACKDROP_TYPE backdrop, it stays blurred while the window is
+# inactive, which is most of the time for a status window (see docs/desktop-app.md → Glass).
+WCA_ACCENT_POLICY = 19
+ACCENT_DISABLED = 0
+# A light blur without the acrylic luminosity and noise layer (the Clear glass style).
+ACCENT_ENABLE_BLURBEHIND = 3
+ACCENT_ENABLE_ACRYLICBLURBEHIND = 4
+ACCENT_FLAG_GRADIENT_COLOR = 2
 SRCCOPY = 0x00CC0020
 
 
@@ -35,13 +42,6 @@ def acquire_single_instance(kernel32: Any = None, last_error: Callable[[], int] 
     if not handle:
         return True
     return None if last_error() == ERROR_ALREADY_EXISTS else handle
-
-
-def enable_dpi_awareness() -> None:
-    try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(1)
-    except (AttributeError, OSError):
-        pass
 
 
 def system_theme(read_value: Callable[[], int] | None = None) -> str:
@@ -77,11 +77,49 @@ def set_window_attribute(hwnd: int, attribute: int, value: int, dwm: Any = None)
     return dwm.DwmSetWindowAttribute(hwnd, attribute, ctypes.byref(data), ctypes.sizeof(data)) == 0
 
 
-def style_window(hwnd: int, dark: bool, set_attribute: Callable[[int, int, int], bool] = set_window_attribute) -> bool:
-    """Dark or light title bar, rounded corners, and the acrylic backdrop. True when the backdrop is on."""
+class _AccentPolicy(ctypes.Structure):
+    _fields_ = [("state", ctypes.c_int), ("flags", ctypes.c_int), ("gradient_color", ctypes.c_uint), ("animation_id", ctypes.c_int)]
+
+
+class _CompositionData(ctypes.Structure):
+    _fields_ = [("attribute", ctypes.c_int), ("data", ctypes.c_void_p), ("size", ctypes.c_size_t)]
+
+
+def set_acrylic(hwnd: int, tint: int, state: int = ACCENT_ENABLE_ACRYLICBLURBEHIND, user32: Any = None) -> bool:
+    """Blur what is behind the window under an AABBGGRR tint (or remove the blur with ACCENT_DISABLED).
+
+    False when Windows does not offer it.
+    """
+    try:
+        user32 = user32 or ctypes.WinDLL("user32")
+        apply = user32.SetWindowCompositionAttribute
+    except (AttributeError, OSError):
+        return False
+    accent = _AccentPolicy(state, ACCENT_FLAG_GRADIENT_COLOR, tint, 0)
+    data = _CompositionData(WCA_ACCENT_POLICY, ctypes.cast(ctypes.pointer(accent), ctypes.c_void_p), ctypes.sizeof(accent))
+    return bool(apply(wintypes.HWND(hwnd), ctypes.byref(data)))
+
+
+def style_window(
+    hwnd: int,
+    dark: bool,
+    tint: int,
+    glass: bool = True,
+    set_attribute: Callable[[int, int, int], bool] = set_window_attribute,
+    set_backdrop: Callable[[int, int, int], bool] = set_acrylic,
+    clear: bool = False,
+) -> bool:
+    """Dark or light title bar, rounded corners, and the blurred backdrop. True when the backdrop is on.
+
+    `clear` uses the light blur instead of acrylic. With `glass` False, a blur applied earlier is
+    removed and the result is False.
+    """
     set_attribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, 1 if dark else 0)
     set_attribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND)
-    return set_attribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, DWMSBT_TRANSIENTWINDOW)
+    if not glass:
+        set_backdrop(hwnd, tint, ACCENT_DISABLED)
+        return False
+    return set_backdrop(hwnd, tint, ACCENT_ENABLE_BLURBEHIND if clear else ACCENT_ENABLE_ACRYLICBLURBEHIND)
 
 
 def window_rect(hwnd: int) -> tuple[int, int, int, int]:

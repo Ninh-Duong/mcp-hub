@@ -23,7 +23,7 @@ from mcp_hub.activity_ui.recorder import ActivityRecorder
 from mcp_hub.activity_ui.tracker import ToolCallRecord
 from mcp_hub.audit import AuditLog
 from mcp_hub.config import HUB_ROOT, HubConfig, ServerConfig, ToolRoute
-from mcp_hub.extensions import ACTIVITY_UI, empty_activity, read_launch_extensions, status_flags
+from mcp_hub.extensions import ACTIVITY_UI, empty_activity, read_launch_extensions, saved_extensions, status_flags
 from mcp_hub.server import HubRuntime, create_mcp_server
 
 CORE_MODULES = ("server.py", "http.py", "extensions.py", "audit.py", "config.py", "dashboard/api.py", "jobs/store.py")
@@ -293,6 +293,18 @@ class LaunchFileTest(_AuditCase):
         error_types = [event["error_type"] for event in events if event["event"] == "launch.file.invalid"]
         self.assertEqual(error_types[0], "UnicodeDecodeError")
         self.assertEqual(len(error_types), 3)
+
+    def test_saved_extensions_come_from_the_hub_config_and_never_raise(self) -> None:
+        path = self.root / "hub.json"
+        path.write_text('{"version": 1, "extensions": ["activity-ui", 7]}', encoding="utf-8")
+        self.assertEqual(saved_extensions(path), frozenset({ACTIVITY_UI}))
+        self.assertTrue(path.exists())  # kept for every start, unlike launch.json
+        for content in ("not json", "[]", '{"extensions": "activity-ui"}', '{"version": 1}'):
+            path.write_text(content, encoding="utf-8")
+            self.assertEqual(saved_extensions(path), frozenset(), content)
+        self.assertEqual(saved_extensions(self.root / "missing.json"), frozenset())
+        with patch("mcp_hub.extensions.resolved_config_path", return_value=path):
+            self.assertEqual(saved_extensions(), frozenset())
 
     def test_service_installs_only_requested_extensions(self) -> None:
         self.assertIsNone(service.install_extensions(frozenset(), self.runtime, None, self.audit))

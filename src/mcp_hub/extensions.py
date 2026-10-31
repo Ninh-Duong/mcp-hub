@@ -11,9 +11,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
-from .config import PRIVATE_ROOT
+from .config import PRIVATE_ROOT, ConfigError, resolved_config_path
 
 ACTIVITY_UI = "activity-ui"
+# Top-level key of the Hub config that keeps extensions on across starts.
+EXTENSIONS_KEY = "extensions"
 KNOWN_EXTENSIONS = frozenset({ACTIVITY_UI})
 # Dashboard status flag for each extension, always reported so the UI knows what is installed.
 STATUS_FLAGS = {ACTIVITY_UI: "activityUi"}
@@ -63,13 +65,28 @@ def status_flags(installed: tuple[str, ...] | frozenset[str]) -> dict[str, bool]
     return {flag: name in installed for name, flag in STATUS_FLAGS.items()}
 
 
+def saved_extensions(config_path: Path | None = None) -> frozenset[str]:
+    """Extensions kept on for every start: the `extensions` list in the Hub config (set from the desktop app).
+
+    Never raises: a missing, unreadable, or malformed file means none, and the Hub starts in fast mode.
+    """
+    try:
+        raw = json.loads((config_path or resolved_config_path()).read_text(encoding="utf-8-sig"))
+        names = raw.get(EXTENSIONS_KEY, [])
+    except (OSError, ValueError, AttributeError, ConfigError):
+        return frozenset()
+    if not isinstance(names, list):
+        return frozenset()
+    return frozenset(name for name in names if isinstance(name, str))
+
+
 def read_launch_extensions(path: Path = LAUNCH_FILE, audit: Any = None) -> frozenset[str]:
     """Return the extensions requested for this start, then delete the request.
 
     `hubctl start|restart|open -Ui` writes the file; deleting it makes the next start
-    (including the logon-triggered one) use the default fast mode. A file that cannot be read,
-    decoded, parsed, or deleted never stops the start: it is logged as `launch.file.invalid`
-    (when `audit` is given) and the Hub starts in fast mode.
+    (including the logon-triggered one) use the saved mode (`saved_extensions`), fast by default.
+    A file that cannot be read, decoded, parsed, or deleted never stops the start: it is logged as
+    `launch.file.invalid` (when `audit` is given) and adds nothing.
     """
     try:
         text = path.read_text(encoding="utf-8-sig")

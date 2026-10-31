@@ -11,13 +11,16 @@ class ActivityTrackerTest(unittest.TestCase):
         call = tracker.begin("child", "inspect", "Codex", "logs")
         running = tracker.snapshot(["child"], {"child": 2})["children"]["child"]
         self.assertEqual((running["active_calls"], running["last_state"], running["tool_count"]), (1, "running", 2))
-        self.assertEqual(running["active_call_details"], [{"call_id": call.call_id, "tool": "inspect"}])
+        self.assertEqual(running["active_call_details"], [{"call_id": call.call_id, "tool": "inspect", "client": "Codex"}])
+        self.assertEqual(running["active_tools"], ["inspect"])
+        self.assertIsNone(running["last_client"])
 
         record = tracker.finish(call, "failed", "ToolError", 15)
         snapshot = tracker.snapshot(["child", "idle"], {})
         child = snapshot["children"]["child"]
         self.assertEqual((child["active_calls"], child["last_state"], child["last_error_type"]), (0, "failed", "ToolError"))
         self.assertEqual(child["last_duration_ms"], 15)
+        self.assertEqual((child["last_tool"], child["last_client"]), ("inspect", "Codex"))
         self.assertIsNone(snapshot["children"]["idle"]["last_tool"])
         self.assertEqual([event["state"] for event in snapshot["events"]], ["started", "failed"])
         self.assertEqual(snapshot["sequence"], 2)

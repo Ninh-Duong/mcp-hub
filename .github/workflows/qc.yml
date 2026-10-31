@@ -23,6 +23,10 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
+      - name: Install Qt system libraries (Linux)
+        # The desktop status app's window tests run on Qt's offscreen platform, which still loads these.
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3
       - name: Sync locked dependencies
         run: uv sync --locked --python 3.12
       - name: Run package QC

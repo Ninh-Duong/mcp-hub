@@ -2,23 +2,16 @@ from __future__ import annotations
 
 import json
 import re
-import struct
 import tempfile
-import threading
-import time
-import tkinter as tk
 import unittest
-import zlib
-from dataclasses import replace
-from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.error import HTTPError, URLError
 
 from mcp_hub import control
-from mcp_hub.desktop import app, i18n, prefs, screenshot, status, theme, widgets, win32
-from mcp_hub.desktop.status import ChildRow, HubSnapshot
+from mcp_hub.desktop import i18n, prefs, status, theme, win32
+from mcp_hub.desktop.status import HubSnapshot
 
 DESKTOP = Path(__file__).resolve().parents[1] / "src" / "mcp_hub" / "desktop"
 STYLE_CSS = DESKTOP.parent / "dashboard" / "style.css"
@@ -94,6 +87,8 @@ class StatusSnapshotTest(unittest.TestCase):
             [("mcp-server-logs", "ok"), ("mcp-jira-sync", "wait"), ("mcp-read-source", "off"), ("mcp-pr-companion", "error")],
         )
         self.assertEqual(snapshot.clients, ("claude-code ×2", "antigravity"))
+        self.assertEqual(snapshot.client_names, ("claude-code", "antigravity"))
+        self.assertEqual(snapshot.recent, ("codex",))
         self.assertEqual(opener.requests[0], ("GET", "/health", None, status.REQUEST_TIMEOUT_SECONDS))
         self.assertEqual(opener.requests[1][:3], ("GET", "/dashboard/api/status", f"Bearer {TOKEN}"))
 
@@ -128,6 +123,8 @@ class StatusSnapshotTest(unittest.TestCase):
         self.assertEqual((snapshot.children, snapshot.clients, snapshot.activity_ui), ((), (), False))
         self.assertEqual(status.client_labels([{"live": True}, "junk", {"client": "a", "live": True, "connections": -1}]),
                          ("unknown", "a"))
+        self.assertEqual(status.recent_clients([{"client": "a", "live": True}, {"client": "a"}, {"client": "b"}, {"client": "b"}, 3]),
+                         ("b",))
 
     def test_child_tone_uses_only_the_four_documented_tones(self) -> None:
         states = ["connected", "connecting", "reconnecting", "disabled", "credentials required", "unavailable", "", "x"]
@@ -177,16 +174,49 @@ class ThemeAndI18nTest(unittest.TestCase):
         tokens = dict(re.findall(r"--([a-z-]+):\s*(#[0-9a-fA-F]{3,8})\s*;", root_block))
         self.assertEqual(theme.LIGHT, {name: tokens[name] for name in theme.LIGHT})
 
-    def test_palettes_share_tokens_and_never_use_the_glass_key(self) -> None:
+    def test_palettes_share_tokens_and_tones(self) -> None:
         self.assertEqual(set(theme.LIGHT), set(theme.DARK))
-        for palette in theme.PALETTES.values():
-            self.assertNotIn(theme.GLASS_KEY, palette.values())
-            self.assertEqual({tone: theme.tone_color(palette, tone) for tone in status.TONES},
-                             {tone: palette[token] for tone, token in theme.TONE_TOKENS.items()})
+        self.assertEqual(set(theme.GLASS), set(theme.THEMES))
         self.assertEqual(set(theme.TONE_TOKENS), set(status.TONES))
         self.assertEqual(set(theme.TONE_GLYPHS), set(status.TONES))
-        self.assertEqual(theme.primary_button(theme.DARK)["bg"], theme.DARK["blue"])
-        self.assertEqual(theme.secondary_button(theme.LIGHT)["fg"], theme.LIGHT["ink"])
+        self.assertEqual(theme.tone_color(theme.DARK, "error"), theme.DARK["red"])
+
+    def test_stylesheet_is_frosted_only_with_glass(self) -> None:
+        for name, palette in theme.PALETTES.items():
+            with self.subTest(theme=name):
+                look = theme.Appearance(theme=name)
+                frosted = theme.stylesheet(look, glass_active=True)
+                opaque = theme.stylesheet(look, glass_active=False)
+                card_alpha = theme.GLASS[name]["card_alpha"]
+                self.assertIn("QWidget#window { background: transparent; }", frosted)
+                self.assertIn(theme.rgba(palette["surface"], card_alpha), frosted)
+                self.assertEqual(theme.stylesheet(theme.Appearance(theme=name, glass=False), glass_active=True), opaque)
+                self.assertIn(f"QWidget#window {{ background: {palette['canvas']}; }}", opaque)
+                self.assertIn(f"QFrame#card {{ background: {palette['surface']};", opaque)
+                for tone, token in theme.TONE_TOKENS.items():
+                    self.assertIn(f'QLabel[tone="{tone}"] {{ color: {palette[token]};', opaque)
+                self.assertIn('QPushButton[primary="true"]', opaque)
+                self.assertIn("QSlider::handle:horizontal", opaque)
+
+    def test_user_overrides_change_the_card_and_tint(self) -> None:
+        look = theme.Appearance(theme="dark", card_opacity=80, tint=10)
+        self.assertEqual(theme.card_alpha(look), 0.8)
+        self.assertEqual(theme.tint_alpha(look), 26)
+        self.assertIn(theme.rgba(theme.DARK["surface"], 0.8), theme.stylesheet(look, glass_active=True))
+        self.assertEqual(theme.backdrop_tint(look) >> 24, 26)
+        for name in theme.THEMES:
+            default = theme.Appearance(theme=name)
+            self.assertEqual(theme.card_alpha(default), theme.default_card_opacity(name) / 100)
+            self.assertEqual(theme.tint_alpha(default), round(theme.default_tint(name) * 255 / 100))
+            low, high = theme.CARD_OPACITY_RANGE
+            self.assertTrue(low <= theme.default_card_opacity(name) <= high)
+            self.assertTrue(theme.TINT_RANGE[0] <= theme.default_tint(name) <= theme.TINT_RANGE[1])
+
+    def test_color_helpers(self) -> None:
+        self.assertEqual(theme.rgba("#2563eb", 0.5), "rgba(37, 99, 235, 0.5)")
+        # Light tint: canvas #f4f6f9 at the default 33 % (alpha 0x54), packed as AABBGGRR.
+        self.assertEqual(theme.backdrop_tint(theme.Appearance(theme="light")), 0x54F9F6F4)
+        self.assertEqual(theme.backdrop_tint(theme.Appearance(theme="light", tint=0)), 0x00F9F6F4)
 
     def test_system_language_follows_the_windows_display_language(self) -> None:
         self.assertEqual(i18n.system_language(lambda: 0x042A), "vi")
@@ -220,11 +250,19 @@ class PrefsTest(unittest.TestCase):
     def test_round_trip_keeps_only_known_values(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "nested" / "desktop.json"
-            self.assertTrue(prefs.save_prefs(path, {"theme": "dark", "language": "vi", "token": "x"}))
-            self.assertEqual(json.loads(path.read_text(encoding="utf-8")), {"theme": "dark", "language": "vi"})
-            self.assertEqual(prefs.load_prefs(path), {"theme": "dark", "language": "vi"})
-            path.write_text('{"theme": "neon", "language": "vi"}', encoding="utf-8")
+            choices = {"theme": "dark", "language": "vi", "glass": False, "card_opacity": 0, "tint": 0,
+                       "glass_style": "clear", "compact": True, "compact_pos": [40, -8]}
+            self.assertTrue(prefs.save_prefs(path, {**choices, "token": "x"}))
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8")), choices)
+            self.assertEqual(prefs.load_prefs(path), choices)
+            path.write_text(json.dumps({
+                "theme": "neon", "language": "vi", "glass": "yes", "card_opacity": -1, "tint": True,
+                "glass_style": "smoky", "compact": 1, "compact_pos": [1, True],
+            }), encoding="utf-8")
             self.assertEqual(prefs.load_prefs(path), {"language": "vi"})
+            path.write_text(json.dumps({"card_opacity": 101, "tint": 91, "glass": True, "compact_pos": [1, 2, 3]}),
+                            encoding="utf-8")
+            self.assertEqual(prefs.load_prefs(path), {"glass": True})
 
     def test_missing_broken_or_unwritable_files_are_harmless(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -256,20 +294,50 @@ class Win32Test(unittest.TestCase):
         self.assertIsNone(win32.acquire_single_instance(Kernel32(7), lambda: win32.ERROR_ALREADY_EXISTS))
         self.assertTrue(win32.acquire_single_instance(Kernel32(0), lambda: 0))
 
-    def test_style_window_sets_theme_corners_and_backdrop(self) -> None:
-        calls: list[tuple[int, int, int]] = []
+    def test_style_window_sets_theme_corners_then_the_backdrop(self) -> None:
+        calls: list[tuple] = []
 
         def set_attribute(hwnd: int, attribute: int, value: int) -> bool:
-            calls.append((hwnd, attribute, value))
-            return attribute != win32.DWMWA_SYSTEMBACKDROP_TYPE
+            calls.append(("attribute", hwnd, attribute, value))
+            return True
 
-        self.assertFalse(win32.style_window(5, True, set_attribute))
+        def set_backdrop(hwnd: int, tint: int, state: int) -> bool:
+            calls.append(("backdrop", hwnd, tint, state))
+            return True
+
+        self.assertTrue(win32.style_window(5, True, 0x80112233, True, set_attribute, set_backdrop))
         self.assertEqual(calls, [
-            (5, win32.DWMWA_USE_IMMERSIVE_DARK_MODE, 1),
-            (5, win32.DWMWA_WINDOW_CORNER_PREFERENCE, win32.DWMWCP_ROUND),
-            (5, win32.DWMWA_SYSTEMBACKDROP_TYPE, win32.DWMSBT_TRANSIENTWINDOW),
+            ("attribute", 5, win32.DWMWA_USE_IMMERSIVE_DARK_MODE, 1),
+            ("attribute", 5, win32.DWMWA_WINDOW_CORNER_PREFERENCE, win32.DWMWCP_ROUND),
+            ("backdrop", 5, 0x80112233, win32.ACCENT_ENABLE_ACRYLICBLURBEHIND),
         ])
-        self.assertTrue(win32.style_window(5, False, lambda *_args: True))
+        calls.clear()
+        # The Clear style: the light blur without the acrylic layer.
+        self.assertTrue(win32.style_window(5, False, 0, True, set_attribute, set_backdrop, clear=True))
+        self.assertEqual(calls[-1], ("backdrop", 5, 0, win32.ACCENT_ENABLE_BLURBEHIND))
+        calls.clear()
+        # Glass off removes a blur applied earlier and reports no backdrop.
+        self.assertFalse(win32.style_window(5, False, 0, False, set_attribute, set_backdrop))
+        self.assertEqual(calls[-1], ("backdrop", 5, 0, win32.ACCENT_DISABLED))
+
+    def test_set_acrylic_sends_the_accent_policy(self) -> None:
+        seen: list[tuple[int, int, int]] = []
+
+        def apply(_hwnd, data) -> int:
+            composition = data._obj
+            accent = win32.ctypes.cast(composition.data, win32.ctypes.POINTER(win32._AccentPolicy)).contents
+            seen.append((composition.attribute, accent.state, accent.gradient_color))
+            return 1
+
+        user32 = SimpleNamespace(SetWindowCompositionAttribute=apply)
+        self.assertTrue(win32.set_acrylic(9, 0x55F9F6F4, user32=user32))
+        self.assertTrue(win32.set_acrylic(9, 0, win32.ACCENT_DISABLED, user32=user32))
+        self.assertEqual(seen, [
+            (win32.WCA_ACCENT_POLICY, win32.ACCENT_ENABLE_ACRYLICBLURBEHIND, 0x55F9F6F4),
+            (win32.WCA_ACCENT_POLICY, win32.ACCENT_DISABLED, 0),
+        ])
+        self.assertFalse(win32.set_acrylic(9, 0, user32=SimpleNamespace(SetWindowCompositionAttribute=lambda *_args: 0)))
+        self.assertFalse(win32.set_acrylic(9, 0, user32=SimpleNamespace()))
 
     def test_set_window_attribute_reports_the_hresult(self) -> None:
         class Dwm:
@@ -299,78 +367,7 @@ class Win32Test(unittest.TestCase):
         self.assertEqual((width, height, len(pixels)), (3, 2, 24))
 
 
-class ScreenshotTest(unittest.TestCase):
-    def test_encode_png_writes_rgba_rows(self) -> None:
-        data = screenshot.encode_png(2, 1, bytes([1, 2, 3, 0, 4, 5, 6, 0]))
-        self.assertTrue(data.startswith(b"\x89PNG\r\n\x1a\n"))
-        self.assertEqual(data[12:16], b"IHDR")
-        self.assertEqual(struct.unpack(">II", data[16:24]), (2, 1))
-        idat = data.index(b"IDAT")
-        length = struct.unpack(">I", data[idat - 4:idat])[0]
-        self.assertEqual(zlib.decompress(data[idat + 4:idat + 4 + length]), bytes([0, 3, 2, 1, 255, 6, 5, 4, 255]))
-        self.assertTrue(data.endswith(b"IEND\xaeB`\x82"))
-
-    def test_capture_all_saves_every_combination(self) -> None:
-        class FakeRoot:
-            def attributes(self, *args) -> None:
-                self.attrs = args
-
-            def geometry(self, value: str) -> None:
-                self.position = value
-
-        class FakeWindow:
-            def __init__(self) -> None:
-                self.root, self.t, self.shown = FakeRoot(), i18n.Translator("en"), []
-
-            def set_theme(self, name: str) -> None:
-                self.theme_name = name
-
-            def apply(self, snapshot: HubSnapshot) -> None:
-                self.shown.append((self.theme_name, self.t.language, snapshot.hub))
-
-        window = FakeWindow()
-        with tempfile.TemporaryDirectory() as tmp:
-            saved = screenshot.capture_all(window, Path(tmp) / "shots", ["running", "stopped"], ["en", "vi"], ["dark"],
-                                           capture=lambda _root: b"png", settle=lambda _root: None)
-            self.assertEqual([path.name for path in saved], [
-                "running-en-dark.png", "stopped-en-dark.png", "running-vi-dark.png", "stopped-vi-dark.png",
-            ])
-            self.assertEqual(saved[0].read_bytes(), b"png")
-        self.assertEqual(window.shown[-1], ("dark", "vi", "stopped"))
-        self.assertEqual(window.root.attrs, ("-topmost", True))
-
-    def test_samples_cover_every_hub_state(self) -> None:
-        self.assertEqual({sample.hub for sample in screenshot.SAMPLES.values()}, set(status.HUB_TONES))
-
-    def test_parse_args_validates_lists(self) -> None:
-        args = app.parse_args(["--screenshot", "out", "--states", "running, ui", "--theme", "dark"])
-        self.assertEqual((args.screenshot, args.states, args.lang, args.theme), ("out", ["running", "ui"], ["en", "vi"], ["dark"]))
-        self.assertIsNone(app.parse_args([]).screenshot)
-        for bad in (["--states", "nope"], ["--lang", ""], ["--theme", "light,neon"]):
-            with self.subTest(bad=bad), patch("sys.stderr"), self.assertRaises(SystemExit):
-                app.parse_args(bad)
-
-
-class ControlAndMainTest(unittest.TestCase):
-    def test_main_exits_quietly_when_another_copy_runs(self) -> None:
-        with patch.object(win32, "acquire_single_instance", return_value=None), patch.object(app.tk, "Tk") as tk_root:
-            self.assertEqual(app.main([]), 0)
-        tk_root.assert_not_called()
-
-    def test_main_without_a_display_fails(self) -> None:
-        with patch.object(win32, "acquire_single_instance", return_value=True), \
-                patch.object(app.tk, "Tk", side_effect=tk.TclError("no display")):
-            self.assertEqual(app.main([]), 1)
-
-    def test_screenshot_mode_reports_a_capture_failure(self) -> None:
-        root = SimpleNamespace(destroyed=False)
-        root.destroy = lambda: setattr(root, "destroyed", True)
-        with patch.object(app, "StatusWindow"), patch.object(screenshot, "capture_all", side_effect=OSError("no screen")), \
-                patch("builtins.print") as printed:
-            self.assertEqual(app._run_screenshots(root, app.parse_args(["--screenshot", "out"])), 1)
-        self.assertTrue(root.destroyed)
-        self.assertIn("need Windows", printed.call_args.args[0])
-
+class ControlTest(unittest.TestCase):
     def test_launch_hubctl_runs_hidden_windows_powershell(self) -> None:
         with patch.dict(control.os.environ, {"SystemRoot": "/sysroot"}), patch.object(control.subprocess, "Popen") as popen:
             control.launch_hubctl(["start"])
@@ -384,190 +381,37 @@ class ControlAndMainTest(unittest.TestCase):
         with patch.dict(control.os.environ, {}, clear=True), self.assertRaises(OSError):
             control.launch_hubctl(["start"])
 
+    def test_run_hubctl_returns_output_and_maps_failures_to_os_error(self) -> None:
+        done = SimpleNamespace(returncode=0, stdout='{"hub":true,"app":false}\n')
+        with patch.dict(control.os.environ, {"SystemRoot": "/sysroot"}), \
+                patch.object(control.subprocess, "run", return_value=done) as run:
+            self.assertEqual(control.run_hubctl(["autostart"]), done.stdout)
+        self.assertEqual(run.call_args.args[0][-2:], [str(control.HUBCTL_SCRIPT), "autostart"])
+        self.assertEqual(run.call_args.kwargs["timeout"], control.HUBCTL_TIMEOUT_SECONDS)
+        self.assertTrue(run.call_args.kwargs["capture_output"])
+        failures = (SimpleNamespace(returncode=1, stdout=""), control.subprocess.TimeoutExpired("hubctl", 1))
+        for failure in failures:
+            with self.subTest(failure=type(failure).__name__), patch.dict(control.os.environ, {"SystemRoot": "/sysroot"}), \
+                    patch.object(control.subprocess, "run", **({"side_effect": failure} if isinstance(failure, Exception)
+                                                               else {"return_value": failure})), \
+                    self.assertRaises(OSError):
+                control.run_hubctl(["autostart"])
 
-def running(*children: ChildRow, activity_ui: bool = False, clients: tuple[str, ...] = ()) -> HubSnapshot:
-    return HubSnapshot(hub="running", activity_ui=activity_ui, children=children, clients=clients,
-                       checked_at=datetime(2026, 10, 30, 10, 42, 5))
+    def test_autostart_state_and_changes_go_through_hubctl(self) -> None:
+        calls: list[list[str]] = []
 
+        def run(arguments: list[str]) -> str:
+            calls.append(arguments)
+            return 'WARNING: noise\n{"hub": false, "app": true}\n'
 
-class StatusWindowTest(unittest.TestCase):
-    def setUp(self) -> None:
-        try:
-            self.root = tk.Tk()
-        except tk.TclError as exc:
-            self.skipTest(f"no display for Tk ({exc})")
-        self.root.withdraw()
-        self.launched: list[list[str]] = []
-        self.now = 1000.0
-        self.fetched = threading.Event()
-        self.next_snapshot = HubSnapshot(hub="stopped")
-        self.tmp = tempfile.TemporaryDirectory()
-        self.prefs_path = Path(self.tmp.name) / "desktop.json"
-        self.window = app.StatusWindow(
-            self.root, i18n.Translator("en"), fetch=self.fake_fetch, open_dashboard=self.fake_open,
-            launch=self.launched.append, clock=lambda: self.now, style=lambda _hwnd, _dark: False,
-            prefs_path=self.prefs_path,
-        )
-
-    def tearDown(self) -> None:
-        self.root.destroy()
-        self.tmp.cleanup()
-
-    def fake_fetch(self) -> HubSnapshot:
-        self.fetched.set()
-        return self.next_snapshot
-
-    def fake_open(self) -> None:
-        raise status.DesktopError("pairing failed")
-
-    def texts(self, frame: tk.Frame) -> list[str]:
-        found: list[str] = []
-        for widget in frame.winfo_children():
-            labels = widget.winfo_children() if isinstance(widget, tk.Frame) else [widget]
-            found.append(" ".join(label.cget("text") for label in labels if label.cget("text")))
-        return found
-
-    def test_initial_window_is_checking_with_no_enabled_action(self) -> None:
-        self.assertEqual(self.root.title(), "mcp-hub")
-        self.assertEqual(self.window.hub_row.text.cget("text"), "Checking the Hub…")
-        self.assertEqual(self.window.open_button.cget("state"), "disabled")
-        self.assertEqual(self.window.start_button.cget("state"), "disabled")
-        self.assertFalse(self.window.glass)
-        self.assertEqual(self.window.behind, theme.LIGHT["canvas"])
-
-    def test_running_snapshot_shows_children_and_clients(self) -> None:
-        self.window.apply(running(ChildRow("mcp-server-logs", "connected", "ok"), ChildRow("mcp-jira-sync", "reconnecting", "wait"),
-                                  activity_ui=True, clients=("claude-code ×2",)))
-        self.assertEqual(self.window.hub_row.text.cget("text"), "Running")
-        self.assertEqual(self.window.hub_row.detail.cget("text"), "activity UI")
-        self.assertEqual(self.window.hub_row.glyph.cget("fg"), theme.LIGHT["green"])
-        self.assertEqual(self.texts(self.window.children_list),
-                         ["● mcp-server-logs Connected", "◐ mcp-jira-sync Reconnecting"])
-        self.assertEqual(self.window.children_count.cget("text"), "1/2")
-        self.assertEqual(self.texts(self.window.clients_list), ["● claude-code ×2"])
-        self.assertEqual(self.window.clients_count.cget("text"), "1")
-        self.assertEqual(self.window.open_button.cget("bg"), theme.LIGHT["blue"])
-        self.assertEqual(self.window.open_button.cget("state"), "normal")
-        self.assertEqual(self.window.start_button.cget("state"), "disabled")
-        self.assertEqual(self.window.footer.cget("text"), "Updated 10:42:05")
-        heights = [int(card.canvas.cget("height")) for card in self.window.cards]
-        self.assertTrue(all(height > 20 for height in heights), heights)
-
-    def test_fast_mode_and_empty_lists_show_notes(self) -> None:
-        self.window.apply(running())
-        self.assertEqual(self.texts(self.window.children_list), ["No child MCPs detected."])
-        self.assertEqual(self.window.hub_row.detail.cget("text"), "fast mode")
-        self.assertIn("hubctl start -Ui", self.texts(self.window.clients_list)[0])
-        self.window.apply(running(activity_ui=True))
-        self.assertEqual(self.texts(self.window.clients_list), ["No AI clients connected yet"])
-
-    def test_an_unchanged_poll_redraws_nothing(self) -> None:
-        self.window.apply(running(ChildRow("mcp-server-logs", "connected", "ok")))
-        rows = self.window.children_list.winfo_children()
-        later = replace(running(ChildRow("mcp-server-logs", "connected", "ok")), checked_at=datetime(2026, 10, 30, 10, 42, 10))
-        with patch.object(self.root, "geometry") as geometry, patch.object(self.root, "iconphoto") as icon:
-            self.window.apply(later)
-        geometry.assert_not_called()
-        icon.assert_not_called()
-        self.assertEqual(self.window.children_list.winfo_children(), rows)
-        self.assertEqual(self.window.footer.cget("text"), "Updated 10:42:10")
-
-    def test_stopped_hub_makes_start_the_primary_action(self) -> None:
-        self.window.apply(HubSnapshot(hub="stopped"))
-        self.assertEqual(self.window.hub_row.glyph.cget("fg"), theme.LIGHT["red"])
-        self.assertEqual(self.window.start_button.cget("bg"), theme.LIGHT["blue"])
-        self.assertEqual(self.window.start_button.cget("state"), "normal")
-        self.assertEqual(self.texts(self.window.children_list), ["Shown when the Hub is running."])
-
-    def test_start_hub_shows_starting_until_the_hub_answers(self) -> None:
-        self.window.apply(HubSnapshot(hub="stopped"))
-        self.window.start_hub()
-        self.assertEqual(self.launched, [["start"]])
-        self.assertEqual(self.window.snapshot.hub, "starting")
-        self.window.apply(HubSnapshot(hub="stopped"))
-        self.assertEqual(self.window.snapshot.hub, "starting")
-        self.assertEqual(self.window.start_button.cget("state"), "disabled")
-        self.now += theme.START_GRACE_SECONDS + 1
-        self.window.apply(HubSnapshot(hub="stopped"))
-        self.assertEqual(self.window.snapshot.hub, "stopped")
-
-    def test_start_hub_off_windows_shows_an_error(self) -> None:
-        def unavailable(_arguments: list[str]) -> None:
-            raise OSError("no SystemRoot")
-
-        self.window.launch = unavailable
-        self.window.start_hub()
-        self.assertIn("needs Windows", self.window.footer.cget("text"))
-        self.assertEqual(self.window.footer.cget("fg"), theme.LIGHT["red"])
-
-    def test_refresh_polls_on_a_worker_thread(self) -> None:
-        self.next_snapshot = running(ChildRow("mcp-server-logs", "connected", "ok"))
-        self.window.refresh()
-        self.window.refresh()  # ignored while a poll is in flight
-        self.assertTrue(self.fetched.wait(timeout=5))
-        deadline = time.monotonic() + 5
-        while self.window.snapshot is None and time.monotonic() < deadline:
-            self.window.process_results()
-            time.sleep(0.01)
-        self.assertEqual(self.window.snapshot.hub, "running")
-        self.assertFalse(self.window._polling)
-
-    def test_failed_dashboard_open_is_reported_in_the_footer(self) -> None:
-        self.window.open_dashboard_once()
-        self.window.process_results()
-        self.assertIn("Could not open the dashboard", self.window.footer.cget("text"))
-
-    def test_language_toggle_rerenders_and_is_remembered(self) -> None:
-        self.window.apply(running())
-        self.window.toggle_language()
-        vi = i18n.load_strings("vi")
-        self.assertEqual(self.window.open_button.cget("text"), vi["desktop.button.openDashboard"])
-        self.assertEqual(self.window.language_button.cget("text"), "EN")
-        self.assertEqual(prefs.load_prefs(self.prefs_path), {"theme": "light", "language": "vi"})
-        self.window.toggle_language()
-        self.assertEqual(self.window.language_button.cget("text"), "VI")
-
-    def test_theme_toggle_rebuilds_in_the_dark_palette_and_is_remembered(self) -> None:
-        self.window.apply(running(ChildRow("mcp-server-logs", "connected", "ok")))
-        self.window.toggle_theme()
-        self.assertEqual(self.window.theme_name, "dark")
-        self.assertEqual(self.window.hub_row.text.cget("bg"), theme.DARK["surface"])
-        self.assertEqual(self.window.hub_row.glyph.cget("fg"), theme.DARK["green"])
-        self.assertEqual(self.window.theme_button.cget("text"), theme.THEME_TOGGLE_GLYPHS["dark"])
-        self.assertEqual(self.texts(self.window.children_list), ["● mcp-server-logs Connected"])
-        self.assertEqual(len(self.window.cards), 4)
-        self.assertEqual(prefs.load_prefs(self.prefs_path), {"theme": "dark", "language": "en"})
-        self.window.set_theme("neon")
-        self.assertEqual(self.window.theme_name, "dark")
-
-    def test_glass_backdrop_makes_the_gaps_see_through(self) -> None:
-        styled: list[bool] = []
-        window = app.StatusWindow(tk.Toplevel(self.root), i18n.Translator("en"), theme_name="dark",
-                                  fetch=self.fake_fetch, style=lambda _hwnd, dark: styled.append(dark) or True)
-        self.assertTrue(window.glass)
-        self.assertEqual(window.behind, theme.GLASS_KEY)
-        self.assertEqual(styled, [True])
-        self.assertEqual(window.root.attributes("-transparentcolor"), theme.GLASS_KEY)
-
-    def test_window_icon_is_a_dot_in_the_hub_tone(self) -> None:
-        self.window.apply(running())
-        self.window.apply(HubSnapshot(hub="stopped"))
-        self.assertEqual(set(self.window._icons), {"wait", "ok", "error"})
-        icon = widgets.dot_icon(self.root, theme.LIGHT["red"], 8)
-        self.assertEqual((icon.width(), icon.height()), (8, 8))
-        self.assertEqual(icon.get(4, 4), (0xB4, 0x23, 0x18))
-        self.assertTrue(icon.transparency_get(0, 0))
-
-    def test_rounded_rect_points_clamp_the_radius(self) -> None:
-        points = widgets.rounded_rect_points(0, 0, 10, 4, 12)
-        self.assertEqual(len(points), 24)
-        self.assertEqual(points[:2], [2.0, 0])
-
-    def test_start_schedules_polling_and_draining(self) -> None:
-        with patch.object(self.root, "after") as after, patch.object(self.window, "refresh") as refresh:
-            self.window.start()
-        refresh.assert_called_once()
-        self.assertEqual([call.args[0] for call in after.call_args_list], [theme.POLL_INTERVAL_MS, theme.QUEUE_CHECK_MS])
+        self.assertEqual(control.autostart_state(run), {"hub": False, "app": True})
+        self.assertEqual(control.set_autostart("app", False, run), {"hub": False, "app": True})
+        self.assertEqual(calls, [["autostart"], ["autostart", "-Target", "app", "-State", "off"]])
+        with self.assertRaises(ValueError):
+            control.set_autostart("everything", True, run)
+        for output in ("", "not json", '{"hub": "yes", "app": true}', "[]"):
+            with self.subTest(output=output), self.assertRaises(OSError):
+                control.autostart_state(lambda _arguments, text=output: text)
 
 
 if __name__ == "__main__":

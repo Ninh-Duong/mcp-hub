@@ -13,14 +13,15 @@
 
 ## Module layout
 
-Dependencies flow one way: `config` → `audit` / `extensions` → `server` (with `children`, `child_logs`, `result_cache`) → `http` → `service`. `dashboard`, `jobs`, `agents`, `bridge`, `preflight`, `control`, and `desktop` use only public functions and methods of those modules; `activity_ui` is imported only by `service.py`, and `desktop` talks to the Hub only through its HTTP API. Every module below is imported by at least one test.
+Dependencies flow one way: `config` → `audit` / `extensions` / `hub_settings` → `server` (with `children`, `child_logs`, `result_cache`) → `http` → `service`. `dashboard`, `jobs`, `agents`, `bridge`, `preflight`, `control`, and `desktop` use only public functions and methods of those modules; `activity_ui` is imported only by `service.py`, and `desktop` talks to the Hub only through its HTTP API. Every module below is imported by at least one test.
 
 | Layer | Module (`src/mcp_hub/`) | Responsibility |
 |---|---|---|
 | Configuration | `config.py` | Discover sibling children, merge private overrides, validate child configs, `prepare` specs, and routes; resolve paths in memory; `is_sensitive_key`; `MCP_HUB_PRIVATE_DIR` override of `PRIVATE_ROOT` |
 | | `service_config.py` | Generate and validate `config/private/service.json` (loopback host, port, bearer token) |
 | Contracts | `audit.py` | Redacted JSONL audit log with rotation, one handler per file; `redact`, `describe_exception`; `MCP_HUB_LOG_DIR` override |
-| | `extensions.py` | Extension contract (`CallObserver`, `ActivitySource`, `DashboardExtension`) and the one-shot launch file (`read_launch_extensions`) |
+| | `extensions.py` | Extension contract (`CallObserver`, `ActivitySource`, `DashboardExtension`), the one-shot launch file (`read_launch_extensions`), and the saved extensions in the Hub config (`saved_extensions`) |
+| | `hub_settings.py` | The only writer of the Hub settings the desktop app changes in `config/private/hub.json`: `servers.<id>.enabled` and the saved `extensions` list (`config.server_switches` lists the children) |
 | Hub runtime | `server.py` | `HubRuntime`: allowlist and routing, `hub__status`, per-child prompts, server instructions, the MCP server factory, and the per-client stdio entrypoint (`mcp-hub`) |
 | | `children.py` | One `ChildSupervisor` task per child: launch (`child_environment`), handshake, tool listing, reconnect with backoff |
 | | `child_logs.py` | Size-capped child stderr logs (`logs/children/<server-id>.log`) drained by a thread |
@@ -29,9 +30,9 @@ Dependencies flow one way: `config` → `audit` / `extensions` → `server` (wit
 | | `bridge.py` | The stdio bridge (`mcp-hub-bridge`) to the shared service, with its optional presence stream |
 | Service | `service.py` | Shared HTTP service lifecycle (`mcp-hub-service`): connect children, job runner, extensions, uvicorn, shutdown drain |
 | | `preflight.py` | Pre-start runtime checks, winget install (Windows), and child `prepare` commands with the child's own environment |
-| | `control.py` | `launch_hubctl`: run `hubctl.ps1` hidden through Windows PowerShell by absolute path (dashboard stop/restart, desktop Start Hub) |
+| | `control.py` | Run `hubctl.ps1` hidden through Windows PowerShell by absolute path: `launch_hubctl` (dashboard stop/restart, desktop start/restart/stop) and `run_hubctl` with `autostart_state` / `set_autostart` (desktop sign-in switches) |
 | Features | `dashboard/api.py`, `dashboard/sessions.py` | Dashboard routes, static-file allowlist, pairing and session cookies, service control through `control.launch_hubctl` |
-| | `desktop/` (`status`, `i18n`, `theme`, `widgets`, `win32`, `prefs`, `screenshot`, `app`) | Desktop status app (`python -m mcp_hub.desktop`): Hub snapshot over HTTP, locale text, light/dark design tokens, rounded cards, DWM glass and single instance, remembered choices, the `--screenshot` review mode, and the Tk window; see [desktop-app.md](desktop-app.md) |
+| | `desktop/` (`status`, `usage`, `i18n`, `theme`, `widgets`, `settings`, `hub_page`, `mini`, `win32`, `prefs`, `screenshot`, `app`) | Desktop status app (`python -m mcp_hub.desktop`): Hub snapshot over HTTP, the live "who uses each child" line from the activity stream, locale text, light/dark design tokens and the Qt stylesheet, frosted cards, the Settings card (Appearance, Hub, and MCPs tabs), the acrylic window style and single instance, remembered choices, the `--screenshot` review mode, and the Qt window; see [desktop-app.md](desktop-app.md) |
 | | `jobs/runner.py`, `jobs/store.py`, `jobs/policy.py`, `jobs/projects.py` | Investigation jobs: queue and limits, SQLite store with DPAPI blobs, side-effect policy, project aliases |
 | | `agents/config.py`, `agents/providers.py`, `agents/specialists.py`, `agents/coordinator.py` | Agent config, OpenAI/Anthropic/Gemini adapters (lazy SDK imports), specialist tool loops, coordinator summary |
 | | `security/dpapi.py` | Windows DPAPI encryption for job blobs; `dpapi_available` |

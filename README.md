@@ -33,20 +33,26 @@ After preparing this repository and the desired child MCPs, follow [the shared A
 .\scripts\hubctl.ps1 open
 .\scripts\hubctl.ps1 open -Ui  # same, with the live activity UI (barn, daily activity, clients)
 .\scripts\hubctl.ps1 app       # open the desktop status app
+.\scripts\hubctl.ps1 autostart # show or change the sign-in tasks: -Target hub|app -State on|off
 ```
 
 **Desktop status app.** `install` also registers a second logon task, `mcp-hub-status`. At every sign-in it opens a small window that shows:
 - whether the Hub is running, and in which mode;
 - whether each child MCP is connected;
-- with `-Ui`, the connected AI clients.
+- with the activity UI, the connected AI clients.
 
-The window has **Start Hub** and **Open dashboard** buttons, plus a light/dark theme switch and an EN/VI switch. Both choices are remembered. Turn autostart off with `Disable-ScheduledTask mcp-hub-status`. Design rules, states, and keys are in [docs/desktop-app.md](docs/desktop-app.md).
+The window has **Start Hub** and **Open dashboard** buttons. Its ⚙ Settings card has three tabs:
+- **Appearance:** theme, language, frosted glass, card opacity, and background tint.
+- **Hub:** start, restart, or stop the Hub; **Track AI clients** (the activity UI, kept on for every start); and whether the Hub and the app start at sign-in.
+- **MCPs:** each child MCP on or off.
+
+Hub changes are saved to `config/private/hub.json` and apply at the next Hub start; Restart and Stop ask for a second click. Secrets never appear in the app. Design rules, states, and keys are in [docs/desktop-app.md](docs/desktop-app.md).
 
 Every start first syncs the locked Python environment and runs the pre-start checks: each enabled child's runtime (Node.js is installed or upgraded with winget when needed) and its dependency step. `hubctl preflight` only reports them. See [Pre-start checks](docs/operations/shared-agent-hub.md#pre-start-checks).
 
 Clients with a safe dynamic-header helper can connect over HTTP using `scripts/http_headers.ps1`. Other clients use the stdio bridge by passing `-Bridge -ClientName "<AI_CLIENT>"` to `scripts/start.ps1`. The existing stdio launcher remains available for development and per-client compatibility.
 
-`hubctl open` opens the paired localhost dashboard, in English or Vietnamese (language selector in the top bar). The Hub starts in fast mode by default: tool calls are not tracked beyond the audit log. Add `-Ui` to `start`, `restart`, or `open` to run with the activity UI until the next start (see [Fast mode and the activity UI](docs/operations/shared-agent-hub.md#fast-mode-and-the-activity-ui)). With it, the pixel barn shows live child-tool activity; the daily panel ranks child MCPs and lists tool calls by client for the last 30 days. The report stores only tool/client names, timing, and call state. HTTP clients are labeled from MCP `clientInfo`; bridge entries can pass `-ClientName <AI_CLIENT>`. The **Connected AI clients** panel and `hubctl status` show which clients are connected now or were active in the last 30 minutes (see [Connected AI clients](docs/operations/shared-agent-hub.md#connected-ai-clients)).
+`hubctl open` opens the paired localhost dashboard, in English or Vietnamese (language selector in the top bar). The Hub starts in fast mode by default: tool calls are not tracked beyond the audit log. Turn on **Track AI clients** in the desktop app to keep the activity UI on for every start, or add `-Ui` to `start`, `restart`, or `open` to run with it until the next start (see [Fast mode and the activity UI](docs/operations/shared-agent-hub.md#fast-mode-and-the-activity-ui)). With it, the pixel barn shows live child-tool activity; the daily panel ranks child MCPs and lists tool calls by client for the last 30 days. The report stores only tool/client names, timing, and call state. HTTP clients are labeled from MCP `clientInfo`; bridge entries can pass `-ClientName <AI_CLIENT>`. The **Connected AI clients** panel and `hubctl status` show which clients are connected now or were active in the last 30 minutes (see [Connected AI clients](docs/operations/shared-agent-hub.md#connected-ai-clients)).
 
 If `uv` is missing, the launcher installs a pinned uv release under the ignored `.tools/` directory without changing the global `PATH`, after checking the installer's SHA-256 ([details](docs/packaging-and-qc.md#pinned-uv-installer)). It then installs Python from `.python-version` when needed and runs `uv run --locked`, which creates or synchronizes the project environment from `uv.lock`. The first run needs internet access and write access to the repository and uv-managed data/cache directories. If download or installation fails, the launcher exits with a diagnostic on stderr before starting the Hub. Stdout stays reserved for MCP protocol traffic.
 

@@ -128,7 +128,7 @@ class BootstrapScriptsTest(unittest.TestCase):
         self.assertIn('$statusAppTaskName = "mcp-hub-status"', script)
         self.assertIn('".venv\\Scripts\\pythonw.exe"', register)
         self.assertIn('-Argument "-m mcp_hub.desktop"', register)
-        self.assertIn("New-ScheduledTaskTrigger -AtLogOn", register)
+        self.assertIn("New-LogonTrigger -Name $statusAppTaskName", register)
         self.assertIn("-RunLevel Limited", register)
         self.assertNotIn("-RestartCount", register)
         install = script[script.index('"install" {'):script.index('"status" {')]
@@ -136,9 +136,21 @@ class BootstrapScriptsTest(unittest.TestCase):
         # The running service locks its entry-point exe, so it stops before the environment sync.
         self.assertLess(install.index("Stop-HubTask"), install.index("Initialize-HubEnvironment"))
         self.assertLess(install.index("Start-HubTask"), install.index("Open-StatusApp"))
-        self.assertIn('"preflight", "app")]', script)
+        self.assertIn('"preflight", "app", "autostart")]', script)
         self.assertIn('"app" { Open-StatusApp }', script)
         self.assertIn("Start-ScheduledTask -TaskName $statusAppTaskName", script)
+
+    def test_environment_sync_stops_the_status_app_first_and_reopens_it(self) -> None:
+        script = (HUB_ROOT / "scripts" / "hubctl.ps1").read_text(encoding="utf-8")
+        initialize = script[script.index("function Initialize-HubEnvironment"):script.index("function Set-LaunchMode")]
+        self.assertLess(initialize.index("Stop-StatusApp"), initialize.index("Sync-HubEnvironment"))
+        stop = script[script.index("function Stop-StatusApp"):script.index("function Restore-StatusApp")]
+        # Only this checkout's app: its venv launcher and the interpreter that launcher started.
+        self.assertIn("$_.CommandLine.Contains($venv)", stop)
+        self.assertIn('$_.CommandLine.Contains("-m mcp_hub.desktop")', stop)
+        self.assertIn("$launcherIds -contains $_.ParentProcessId", stop)
+        start = script[script.index("function Start-HubTask"):script.index("function Stop-HubTask")]
+        self.assertLess(start.index("Start-ScheduledTask -TaskName $taskName"), start.index("Restore-StatusApp"))
 
     def test_ui_flag_writes_a_one_shot_launch_file_and_default_start_removes_it(self) -> None:
         script = (HUB_ROOT / "scripts" / "hubctl.ps1").read_text(encoding="utf-8")
@@ -157,6 +169,26 @@ class BootstrapScriptsTest(unittest.TestCase):
             "Start-HubTask -SkipPrepare -Ui:$Ui",
         ):
             self.assertIn(command, script)
+
+
+    def test_autostart_switches_only_the_logon_trigger_and_install_keeps_it(self) -> None:
+        script = (HUB_ROOT / "scripts" / "hubctl.ps1").read_text(encoding="utf-8")
+        self.assertIn("$autostartTasks = [ordered]@{ hub = $taskName; app = $statusAppTaskName }", script)
+        self.assertIn('[ValidateSet("hub", "app")]', script)
+        self.assertIn('[ValidateSet("on", "off")]', script)
+        switch = script[script.index("function Set-Autostart"):script.index("function Write-Autostart")]
+        # The task stays enabled so hubctl start and the app's Start button can still run it.
+        self.assertIn("foreach ($trigger in $task.Triggers) { $trigger.Enabled = $Enabled }", switch)
+        self.assertIn("Set-ScheduledTask -InputObject $task", switch)
+        self.assertNotIn("Disable-ScheduledTask", script)
+        self.assertIn("ConvertTo-Json -Compress", script)
+        trigger = script[script.index("function New-LogonTrigger"):script.index("function Register-HubTask")]
+        self.assertIn("New-ScheduledTaskTrigger -AtLogOn -User $UserId", trigger)
+        self.assertIn("$trigger.Enabled = -not $wasOff", trigger)
+        hub = script[script.index("function Register-HubTask"):script.index("function Register-StatusAppTask")]
+        self.assertIn("New-LogonTrigger -Name $taskName", hub)
+        command = script[script.index('"autostart" {'):]
+        self.assertLess(command.index("Set-Autostart"), command.index("Write-Autostart"))
 
 
 if __name__ == "__main__":

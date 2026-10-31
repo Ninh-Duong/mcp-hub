@@ -143,6 +143,52 @@ def load_config(config_path: str | Path | None = None) -> HubConfig:
                      detected=context.detected, unavailable=context.unavailable)
 
 
+@dataclass(frozen=True)
+class ServerSwitch:
+    """A child MCP the user can turn on or off, and why it cannot run when it is on (if known)."""
+
+    server_id: str
+    enabled: bool
+    reason: str | None = None
+
+
+def resolved_config_path(config_path: str | Path | None = None) -> Path:
+    """The Hub config file in use: `config_path`, `MCP_HUB_CONFIG`, or `config/private/hub.json`."""
+    return _resolve_config_path(config_path)[0]
+
+
+def uses_default_config(config_path: str | Path | None = None) -> bool:
+    """Whether the Hub merges `config/private/hub.json` with the defaults (no explicit config file)."""
+    return _resolve_config_path(config_path)[1]
+
+
+def server_switches(config_path: str | Path | None = None) -> tuple[ServerSwitch, ...]:
+    """Children found next to the Hub or listed in the private config, with their on/off state.
+
+    Children that are neither are left out: turning on a missing repository would stop the Hub from starting.
+    """
+    path, automatic = _resolve_config_path(config_path)
+    raw, context = _merge_with_defaults(path) if automatic else _read_explicit(path)
+    servers = _mapping(raw.get("servers"), "servers")
+    listed = set(context.detected) | context.explicit_servers
+    switches = []
+    for server_id, value in servers.items():
+        if server_id not in listed:
+            continue
+        item = _mapping(value, f"server {server_id}")
+        enabled = _server_enabled(server_id, item, context)
+        reason = "credentials required" if enabled and _needs_credentials(server_id, item, context) else None
+        switches.append(ServerSwitch(server_id, enabled, reason))
+    return tuple(switches)
+
+
+def _needs_credentials(server_id: str, item: dict[str, Any], context: _LoadContext) -> bool:
+    try:
+        return SECRET_PLACEHOLDER in json.dumps(_read_json(_server_file(server_id, item, context), f"server {server_id} config"))
+    except ConfigError:
+        return False
+
+
 def _resolve_config_path(config_path: str | Path | None) -> tuple[Path, bool]:
     override = config_path or os.environ.get("MCP_HUB_CONFIG")
     path = Path(override or _DEFAULT_CONFIG)

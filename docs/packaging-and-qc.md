@@ -10,7 +10,7 @@
 | `scripts/smoke.py`, `scripts/package_qc.py` | Yes | Yes |
 | Shared service (`hubctl.ps1`: Task Scheduler, `pythonw.exe`), stdio bridge, `http_headers.ps1` | Yes | No |
 | Dashboard service controls (stop/restart run `hubctl.ps1`) | Yes | No (`503`) |
-| Desktop status app (`python -m mcp_hub.desktop`, Tk) | Yes, opened at logon by the `mcp-hub-status` task | Runs where Tk has a display, but shows **Not installed** without the shared service; no autostart, and Start Hub reports that it needs Windows |
+| Desktop status app (`python -m mcp_hub.desktop`, Qt) | Yes, opened at logon by the `mcp-hub-status` task; frosted glass on Windows 10/11 through the acrylic accent | Runs with a display, opaque (no glass), but shows **Not installed** without the shared service; no autostart, and Start Hub reports that it needs Windows |
 | Investigation jobs (`hub__submit_issue` …; job blobs encrypted with DPAPI) | Yes | No: `hub__submit_issue` returns `investigation jobs require Windows DPAPI`, and agent status shows it |
 | Preflight runtime install with winget | Yes | No: a missing runtime is reported; install it yourself |
 
@@ -32,7 +32,7 @@ When no uv is found, the launchers download the installer of one pinned uv relea
 
 ### Dependency groups
 
-`pyproject.toml` groups the runtime dependencies by purpose: core (MCP, HTTP service, validation), investigation providers (`openai`, `anthropic`, `google-genai`, imported only when a role makes its first request; a missing one is shown as "provider package not installed"), and child-shared packages (`httpx`, `python-dotenv`, `cryptography`) that `mcp-jira-sync` and `mcp-read-source` use from the Hub's venv. The launchers sync all of them. The `dev` dependency group holds the QC tools (`ruff`, `coverage`); uv syncs it by default.
+`pyproject.toml` groups the runtime dependencies by purpose: core (MCP, HTTP service, validation), investigation providers (`openai`, `anthropic`, `google-genai`, imported only when a role makes its first request; a missing one is shown as "provider package not installed"), the desktop status app (`PySide6-Essentials`: QtCore, QtGui, and QtWidgets only, not the full PySide6), and child-shared packages (`httpx`, `python-dotenv`, `cryptography`) that `mcp-jira-sync` and `mcp-read-source` use from the Hub's venv. The running status app keeps Qt libraries open, so `hubctl` stops it before an environment sync and reopens it afterwards. The launchers sync all of them. The `dev` dependency group holds the QC tools (`ruff`, `coverage`); uv syncs it by default.
 
 ## Offline package QC
 
@@ -67,7 +67,7 @@ Use `--live-smoke` only when private Hub configuration and required upstream cre
 
 ## Continuous integration
 
-GitHub Actions (`.github/workflows/qc.yml`) runs package QC on Windows, macOS, and Ubuntu for pushes and pull requests, with a 20-minute job timeout. It installs Python 3.12, syncs strictly from the lockfile, and sets `MCP_HUB_E2E=1`, so CI also exercises the documented launch command end to end: listing tools and prompts and receiving Unicode tool output from a fake child, in a clean project environment. It needs no secrets or live services.
+GitHub Actions (`.github/workflows/qc.yml`) runs package QC on Windows, macOS, and Ubuntu for pushes and pull requests, with a 20-minute job timeout. It installs Python 3.12, syncs strictly from the lockfile, and sets `MCP_HUB_E2E=1`, so CI also exercises the documented launch command end to end: listing tools and prompts and receiving Unicode tool output from a fake child, in a clean project environment. It needs no secrets or live services. On Ubuntu it first installs the system libraries Qt loads (`libegl1`, `libxkbcommon0`, `libfontconfig1`, `libdbus-1-3`), because the desktop window tests run on Qt's offscreen platform on every OS.
 
 ## Troubleshooting
 

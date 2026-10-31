@@ -21,6 +21,8 @@ dependencies = [
     "openai>=1.75",
     "anthropic>=0.45",
     "google-genai>=1.0",
+    # Desktop status app (src/mcp_hub/desktop): the Qt widgets only, not the full PySide6.
+    "PySide6-Essentials>=6.8",
     # Child-shared: not imported by the Hub; mcp-jira-sync and mcp-read-source run on this venv.
     "httpx>=0.27",
     "python-dotenv>=1.0",

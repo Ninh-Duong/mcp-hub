@@ -1,9 +1,15 @@
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("install", "status", "start", "stop", "restart", "open", "preflight", "app")]
+    [ValidateSet("install", "status", "start", "stop", "restart", "open", "preflight", "app", "autostart")]
     [string]$Command = "status",
-    # start, restart, open, install: also run the activity UI (barn, daily activity, connected clients).
-    [switch]$Ui
+    # start, restart, open, install: run the activity UI (barn, daily activity, connected clients) for this start,
+    # even when the saved mode (desktop app: Settings > Hub > Track AI clients) is fast.
+    [switch]$Ui,
+    # autostart: which logon task to switch, and to which state. Without -Target it prints the current state.
+    [ValidateSet("hub", "app")]
+    [string]$Target,
+    [ValidateSet("on", "off")]
+    [string]$State
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,6 +21,7 @@ $startScript = Join-Path $PSScriptRoot "start.ps1"
 $venvPython = Join-Path $repoRoot ".venv\Scripts\python.exe"
 $url = "http://127.0.0.1:8765"
 $launchPath = Join-Path $repoRoot "config\private\launch.json"
+$autostartTasks = [ordered]@{ hub = $taskName; app = $statusAppTaskName }
 
 function Test-HubHealth {
     try {
@@ -68,7 +75,27 @@ function Invoke-Preflight {
     return $result.ExitCode
 }
 
+function Stop-StatusApp {
+    # The desktop status app keeps Qt libraries in .venv open, so uv sync could not replace them while it runs.
+    # It is stateless: stop this checkout's copy (the venv launcher and the interpreter it started).
+    $venv = Join-Path $repoRoot ".venv"
+    $all = @(Get-CimInstance Win32_Process -Filter "Name='pythonw.exe'")
+    $launchers = @($all | Where-Object { $_.CommandLine -and $_.CommandLine.Contains($venv) -and $_.CommandLine.Contains("-m mcp_hub.desktop") })
+    $launcherIds = @($launchers | ForEach-Object ProcessId)
+    $ids = $launcherIds + @($all | Where-Object { $launcherIds -contains $_.ParentProcessId } | ForEach-Object ProcessId)
+    foreach ($id in $ids) { Stop-Process -Id $id -ErrorAction SilentlyContinue }
+    return $launcherIds.Count -gt 0
+}
+
+function Restore-StatusApp {
+    if ($script:statusAppWasRunning -and (Get-ScheduledTask -TaskName $statusAppTaskName -ErrorAction SilentlyContinue)) {
+        Start-ScheduledTask -TaskName $statusAppTaskName
+    }
+    $script:statusAppWasRunning = $false
+}
+
 function Initialize-HubEnvironment {
+    $script:statusAppWasRunning = Stop-StatusApp
     Sync-HubEnvironment
     if ((Invoke-Preflight -Install) -ne 0) { Write-Warning "Some child MCPs are not ready; the Hub starts without them. Run: hubctl preflight" }
 }
@@ -76,7 +103,7 @@ function Initialize-HubEnvironment {
 function Set-LaunchMode {
     param([switch]$Ui)
 
-    # The service reads and deletes this file at start, so the next start without -Ui is fast mode again.
+    # The service reads and deletes this file at start, so the next start without -Ui uses the saved mode again.
     if ($Ui) {
         New-Item -ItemType Directory -Force -Path (Split-Path $launchPath) | Out-Null
         [IO.File]::WriteAllText($launchPath, '{"extensions": ["activity-ui"]}')
@@ -110,6 +137,7 @@ function Start-HubTask {
         $deadline = (Get-Date).AddSeconds(120)
         while ((Get-Date) -lt $deadline -and -not (Test-HubHealth)) { Start-Sleep -Milliseconds 500 }
         if (-not (Test-HubHealth)) { throw "The Hub did not become healthy; run hubctl status for task state." }
+        Restore-StatusApp
     }
 }
 
@@ -184,6 +212,40 @@ function Protect-HubCheckout {
     }
 }
 
+function Test-Autostart {
+    param([string]$Name)
+
+    $task = Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue
+    if (-not $task) { return $false }
+    return @($task.Triggers | Where-Object { $_.Enabled }).Count -gt 0
+}
+
+function Set-Autostart {
+    param([string]$Name, [bool]$Enabled)
+
+    # Only the logon trigger is switched; the task stays enabled, so hubctl start and the app's Start button still run it.
+    $task = Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue
+    if (-not $task) { throw "The $Name task is not installed. Run: hubctl install" }
+    foreach ($trigger in $task.Triggers) { $trigger.Enabled = $Enabled }
+    Set-ScheduledTask -InputObject $task | Out-Null
+}
+
+function Write-Autostart {
+    $state = [ordered]@{}
+    foreach ($target in $autostartTasks.Keys) { $state[$target] = Test-Autostart -Name $autostartTasks[$target] }
+    Write-Output ([pscustomobject]$state | ConvertTo-Json -Compress)
+}
+
+function New-LogonTrigger {
+    param([string]$Name, [string]$UserId)
+
+    # Registering again (hubctl install) keeps an autostart the user turned off.
+    $wasOff = (Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue) -and -not (Test-Autostart -Name $Name)
+    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $UserId
+    $trigger.Enabled = -not $wasOff
+    return $trigger
+}
+
 function Register-HubTask {
     if (Get-ScheduledTask -TaskName $legacyTaskName -ErrorAction SilentlyContinue) {
         Unregister-ScheduledTask -TaskName $legacyTaskName -Confirm:$false
@@ -193,7 +255,7 @@ function Register-HubTask {
     $userId = [Security.Principal.WindowsIdentity]::GetCurrent().Name
     Protect-HubCheckout -UserId $userId
     Protect-PrivateConfig -UserId $userId
-    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $userId
+    $trigger = New-LogonTrigger -Name $taskName -UserId $userId
     $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Limited
     # A crashed service is restarted up to 3 times, one minute apart.
     $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
@@ -207,7 +269,7 @@ function Register-StatusAppTask {
     if (-not (Test-Path -LiteralPath $pythonw -PathType Leaf)) { throw "The Hub environment has no pythonw.exe. Run: hubctl install" }
     $action = New-ScheduledTaskAction -Execute $pythonw -Argument "-m mcp_hub.desktop" -WorkingDirectory $repoRoot
     $userId = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $userId
+    $trigger = New-LogonTrigger -Name $statusAppTaskName -UserId $userId
     $principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Limited
     $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
     Register-ScheduledTask -TaskName $statusAppTaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
@@ -225,7 +287,7 @@ function Write-ConnectedClients {
     $headers = @{ Authorization = "Bearer $(Get-ServiceToken)" }
     $status = Invoke-RestMethod -Uri "$url/dashboard/api/status" -Method Get -Headers $headers -TimeoutSec 5
     if (-not $status.extensions.activityUi) {
-        Write-Output "Mode: fast (activity UI off; start with -Ui to track clients and activity)"
+        Write-Output "Mode: fast (activity UI off; turn on Track AI clients in the desktop app, or start with -Ui)"
         return
     }
     Write-Output "Mode: activity UI on"
@@ -287,4 +349,11 @@ switch ($Command) {
     }
     "open" { Open-HubDashboard -Ui:$Ui }
     "app" { Open-StatusApp }
+    "autostart" {
+        if ($Target) {
+            if (-not $State) { throw "Choose the new state: hubctl autostart -Target $Target -State on|off" }
+            Set-Autostart -Name $autostartTasks[$Target] -Enabled ($State -eq "on")
+        }
+        Write-Autostart
+    }
 }
