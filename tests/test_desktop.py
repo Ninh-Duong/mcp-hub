@@ -357,6 +357,11 @@ class Win32Test(unittest.TestCase):
         self.assertEqual(win32.system_theme(lambda: 1), "light")
         self.assertEqual(win32.system_theme(lambda: 0), "dark")
         self.assertEqual(win32.system_theme(unreadable), "light")
+
+        def no_winreg() -> int:
+            raise ModuleNotFoundError("No module named 'winreg'")  # what Linux and macOS raise
+
+        self.assertEqual(win32.system_theme(no_winreg), "light")
         self.assertIn(win32.system_theme(), theme.THEMES)
 
     @unittest.skipUnless(hasattr(win32.ctypes, "WinDLL"), "Windows only")

@@ -60,12 +60,12 @@ def system_theme(read_value: Callable[[], int] | None = None) -> str:
         read_value = _apps_use_light_theme
     try:
         return "light" if read_value() else "dark"
-    except OSError:
+    except (OSError, ImportError):  # no such key, or no winreg off Windows
         return "light"
 
 
 def _apps_use_light_theme() -> int:
-    import winreg  # Windows only; an ImportError off Windows is reported as OSError below
+    import winreg  # Windows only; system_theme answers `light` for the ImportError off Windows
 
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _PERSONALIZE_KEY) as key:
         return int(winreg.QueryValueEx(key, "AppsUseLightTheme")[0])

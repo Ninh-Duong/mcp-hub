@@ -91,9 +91,11 @@ def connection_file() -> Path:
     return Path(data) / "mcp-hub" / "connection.json"
 
 
-def restrict_to_current_user(path: Path, run: Callable[..., subprocess.CompletedProcess] = subprocess.run) -> None:
+def restrict_to_current_user(
+    path: Path, run: Callable[..., subprocess.CompletedProcess] = subprocess.run, windows: bool | None = None,
+) -> None:
     """On Windows, let only this user and SYSTEM open `path` (chmod there only toggles read-only). Raises OSError."""
-    if os.name != "nt":
+    if not (os.name == "nt" if windows is None else windows):
         return
     user, system_root = os.environ.get("USERNAME"), os.environ.get("SystemRoot")
     if not user or not system_root:

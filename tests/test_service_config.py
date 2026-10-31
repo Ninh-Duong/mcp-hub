@@ -100,8 +100,9 @@ class ConnectionFileTest(unittest.TestCase):
 
         run = MagicMock(return_value=SimpleNamespace(returncode=0))
         environ = {"USERNAME": "someone", "USERDOMAIN": "PC", "SystemRoot": "/sysroot"}
-        with patch.object(service_config.os, "name", "nt"), patch.dict(service_config.os.environ, environ, clear=True):
-            service_config.restrict_to_current_user(Path("/data/connection.json"), run)
+        # `windows=True` instead of patching os.name, which would make pathlib build WindowsPaths on Linux.
+        with patch.dict(service_config.os.environ, environ, clear=True):
+            service_config.restrict_to_current_user(Path("/data/connection.json"), run, windows=True)
             command = run.call_args.args[0]
             self.assertEqual(Path(command[0]).name, "icacls.exe")
             self.assertEqual(command[2:], ["/inheritance:r", "/grant:r", r"PC\someone:F", "*S-1-5-18:F"])
@@ -109,11 +110,11 @@ class ConnectionFileTest(unittest.TestCase):
                         MagicMock(side_effect=service_config.subprocess.TimeoutExpired("icacls", 1)))
             for failing in failures:
                 with self.subTest(run=failing), self.assertRaises(OSError):
-                    service_config.restrict_to_current_user(Path("/data/connection.json"), failing)
-        with patch.object(service_config.os, "name", "nt"), patch.dict(service_config.os.environ, {}, clear=True),                 self.assertRaises(OSError):
-            service_config.restrict_to_current_user(Path("/data/connection.json"), run)
-        with patch.object(service_config.os, "name", "posix"):
-            service_config.restrict_to_current_user(Path("/data/connection.json"), MagicMock(side_effect=AssertionError))
+                    service_config.restrict_to_current_user(Path("/data/connection.json"), failing, windows=True)
+        with patch.dict(service_config.os.environ, {}, clear=True), self.assertRaises(OSError):
+            service_config.restrict_to_current_user(Path("/data/connection.json"), run, windows=True)
+        service_config.restrict_to_current_user(Path("/data/connection.json"), MagicMock(side_effect=AssertionError),
+                                                windows=False)
 
     def test_path_follows_the_overrides_and_matches_the_app(self) -> None:
         from unittest.mock import patch
