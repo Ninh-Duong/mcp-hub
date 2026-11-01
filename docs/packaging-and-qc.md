@@ -94,4 +94,4 @@ GitHub Actions (`.github/workflows/qc.yml`) runs package QC on Windows, macOS, a
 - If locked dependency synchronization fails, check access to the configured Python package index and retry the launcher or QC command.
 - While the shared service runs on Windows it locks `.venv/Scripts/mcp-hub-service.exe`, so `uv sync` and plain `uv run` cannot rebuild the environment; use `uv run --no-sync ...` for QC, or stop the service first (`hubctl stop`).
 - If an AI client reports a startup failure, inspect its stderr capture. MCP protocol output remains on stdout; bootstrap diagnostics are intentionally sent to stderr.
-- For child connectivity and upstream checks, use [README → Check connections](../README.md#check-connections) or run QC with `--live-smoke`.
+- For child connectivity and upstream checks, use [manual-setup.md → Check connections](manual-setup.md#check-connections) or run QC with `--live-smoke`.

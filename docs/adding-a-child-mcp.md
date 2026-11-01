@@ -88,7 +88,7 @@ Create `docs/mcps/<id>.md` from the template in [mcps/README.md](mcps/README.md)
 
 1. Ask the user to fill the child's section in `config/private/mcps/<id>.json` (and replace any `<SET_BY_USER>`), listing the key names (from `keys <id>`), or to keep the accounts in the child's own files. Never ask for the values in chat.
 2. After the user confirms, set `"enabled": true` for the server and the feature in `hub.json`.
-3. Restart the MCP client that runs the Hub (`scripts/start.ps1` / `scripts/start.sh`, see README → Run). Config is read only at startup.
+3. Restart the MCP client that runs the Hub (`scripts/start.ps1` / `scripts/start.sh`, see [manual-setup.md → Run](manual-setup.md#run)). Config is read only at startup.
 
 ## 6. Verify
 

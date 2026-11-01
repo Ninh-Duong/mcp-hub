@@ -15,7 +15,7 @@ Keep the Hub and child repositories as siblings:
   mcp-read-source/
 ```
 
-Use [the README preparation steps](../../README.md#default-setup) for the existing logs/Jira/PR children. The source child requires Python 3.12 and uses the Hub's locked Python environment when launched by the Hub. Prepare its standalone environment with `uv sync --locked` only if using it outside the Hub.
+Use [the README preparation steps](../manual-setup.md#default-setup) for the existing logs/Jira/PR children. The source child requires Python 3.12 and uses the Hub's locked Python environment when launched by the Hub. Prepare its standalone environment with `uv sync --locked` only if using it outside the Hub.
 
 ## 2. Configure projects and agents
 
