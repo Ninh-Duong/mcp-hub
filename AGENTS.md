@@ -6,6 +6,7 @@ This repo is maintained entirely by AI agents. These rules are mandatory. Text r
 
 | The user wants to… | Do this |
 |---|---|
+| Set up mcp-hub on a new Windows PC, step by step | Have the user double-click `Setup.cmd` (`scripts/setup.ps1`): it downloads the chosen children, installs the status app and the Hub, opens each child's own account setup, runs the smoke check, and copies the client prompt. It never reads account values; it can be run again at any time. |
 | Use mcp-hub from their AI client, switch to it, or know how to configure it | Follow [docs/connecting-a-client.md](docs/connecting-a-client.md), plus your client's file in [docs/clients/](docs/clients/). It changes only the client's config, never this repo. |
 | Use mcp-hub tools to do work (e.g. `mcp-hub:mcp-server-logs …`) | Follow [docs/client-rules.md](docs/client-rules.md). |
 | Add, remove, or reconfigure a child MCP | Follow [docs/adding-a-child-mcp.md](docs/adding-a-child-mcp.md). |

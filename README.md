@@ -6,16 +6,22 @@ Local, config-driven MCP gateway for AI agents. It can run as one shared Windows
 
 ## Quick start (Windows)
 
-1. Put this repository and the child MCP repositories you use side by side in one folder (see [Adding a child MCP](docs/adding-a-child-mcp.md)).
-2. Install and start the Hub. It installs what it needs and starts again at every sign-in:
+1. **Get mcp-hub.** Copy the repository address from GitHub's green **Code** button and run, in a folder of your choice (for example `Documents\mcp`):
 
    ```powershell
-   powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\hubctl.ps1 install
+   git clone <address you copied>
    ```
 
-3. Install the desktop app. Download `mcp-hub-status-setup-<version>.exe` from the [latest release](../../releases/latest) and run it, or run `.\scripts\hubctl.ps1 app -Install`. Then open **mcp-hub Status** from the Start Menu: it shows the Hub and each child MCP, and starts or stops the Hub.
-4. Connect your AI client: [docs/connecting-a-client.md](docs/connecting-a-client.md).
-5. Make multi-step reads faster with `hub__batch`, and see the difference with the test prompts in [docs/batch.md](docs/batch.md).
+2. **Double-click `Setup.cmd`** in the `mcp-hub` folder. It asks a few yes/no questions; press Enter to keep the suggested answer. It then:
+   - downloads the child MCPs you chose (Jira, Bitbucket pull requests, logs, source code) next to mcp-hub;
+   - installs the **mcp-hub Status** app;
+   - installs Python, Node.js, and everything each child needs, and starts the Hub at every sign-in (Windows may ask for permission once);
+   - opens each child's own login screen or settings file for your accounts. Type them there, never into an AI chat;
+   - checks every child and says which ones are ready;
+   - copies a message for your AI client to the clipboard.
+3. **Paste that message (Ctrl+V) into your AI client** (Claude Code, Codex, Antigravity, Cursor, VS Code, Gemini CLI). It connects itself to mcp-hub and tells you when to restart it. Then try `/mcp-hub mcp-jira-sync check connection`.
+
+Run `Setup.cmd` again any time to add a child, change an account, or repair the install; it skips what is already done. To make multi-step reads faster, see [docs/batch.md](docs/batch.md). The sections below describe each part for people who want the details.
 
 ## Run
 
