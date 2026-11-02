@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import tempfile
 import unittest
@@ -77,6 +78,20 @@ class CheckDocsTest(unittest.TestCase):
         self.assertIn("docs/settings.md lists settings.http.typo, which does not exist", settings)
         self.assertIn("setting settings.jobs.maxActive is not in docs/settings.md", settings)
         self.assertEqual(retired, ["docs/page.md:1: retired wording '-Target hub|app'"])
+
+    def test_default_children_need_a_repository_address_and_a_contract(self) -> None:
+        servers = {"mcp-a": {"repository": "https://example.com/o/mcp-a.git"}, "mcp-b": {},
+                   "mcp-c": {"repository": "git@example.com:o/mcp-c"}}
+        self.write("config/hub.example.json", json.dumps({"servers": servers}))
+        self.write("docs/mcps/mcp-a.md", "contract\n")
+        with patch.object(self.docs, "ROOT", self.root), patch.object(self.docs, "DOCS", self.root / "docs"):
+            problems = self.docs.child_problems()
+        self.assertEqual(problems, [
+            "default child mcp-b has no https `repository` in config/hub.example.json",
+            "default child mcp-b has no contract docs/mcps/mcp-b.md",
+            "default child mcp-c has no https `repository` in config/hub.example.json",
+            "default child mcp-c has no contract docs/mcps/mcp-c.md",
+        ])
 
 
 if __name__ == "__main__":

@@ -45,7 +45,7 @@ Shared rules: [Hub result cache](README.md#hub-result-cache). Defaults here: 300
 
 ## Hub integration
 
-- Read-only smoke check: `jira__check_connection`; its successful text begins with `✅`. If its output changes, update `scripts/smoke.py` and `tests/test_smoke.py`.
+- Read-only smoke check: `jira__check_connection`; its successful text begins with `✅`; text saying the credentials are `not configured` is a smoke WARN, any other failure a FAIL. If its output changes, update `scripts/smoke.py` and `tests/test_smoke.py`.
 - Preserve the child tool names and read/write annotations; the Hub exposes only the aliases allowlisted in `config/hub.example.json` plus overrides in `config/private/hub.json`.
 
 ## Diagnostics

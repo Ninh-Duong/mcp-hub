@@ -59,6 +59,12 @@ Add a new server **disabled** and allowlist only the tools that are needed. For 
 - `exposeAs` is optional and defaults to `<id>__<tool>`. It must match `[A-Za-z0-9_-]{1,128}` and be unique across the Hub. A short prefix is fine (Jira uses `jira__`).
 - A feature that references a disabled server makes the Hub refuse to start. Keep the new feature `"enabled": false` too, until step 5.
 
+### Declare where Setup downloads it (`repository`)
+
+A default child (cloned automatically next to this repo by `Setup.cmd`) has one more key in its entry of `config/hub.example.json`: `"repository": "https://github.com/<owner>/<id>.git"`. It must be an `https` address with no credentials and end in `/<id>.git`. `scripts/setup.ps1` reads this list, so never repeat the address anywhere else. Also give the child its contract `docs/mcps/<id>.md`; `scripts/check_docs.py` fails without either.
+
+A child must start and list its tools while its account is not filled in, and its read-only check must then say so in words the smoke check recognizes (`not configured` or `No Bitbucket credentials`, see `_NOT_SET_MARKERS` in `scripts/smoke.py`): the smoke check then prints `WARN` instead of `FAIL`.
+
 ### Declare start prerequisites (`prepare`)
 
 When the child needs a system runtime or a dependency/build step, declare it once in the child's server entry in the tracked `config/hub.example.json`. Do not add install steps to scripts or docs elsewhere. The pre-start check (`python -m mcp_hub.preflight`, run by `hubctl start`) reads it for every enabled child:

@@ -82,7 +82,7 @@ QC does not call child MCPs or upstream services, so CI needs no private configu
 uv run --locked --python 3.12 python scripts/package_qc.py --live-smoke
 ```
 
-Use `--live-smoke` only when private Hub configuration and required upstream credentials are available. A missing private configuration is a local environment condition, not a failure of the offline package checks.
+Use `--live-smoke` only when private Hub configuration and required upstream credentials are available (children without an account show `WARN`, which does not fail it). A missing private configuration is a local environment condition, not a failure of the offline package checks.
 
 ## Continuous integration
 

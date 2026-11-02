@@ -3,6 +3,7 @@
   "servers": {
     "mcp-server-logs": {
       "enabled": false,
+      "repository": "https://github.com/Ninh-Duong/mcp-server-logs.git",
       "configFile": "config/private/mcps/mcp-server-logs.json",
       "prepare": {
         "runtime": {
@@ -15,10 +16,12 @@
     },
     "mcp-jira-sync": {
       "enabled": false,
+      "repository": "https://github.com/Ninh-Duong/mcp-jira-sync.git",
       "configFile": "config/private/mcps/mcp-jira-sync.json"
     },
     "mcp-pr-companion": {
       "enabled": false,
+      "repository": "https://github.com/Ninh-Duong/mcp-pr-companion.git",
       "configFile": "config/private/mcps/mcp-pr-companion.json",
       "prepare": {
         "runtime": {
@@ -31,6 +34,7 @@
     },
     "mcp-read-source": {
       "enabled": false,
+      "repository": "https://github.com/Ninh-Duong/mcp-read-source.git",
       "configFile": "config/private/mcps/mcp-read-source.json"
     }
   },

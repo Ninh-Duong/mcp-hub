@@ -14,12 +14,15 @@ MCP"), keeps it connected, shows the AI only the allowed tools, and logs every c
    git clone <address you copied>
    ```
 
-2. **Double-click `Setup.cmd`** in the `mcp-hub` folder and answer its yes/no questions (Enter keeps the suggestion).
-   It downloads the tools you pick, installs everything they need and the **mcp-hub Status** app, opens each tool's own
-   login screen for your accounts, checks that everything works, and copies a message for your AI client.
-   Type accounts only there, never into an AI chat.
-3. **Paste that message (Ctrl+V) into your AI client** (Claude Code, Codex, Antigravity, Cursor, VS Code, Gemini CLI)
-   and restart the client when it asks.
+2. **Double-click `Setup.cmd`** in the `mcp-hub` folder. It asks nothing. It downloads the four tools that are missing
+   next to `mcp-hub`, installs everything they need and the **mcp-hub Status** app, checks each tool in turn and then
+   the Hub itself, looks for the AI clients on your PC, and copies a message for them. A tool that fails does not stop
+   the others; the summary at the end names it.
+3. **Fill in each tool's account yourself**, in that tool's own folder (the end of Setup lists where). Setup never asks
+   for, reads, or stores accounts, and you should never type them into an AI chat. Until then that tool shows `WARN`,
+   which is normal.
+4. **Paste the copied message (Ctrl+V) into each AI client** (Claude Code, Codex, Antigravity, Cursor, VS Code,
+   Gemini CLI) and restart the client when it asks.
 
 The Hub then starts by itself every time you sign in to Windows. macOS, Linux, or a manual install:
 [docs/manual-setup.md](docs/manual-setup.md).
@@ -39,13 +42,14 @@ Ask your AI client, naming the tool:
 - The AI only reads, unless you ask it to change something (for example to sync a ticket).
 - **mcp-hub Status** (Start Menu) shows whether the Hub and each tool are working. It starts, restarts, or stops the
   Hub, and turns tools on or off (⚙ Settings).
-- To add a tool, change an account, or repair the install, run `Setup.cmd` again.
+- To repair the install or download a missing tool, run `Setup.cmd` again. Accounts are changed in each tool's own folder.
 
 ## If something does not work
 
 | You see | Do this |
 |---|---|
-| A tool marked **FAIL** or "needs credentials" | Run `Setup.cmd` again and set up that tool's account. |
+| A tool marked **WARN** or "needs credentials" | Fill in that tool's account in its own folder ([where](docs/parent-child-architecture.md#post-setup-credential-configuration)), then run `.\scripts\hubctl.ps1 restart`. |
+| A tool marked **FAIL** | Run `Setup.cmd` again; if it stays, see [docs/security-and-logging.md](docs/security-and-logging.md) → diagnosing failures. |
 | The AI client has no mcp-hub tools | Restart or reload the AI client; if it still has none, paste the Setup message again. |
 | The Status app says the Hub is stopped | Click **Start Hub** in the app. |
 | Anything else | Run `.\scripts\hubctl.ps1 status` and see [docs/security-and-logging.md](docs/security-and-logging.md) → diagnosing failures. |

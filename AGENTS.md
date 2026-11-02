@@ -6,10 +6,10 @@ This repo is maintained entirely by AI agents. These rules are mandatory. Text r
 
 | The user wants to… | Do this |
 |---|---|
-| Set up mcp-hub on a new Windows PC, step by step | Have the user double-click `Setup.cmd` (`scripts/setup.ps1`): it downloads the chosen children, installs the status app and the Hub, opens each child's own account setup, runs the smoke check, and copies the client prompt. It never reads account values; it can be run again at any time. |
+| Set up mcp-hub on a new Windows PC, step by step | Have the user double-click `Setup.cmd` (`scripts/setup.ps1`): it asks nothing: it clones the default children listed in `config/hub.example.json` that are missing, installs the status app and the Hub, runs `scripts/smoke.py` (each child in turn, then the Hub; a failing child does not stop the rest), and copies the client prompt naming the AI clients it found. It never opens, reads, or writes account values: the user fills them in each child repository. It can be run again at any time. |
 | Use mcp-hub from their AI client, switch to it, or know how to configure it | Follow [docs/connecting-a-client.md](docs/connecting-a-client.md), plus your client's file in [docs/clients/](docs/clients/). It changes only the client's config, never this repo. |
 | Use mcp-hub tools to do work (e.g. `mcp-hub:mcp-server-logs …`) | Follow [docs/client-rules.md](docs/client-rules.md). |
-| Add, remove, or reconfigure a child MCP | Follow [docs/adding-a-child-mcp.md](docs/adding-a-child-mcp.md). |
+| Add, remove, or reconfigure a child MCP | Follow [docs/adding-a-child-mcp.md](docs/adding-a-child-mcp.md). A default child also needs its `repository` address in `config/hub.example.json` (what Setup clones). |
 | Check that the Hub reaches its children | Run `uv run python scripts/smoke.py` (see [docs/manual-setup.md → Check connections](docs/manual-setup.md#check-connections)). |
 | Change the desktop status app (`src/mcp_hub/desktop/`, `packaging/desktop/`) | Follow [docs/desktop-app.md](docs/desktop-app.md), including its design keywords, plus the rest of this file. The app imports nothing from `mcp_hub` outside `desktop` and reaches the Hub only over HTTP. |
 | Release the desktop app | Raise `version` in `pyproject.toml`, then the user pushes a tag `v<version>`: `.github/workflows/desktop-release.yml` builds the installer and publishes it with its SHA-256 (see [docs/packaging-and-qc.md](docs/packaging-and-qc.md)). Never commit the installer. |
