@@ -2,12 +2,25 @@ from __future__ import annotations
 
 import importlib.machinery
 import importlib.util
+import hashlib
 import re
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 from mcp_hub.config import HUB_ROOT
+
+
+def load_launcher():
+    path = HUB_ROOT / "scripts" / "service_launcher.pyw"
+    loader = importlib.machinery.SourceFileLoader("service_launcher", str(path))
+    spec = importlib.util.spec_from_loader("service_launcher", loader)
+    launcher = importlib.util.module_from_spec(spec)
+    loader.exec_module(launcher)
+    return launcher
 
 
 class BootstrapScriptsTest(unittest.TestCase):
@@ -105,11 +118,7 @@ class BootstrapScriptsTest(unittest.TestCase):
 
 
     def test_service_launcher_rotates_an_oversized_stderr_file_at_start(self) -> None:
-        path = HUB_ROOT / "scripts" / "service_launcher.pyw"
-        loader = importlib.machinery.SourceFileLoader("service_launcher", str(path))
-        spec = importlib.util.spec_from_loader("service_launcher", loader)
-        launcher = importlib.util.module_from_spec(spec)
-        loader.exec_module(launcher)
+        launcher = load_launcher()
         with tempfile.TemporaryDirectory() as tmp:
             logs = Path(tmp) / "logs"
             logs.mkdir()
@@ -121,6 +130,95 @@ class BootstrapScriptsTest(unittest.TestCase):
             with launcher.open_service_err(logs) as err:
                 err.write(b" appended")
             self.assertEqual((logs / "mcp-hub-service.err").read_bytes(), b"new run appended")
+
+    def make_checkout(self, tmp: str, *, lock: bytes | None = b"lock v1") -> Path:
+        root = Path(tmp)
+        (root / ".venv").mkdir()
+        if lock is not None:
+            (root / "uv.lock").write_bytes(lock)
+        return root
+
+    def test_the_launcher_sees_a_stale_environment_by_the_lock_stamp(self) -> None:
+        launcher = load_launcher()
+        digest = hashlib.sha256(b"lock v1").hexdigest()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.make_checkout(tmp)
+            stamp = root / ".venv" / launcher.LOCK_STAMP_NAME
+            self.assertTrue(launcher.environment_stale(root))  # never synced by start.ps1 -Prepare
+            stamp.write_text(digest + "\n", encoding="ascii")
+            self.assertFalse(launcher.environment_stale(root))  # a trailing newline is fine
+            (root / "uv.lock").write_bytes(b"lock v2")  # a git pull changed the dependencies
+            self.assertTrue(launcher.environment_stale(root))
+            stamp.unlink()
+            stamp.mkdir()  # unreadable: refresh rather than trust it
+            self.assertTrue(launcher.environment_stale(root))
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertFalse(launcher.environment_stale(self.make_checkout(tmp, lock=None)))  # no lock, nothing to sync
+
+    def test_the_launcher_runs_the_one_sync_path_and_reports_whether_it_finished(self) -> None:
+        launcher = load_launcher()
+        with tempfile.TemporaryDirectory() as tmp, patch.dict("os.environ", {"SystemRoot": "WinRoot"}):
+            root = Path(tmp)
+            run = MagicMock(return_value=SimpleNamespace(returncode=0))
+            self.assertTrue(launcher.sync_environment(root, "log", run))
+            command = run.call_args.args[0]
+            self.assertTrue(command[0].lower().endswith("powershell.exe"))
+            self.assertEqual(command[-3:], ["-File", str(root / "scripts" / "start.ps1"), "-Prepare"])
+            self.assertEqual(run.call_args.kwargs["cwd"], root)
+            self.assertEqual(run.call_args.kwargs["timeout"], launcher.SYNC_TIMEOUT_SECONDS)
+            self.assertEqual(run.call_args.kwargs["stderr"], "log")  # its messages land in logs/mcp-hub-service.err
+            for failure in (SimpleNamespace(returncode=1), subprocess.TimeoutExpired("sync", 1), OSError("no powershell")):
+                run = MagicMock(side_effect=failure) if isinstance(failure, Exception) else MagicMock(return_value=failure)
+                self.assertFalse(launcher.sync_environment(root, "log", run))
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertFalse(launcher.sync_environment(Path("."), "log", MagicMock()))
+
+    def run_main(self, root: Path, sync_ok: bool) -> list[str]:
+        """Run the launcher's main with the sync and the service faked; returns what ran, in order."""
+        launcher = load_launcher()
+        ran: list[str] = []
+
+        def sync(_root, _err):
+            ran.append("sync")
+            return sync_ok
+
+        def service(*_args, **_kwargs):
+            ran.append("service")
+            return SimpleNamespace(returncode=0)
+
+        with patch.object(launcher, "sync_environment", sync), patch.object(launcher.subprocess, "run", service):
+            self.assertEqual(launcher.main(root), 0)
+        return ran
+
+    def test_a_stale_environment_is_synced_before_the_service_starts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(self.run_main(self.make_checkout(tmp), sync_ok=True), ["sync", "service"])
+
+    def test_a_current_environment_starts_the_service_without_a_sync(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.make_checkout(tmp)
+            (root / ".venv" / load_launcher().LOCK_STAMP_NAME).write_text(hashlib.sha256(b"lock v1").hexdigest(), encoding="ascii")
+            self.assertEqual(self.run_main(root, sync_ok=True), ["service"])
+
+    def test_a_failed_sync_never_keeps_the_hub_from_starting_and_is_logged(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self.make_checkout(tmp)
+            self.assertEqual(self.run_main(root, sync_ok=False), ["sync", "service"])
+            log = (root / "logs" / "mcp-hub-service.err").read_text(encoding="utf-8")
+        self.assertIn("environment sync did not finish", log)
+
+    def test_start_script_stamps_the_lock_only_after_a_successful_sync(self) -> None:
+        launcher = load_launcher()
+        script = (HUB_ROOT / "scripts" / "start.ps1").read_text(encoding="utf-8")
+        prepare = script[script.index("if ($Prepare) {"):script.index("$previousClientName")]
+        self.assertLess(prepare.index("sync --locked"), prepare.index("if ($LASTEXITCODE -eq 0)"))
+        self.assertLess(prepare.index("if ($LASTEXITCODE -eq 0)"), prepare.index("Get-FileHash"))
+        self.assertIn("-Algorithm SHA256).Hash.ToLowerInvariant()", prepare)
+        self.assertIn(f'".venv\\{launcher.LOCK_STAMP_NAME}"', prepare)  # the same name the launcher reads
+        self.assertIn("exit $LASTEXITCODE", prepare)  # the sync's own exit code is what the caller sees
+        self.assertEqual(script.count(launcher.LOCK_STAMP_NAME), 1)  # one writer
+        hubctl = (HUB_ROOT / "scripts" / "hubctl.ps1").read_text(encoding="utf-8")
+        self.assertIn("-Prepare", hubctl)  # hubctl's sync goes through the same path, so it stamps too
 
     def test_install_restricts_a_checkout_other_accounts_can_write(self) -> None:
         script = (HUB_ROOT / "scripts" / "hubctl.ps1").read_text(encoding="utf-8")
@@ -372,6 +470,35 @@ class DesktopPackagingTest(unittest.TestCase):
                         lambda *_a, **_k: (_ for _ in ()).throw(subprocess.TimeoutExpired("exe", 1))):
                 with self.subTest(run=run), self.assertRaises(SystemExit):
                     build.check_bundle(run)
+
+    def test_build_script_checks_the_bundle_reports_the_project_version(self) -> None:
+        import subprocess
+        from types import SimpleNamespace
+
+        build = load_build_script()
+        build.check_bundle_version("1.2.3", lambda *_a, **_k: SimpleNamespace(returncode=0, stdout="1.2.3\n"))
+        for run in (lambda *_a, **_k: SimpleNamespace(returncode=0, stdout="unknown\n"),  # metadata missing
+                    lambda *_a, **_k: SimpleNamespace(returncode=0, stdout=""),
+                    lambda *_a, **_k: SimpleNamespace(returncode=1, stdout="1.2.3\n"),
+                    lambda *_a, **_k: (_ for _ in ()).throw(subprocess.TimeoutExpired("exe", 1))):
+            with self.subTest(run=run), self.assertRaises(SystemExit):
+                build.check_bundle_version("1.2.3", run)
+        main = Path(build.__file__).read_text(encoding="utf-8")
+        self.assertLess(main.index("check_bundle()\n    check_bundle_version(version)"), main.index("iscc_command(iscc, version"))
+
+    def test_the_spec_bundles_the_package_metadata_the_update_check_reads(self) -> None:
+        spec = (HUB_ROOT / "packaging" / "desktop" / "mcp-hub-status.spec").read_text(encoding="utf-8")
+        self.assertIn('copy_metadata("mcp-hub")', spec)
+        name = re.search(r'^name = "([^"]+)"', (HUB_ROOT / "pyproject.toml").read_text(encoding="utf-8"), re.M)[1]
+        self.assertEqual(name, "mcp-hub")  # update.app_version() reads this distribution
+
+    def test_the_update_repository_names_this_projects_releases(self) -> None:
+        from mcp_hub.desktop import constants as names
+
+        workflow = (HUB_ROOT / ".github" / "workflows" / "desktop-release.yml").read_text(encoding="utf-8")
+        self.assertIn("gh release create", workflow)  # the Releases the app reads come from this workflow
+        self.assertRegex(names.UPDATE_REPOSITORY, r"^[\w.-]+/[\w.-]+$")
+        self.assertIn(f"{names.APP_NAME}-setup-", (HUB_ROOT / "packaging" / "desktop" / "installer.iss").read_text(encoding="utf-8"))
 
     def test_build_script_draws_an_icon_file(self) -> None:
         try:

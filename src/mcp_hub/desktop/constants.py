@@ -19,3 +19,5 @@ RUN_VALUE = APP_NAME
 APP_DATA_DIR = APP_NAME
 # The Hub's scheduled task, which Start Hub runs exactly as a sign-in does.
 HUB_TASK = "mcp-hub"
+# The GitHub repository whose latest Release holds the installer the app offers as an update.
+UPDATE_REPOSITORY = "Ninh-Duong/mcp-hub"

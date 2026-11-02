@@ -18,6 +18,7 @@ from PySide6.QtWidgets import QApplication
 from . import win32
 from .hub_api import HubSettings, ServerSwitch
 from .status import ChildRow, HubSnapshot
+from .update import Release
 from .usage import UsageBoard
 
 SETTLE_SECONDS = 0.6
@@ -28,6 +29,14 @@ _SAMPLE_CHILDREN = (
     ChildRow("mcp-pr-companion", "reconnecting", "wait"),
     ChildRow("mcp-read-source", "disabled", "off"),
 )
+_HEALTHY_CHILDREN = (
+    ChildRow("mcp-server-logs", "connected", "ok"),
+    ChildRow("mcp-jira-sync", "connected", "ok"),
+    ChildRow("mcp-pr-companion", "credentials required", "error"),
+    ChildRow("mcp-read-source", "disabled", "off"),
+)
+SAMPLE_RELEASE = Release((0, 2, 0), "https://example.com/setup.exe", "https://example.com/setup.exe.sha256",
+                         "https://example.com/releases")
 SAMPLES = {
     "running": HubSnapshot(hub="running", children=_SAMPLE_CHILDREN, checked_at=_SAMPLE_TIME),
     "ui": HubSnapshot(hub="running", activity_ui=True, children=_SAMPLE_CHILDREN,
@@ -37,7 +46,11 @@ SAMPLES = {
     "stopped": HubSnapshot(hub="stopped", checked_at=_SAMPLE_TIME),
     "not_installed": HubSnapshot(hub="not_installed", checked_at=_SAMPLE_TIME),
     "unauthorized": HubSnapshot(hub="unauthorized", checked_at=_SAMPLE_TIME),
+    # A newer app version is available: with a healthy Hub, and with a child that fails the health gate.
+    "update": HubSnapshot(hub="running", children=_HEALTHY_CHILDREN, checked_at=_SAMPLE_TIME),
+    "update-blocked": HubSnapshot(hub="running", children=_SAMPLE_CHILDREN, checked_at=_SAMPLE_TIME),
 }
+UPDATE_STATES = ("update", "update-blocked")
 # The settings states show the running sample with one Settings tab open.
 SETTINGS_TABS = {"settings": "appearance", "settings-hub": "hub", "settings-mcps": "mcps"}
 # `compact` shows the `ui` sample as the pinned mini bar.
@@ -129,6 +142,7 @@ def capture_all(
                 window.set_compact(state == "compact")
                 window.apply(SAMPLES["ui"] if state == "compact" else SAMPLES.get(state, SAMPLES["running"]))
                 window.preview_usage(sample_usage(window.now()) if state in ("ui", "compact") else UsageBoard())
+                window.preview_update(SAMPLE_RELEASE if state in UPDATE_STATES else None)
                 _show_settings(window, SETTINGS_TABS.get(state))
                 settle(window)
                 path = directory / f"{state}-{language}-{theme_name}.png"

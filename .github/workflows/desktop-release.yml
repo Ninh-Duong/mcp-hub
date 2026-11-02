@@ -1,6 +1,6 @@
 name: Desktop release
 
-# Push a tag `v<project version>` (for example v0.1.1) to build the desktop app's installer from that commit and
+# Push a tag `v<project version>` (for example v0.2.0) to build the desktop app's installer from that commit and
 # publish it, with its SHA-256, as a GitHub Release. Running it by hand builds and checks the installer without
 # publishing. The installer is never committed (build/ and dist/ are ignored).
 on:

@@ -106,6 +106,14 @@ try {
 Set-Location -LiteralPath $repoRoot
 if ($Prepare) {
     & $uvPath sync --locked --python $pythonVersion
+    if ($LASTEXITCODE -eq 0) {
+        # The service launcher compares this with uv.lock to see whether the environment is current.
+        $lockFile = Join-Path $repoRoot "uv.lock"
+        if (Test-Path -LiteralPath $lockFile -PathType Leaf) {
+            $lockHash = (Get-FileHash -LiteralPath $lockFile -Algorithm SHA256).Hash.ToLowerInvariant()
+            [IO.File]::WriteAllText((Join-Path $repoRoot ".venv\.mcp-hub-lock.sha256"), $lockHash, [Text.Encoding]::ASCII)
+        }
+    }
     exit $LASTEXITCODE
 }
 $previousClientName = [Environment]::GetEnvironmentVariable("MCP_HUB_CLIENT_NAME", "Process")

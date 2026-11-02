@@ -1,6 +1,6 @@
 # Desktop status app
 
-A small frosted-glass window (Qt), installed on its own with `mcp-hub-status-setup-<version>.exe`. It is a **viewer**: it reads the Hub over the Hub's HTTP API and never opens a file of the Hub or of a child MCP. It shows whether the shared Hub is running, whether each child MCP is connected, and, when the Hub tracks AI clients (the activity UI), which AI clients use it. Its Settings card holds the Hub's everyday options. This file is the reference for the app. Any change to the app follows it, and a change to the app's behavior or design updates it.
+A small frosted-glass window (Qt), installed on its own with `mcp-hub-status-setup-<version>.exe`. It is a **viewer**: it reads the Hub over the Hub's HTTP API and never opens a file of the Hub or of a child MCP. It shows whether the shared Hub is running, whether each child MCP is connected, and, when the Hub tracks AI clients (the activity UI), which AI clients use it. Its Settings card holds the Hub's everyday options. When it starts it also checks GitHub once for a newer version of itself and offers an **Update** button ([Updates](#updates), [versioning.md](versioning.md)). This file is the reference for the app. Any change to the app follows it, and a change to the app's behavior or design updates it.
 
 ## Purpose and scope
 
@@ -16,6 +16,7 @@ A small frosted-glass window (Qt), installed on its own with `mcp-hub-status-set
   - **MCPs:** each child MCP on or off.
 
   The Hub keeps these settings, so the Hub and MCPs tabs show them only while it runs (otherwise `desktop.settings.needsHub`). A change to the tracking mode or a child is saved by the Hub to `config/private/hub.json` and applies at the next Hub start; the card then shows **Restart Hub**.
+- **Update card.** When a newer version of the app is available, a card above the actions says which version, which one is in use, and offers **Update** and **What's new**. It appears only in the installed app, only after the check at start, and only in the full window (see [Updates](#updates)).
 - **Not in scope.** Jobs, write approvals, logs, tool allowlists, cache times, and every secret stay in the dashboard, `hubctl`, and the private files. That covers child credentials and `agents.json`. The app never shows tool arguments, results, tokens, or file paths.
 
 ## Install, run, disable
@@ -28,7 +29,7 @@ A small frosted-glass window (Qt), installed on its own with `mcp-hub-status-set
 | Run it from source (development) | `uv run python -m mcp_hub.desktop` |
 | Turn opening at sign-in off / on | Settings → Hub → **Open this app at sign-in** (installed app only) |
 | Turn the Hub's start at sign-in off / on | Settings → Hub → **Start Hub at sign-in**, or `.\scripts\hubctl.ps1 autostart -Target hub -State off` / `on` |
-| Update | Run the setup of a newer version: it asks **Update** or **Close** and keeps the folder and the remembered look. A `/SILENT` run updates without asking. |
+| Update | The installed app checks once at start and shows an **Update** button when a newer version is released (see [Updates](#updates)). Or run the setup of a newer version: it asks **Update** or **Close** and keeps the folder and the remembered look. A `/SILENT` run updates without asking. How versions and upgrades work: [versioning.md](versioning.md). |
 | Run the setup again (same or older version) | It never installs again: it says the app is already installed and offers **Uninstall** or **Close**. A `/SILENT` run exits with code 1. |
 | Uninstall | Run the setup again and choose **Uninstall**, or Windows Settings → Apps → **mcp-hub Status**. It removes the app, its shortcuts, its sign-in entry, and its remembered look; the Hub and its MCPs are not touched. |
 | Save review screenshots of every state | `uv run python -m mcp_hub.desktop --screenshot <folder>` (see [Screenshot review](#screenshot-review)) |
@@ -61,6 +62,16 @@ Before anything is installed, the setup:
 
 The installer is not code-signed, so Windows SmartScreen may show "Unknown publisher" the first time (More info → Run anyway).
 
+## Updates
+
+How releases, numbering, and upgrades of the other parts work is in [versioning.md](versioning.md); this section is what the app does.
+
+- **Check.** Once, on a worker thread, when the installed app starts: one `GET` for the latest Release of `UPDATE_REPOSITORY` (`constants.py`). It sends no token and nothing from the Hub. There is no switch, and a failed check shows nothing. An app run from source never checks.
+- **Version.** The app reports the `mcp-hub` version it was built from (`importlib.metadata`; the spec bundles the metadata, and `build_desktop.py` checks `--version` against `pyproject.toml`). `python -m mcp_hub.desktop --version` prints it.
+- **Health gate.** The Hub's live state stands in for `scripts/smoke.py`, which the installed app cannot run: a child that is `unavailable` or `reconnecting` blocks Update (a `FAIL`); `credentials required`, `disabled`, and `connecting` do not (a `WARN`); a Hub that is not running cannot be checked and does not block.
+- **Install.** The worker downloads the installer and its `.sha256`, compares the SHA-256, and only then starts the hidden update script and closes the window. The script waits for the app to exit, runs the setup with `/SILENT /SUPPRESSMSGBOXES /NORESTART`, and opens the app again. Setup updates over an older version in place and keeps the folder, the sign-in entry, and the remembered look.
+- **Trust.** The SHA-256 comes from the same Release, so it catches damage, not a changed Release; the installer is not code-signed (see [versioning.md](versioning.md#what-update-does)).
+
 ## Hub settings
 
 The Hub and MCPs tabs call the Hub's settings API (`dashboard/settings_api.py`, see [Architecture](#architecture)). The Hub then changes `config/private/hub.json` through `src/mcp_hub/hub_settings.py`, the only writer of these values:
@@ -86,6 +97,7 @@ What the app may touch:
 | Status, activity, settings, restart, stop | The Hub's HTTP API on `127.0.0.1`, with the admin token from the connection file. |
 | Start Hub | `Start-ScheduledTask mcp-hub` (`system.start_hub`): the Hub's own task, exactly as at sign-in. A stopping Hub closes its port at once but its task runs on while it drains, and the task ignores a new run until then; so the start first waits up to `DRAIN_WAIT_SECONDS` for that instance to end. |
 | Its sign-in entry, its remembered look | The user's Run key value `mcp-hub-status`, and `%APPDATA%\mcp-hub-status\desktop.json`. |
+| A newer version of itself | Only the installed app, only `https://api.github.com` and this repository's Releases on `https://github.com`, with a connection of its own that never carries the Hub's token (`update.py`, see [Updates](#updates)). The installer is kept in `%TEMP%\mcp-hub-status-update` until it has run. |
 
 The **connection file** is `%LOCALAPPDATA%\mcp-hub\connection.json`: `{"version": 1, "url": "http://127.0.0.1:8765", "token": …}`. The service writes it at every start (`service_config.write_connection_file`). Its `token` is the Hub's **admin token**, new at every start and stored nowhere else; the AI clients' token in `service.json` cannot reach the dashboard API (see [security-and-logging.md](security-and-logging.md)). The file lives in the user's private app-data folder and is restricted to the user and SYSTEM. `MCP_HUB_CONNECTION_FILE` overrides the path; with `MCP_HUB_PRIVATE_DIR` set (tests) it is `connection.json` in that folder, so tests never replace the real one. Never open, print, or copy it.
 
@@ -102,6 +114,8 @@ The **connection file** is `%LOCALAPPDATA%\mcp-hub\connection.json`: `{"version"
 | `desktop/mini.py` | `MiniBar`, the pinned one-line bar of compact mode: dots updated in place, drag to move (`startSystemMove`). |
 | `desktop/settings.py` | `SettingsPanel`, the Settings card (title, tab row, one visible page, restart notice), and `AppearancePage`. Pages report choices through callbacks and show the current ones through `sync`; `StatusWindow` applies and saves them. |
 | `desktop/hub_page.py` | `HubPage` (Hub control, Track AI clients, the two sign-in switches) and `ChildrenPage` (one On/Off row per child). Both show `desktop.settings.needsHub` while the Hub is not running. |
+| `desktop/update.py` | Logic, no Qt. `check_latest` (one request to the latest Release; any failure is `None`), `update_blocked` (the health gate), `download_verified` (the SHA-256 is compared before anything runs), `launch_update` (the hidden PowerShell that waits, installs silently, and reopens the app), `install`, and the `Updater` the window takes (a fake in tests). |
+| `desktop/update_card.py` | `UpdateCard`: the card above the actions, with its note line (version in use, the gate, progress, or the one fixed failure sentence). |
 | `desktop/win32.py` | Windows integration, each with a harmless fallback: the window style (title bar theme, rounded corners, acrylic accent), the single-instance mutex, the AppUserModelID shared with the installed shortcut (`set_app_id`), the Windows app theme, and screen capture. |
 | `desktop/prefs.py` | Load and save the remembered choices in `%APPDATA%\mcp-hub-status\desktop.json`: `theme`, `language`, `glass` (bool), `glass_style` (`frosted` or `clear`), `card_opacity` (0–100), `tint` (0–90), `compact` (bool), and `compact_pos` (two ints). One rule per key; unknown keys and invalid or out-of-range values are dropped. |
 | `desktop/screenshot.py` | The `--screenshot` review mode: sample snapshots and capture (the composed screen on Windows, `QWidget.grab` elsewhere). |
@@ -187,6 +201,7 @@ These are the rules for every UI change in the app. A change that breaks one upd
   - The tool name is not on the line; the tooltip (`desktop.usage.detail`) carries it when all running calls use one tool.
   - The line stays 2 minutes after the last call, so the window grows once per burst of calls and shrinks once after it, not on every call.
 - **Client usage detail.** An AI client row's right-hand detail names the children that client uses: `blue` while it calls them, `muted` for 2 minutes after, then back to its usual detail. One board feeds both cards, so they always agree.
+- **Update card.** One card between the AI clients and the actions, shown only while an update is available and only in the full window (the mini bar never shows it). A headline names the version; a caption says which one is in use. **Update** is a secondary button, so **Open dashboard** or **Start Hub** stays the one primary action. A button that cannot act is disabled, never hidden: it waits while a download runs and while the health gate blocks (the caption then names the failing children). A failed update shows one fixed sentence in `red` and enables the button again. No version string, path, or error text from GitHub is shown.
 - **Steady.** A refresh that finds nothing new must not move, resize, or redraw anything except the footer time (see [Incremental rendering](#incremental-rendering)). Only new usage may change the height.
 
 ## States
@@ -242,6 +257,7 @@ The app's own keys:
 - `desktop.waitingForHub`, `desktop.children.empty`, `desktop.clients.hint`
 - `desktop.button.{openDashboard,startHub}`
 - `desktop.updated`
+- `desktop.update.{available,current,button,whatsNew,downloading,installing,failed,blocked,hubNotChecked}`
 - `desktop.error.{dashboard,controlUnavailable,startTimeout,settings,autostart}`
 - `desktop.usage.{line,detail,now,justNow,minutesAgo}`
 
@@ -255,10 +271,10 @@ Rules:
 ## Screenshot review
 
 ```powershell
-uv run python -m mcp_hub.desktop --screenshot <folder> [--states running,ui,starting,stopped,not_installed,unauthorized,settings,settings-hub,settings-mcps,compact] [--lang en,vi] [--theme light,dark]
+uv run python -m mcp_hub.desktop --screenshot <folder> [--states running,ui,starting,stopped,not_installed,unauthorized,update,update-blocked,settings,settings-hub,settings-mcps,compact] [--lang en,vi] [--theme light,dark]
 ```
 
-The command opens the window on top of other windows and renders fixed sample data for each listed state, language, and theme. The `settings`, `settings-hub`, and `settings-mcps` states are the running sample with that Settings tab open, filled with sample Hub settings. The `compact` state is the `ui` sample as the mini bar. It saves `<state>-<language>-<theme>.png` for each combination, prints the paths, and exits.
+The command opens the window on top of other windows and renders fixed sample data for each listed state, language, and theme. The `settings`, `settings-hub`, and `settings-mcps` states are the running sample with that Settings tab open, filled with sample Hub settings. The `update` and `update-blocked` states are the running sample with the update card, without and with a failing child. The `compact` state is the `ui` sample as the mini bar. It saves `<state>-<language>-<theme>.png` for each combination, prints the paths, and exits.
 
 - It never reads or changes the live Hub, `hub.json`, or the sign-in tasks, so a review never restarts anything.
 - Every list defaults to all values.
