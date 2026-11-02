@@ -1,6 +1,6 @@
 # Manual setup and details
 
-`Setup.cmd` does all of this for you (see the [README](../README.md#install-windows)). This page is for running the Hub by hand, on macOS or Linux, or understanding what each part does.
+`Setup.cmd` does all of this for you (see the [README](../README.md#install-windows) and [Parent-child architecture](parent-child-architecture.md)). This page is for running the Hub by hand, on macOS or Linux, or understanding what each part does.
 
 ## Run
 

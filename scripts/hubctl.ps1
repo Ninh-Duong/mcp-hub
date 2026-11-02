@@ -122,8 +122,22 @@ function Test-HubEnvironment {
     return (Invoke-Hidden -FilePath $venvPython -Arguments '-c "import mcp_hub.service"').ExitCode -eq 0
 }
 
+function Stop-VenvProcesses {
+    # Stop processes that hold files in this checkout's .venv open so uv sync can update them.
+    $venv = Join-Path $repoRoot ".venv"
+    $all = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+        $_.CommandLine -and $_.CommandLine.Contains($venv)
+    })
+    foreach ($proc in $all) {
+        if ($proc.ProcessId -ne $PID) {
+            Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Initialize-HubEnvironment {
     $script:statusAppWasRunning = Stop-StatusApp
+    Stop-VenvProcesses
     try {
         Sync-HubEnvironment
     } catch {
@@ -236,7 +250,20 @@ function Protect-HubCheckout {
     # The logon task runs code from this checkout as this user; another account able to edit it could run code as us.
     if (Test-OthersCanWrite -Path $repoRoot) {
         icacls $repoRoot /inheritance:r /grant:r "${UserId}:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" | Out-Null
-        if ($LASTEXITCODE -ne 0 -or (Test-OthersCanWrite -Path $repoRoot)) { throw "Could not restrict write access to the Hub checkout." }
+        if ($LASTEXITCODE -ne 0 -or (Test-OthersCanWrite -Path $repoRoot)) {
+            $acl = Get-Acl -LiteralPath $repoRoot
+            $trusted = @([Security.Principal.WindowsIdentity]::GetCurrent().User.Value, "S-1-5-18", "S-1-5-32-544", "S-1-3-0")
+            $untrustedRules = @($acl.Access | Where-Object {
+                if ([string]$_.AccessControlType -ne "Allow") { return $false }
+                try {
+                    $sid = $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+                    return -not ($trusted -contains $sid)
+                } catch { return $true }
+            })
+            foreach ($rule in $untrustedRules) { [void]$acl.RemoveAccessRule($rule) }
+            Set-Acl -LiteralPath $repoRoot -AclObject $acl
+            if ((Test-OthersCanWrite -Path $repoRoot)) { throw "Could not restrict write access to the Hub checkout." }
+        }
         Write-Output "Restricted the Hub checkout to this user, SYSTEM, and Administrators."
     }
     $parent = Split-Path -Parent $repoRoot
@@ -357,25 +384,48 @@ function Get-LatestInstaller {
     return $setup, $sum
 }
 
-function Install-StatusApp {
-    # Downloads only from this repository's latest GitHub Release, runs only a file that matches its published
-    # SHA-256, and runs the interactive setup (system check, update or uninstall choice), never a silent one.
-    $releases = Get-ReleasesUrl
-    if (-not $releases) { throw "This checkout has no GitHub remote; download the installer from your repository's Releases page." }
-    $setup, $sum = Get-LatestInstaller -Releases $releases
-    $folder = Join-Path $env:TEMP "mcp-hub-status-setup"
-    New-Item -ItemType Directory -Force -Path $folder | Out-Null
-    $path = Join-Path $folder $setup.name
-    Invoke-WebRequest -Uri $setup.browser_download_url -OutFile $path -UseBasicParsing
-    Invoke-WebRequest -Uri $sum.browser_download_url -OutFile "$path.sha256" -UseBasicParsing
-    $expected = ((Get-Content -LiteralPath "$path.sha256" -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
-    $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($actual -ne $expected) {
-        Remove-Item -LiteralPath $path -Force
-        throw "The downloaded installer does not match its SHA-256; it was deleted and not run."
+function Find-LocalInstaller {
+    $dist = Join-Path $repoRoot "dist"
+    if (Test-Path -LiteralPath $dist -PathType Container) {
+        $local = @(Get-ChildItem -LiteralPath $dist -Filter "mcp-hub-status-setup-*.exe" -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+        if ($local.Count -gt 0) { return $local[0].FullName }
     }
-    Write-Output "Running $($setup.name), checked against its SHA-256. Windows may say the publisher is unknown (More info > Run anyway)."
-    Start-Process -FilePath $path -Wait
+    return $null
+}
+
+function Install-StatusApp {
+    # Prefer a local installer in dist/, otherwise download from GitHub Release or fall back to source.
+    $localInstaller = Find-LocalInstaller
+    if ($localInstaller) {
+        Write-Output "Running local installer: $localInstaller"
+        Start-Process -FilePath $localInstaller -Wait
+        return
+    }
+    $releases = Get-ReleasesUrl
+    if (-not $releases) {
+        Write-Warning "This checkout has no GitHub remote. Falling back to running the app from source."
+        Start-SourceStatusApp
+        return
+    }
+    try {
+        $setup, $sum = Get-LatestInstaller -Releases $releases
+        $folder = Join-Path $env:TEMP "mcp-hub-status-setup"
+        New-Item -ItemType Directory -Force -Path $folder | Out-Null
+        $path = Join-Path $folder $setup.name
+        Invoke-WebRequest -Uri $setup.browser_download_url -OutFile $path -UseBasicParsing
+        Invoke-WebRequest -Uri $sum.browser_download_url -OutFile "$path.sha256" -UseBasicParsing
+        $expected = ((Get-Content -LiteralPath "$path.sha256" -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+        $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actual -ne $expected) {
+            Remove-Item -LiteralPath $path -Force
+            throw "The downloaded installer does not match its SHA-256; it was deleted and not run."
+        }
+        Write-Output "Running $($setup.name), checked against its SHA-256."
+        Start-Process -FilePath $path -Wait
+    } catch {
+        Write-Warning "Could not install desktop app from GitHub release: $($_.Exception.Message). Starting from source."
+        Start-SourceStatusApp
+    }
 }
 
 function Write-ConnectedClients {
