@@ -50,7 +50,7 @@ When no uv is found, the launchers download the installer of one pinned uv relea
 - **Run by hand:** it builds and checks without publishing.
 - **Permissions:** only that job gets `contents: write`.
 
-Raise the version in `pyproject.toml` before tagging. The installer never installs over the same version, so users update only to a higher one. `build/` and `dist/` are ignored and never committed. Details: [desktop-app.md → Build the installer](desktop-app.md#build-the-installer).
+Numbering, the release steps, and how each part is upgraded are in [versioning.md](versioning.md). The build also runs the bundled exe with `--version` and fails when it differs from `pyproject.toml` (the installed app reads its version from the bundled package metadata, which the update check compares with the latest Release). Raise the version in `pyproject.toml` before tagging. The installer never installs over the same version, so users update only to a higher one. `build/` and `dist/` are ignored and never committed. Details: [desktop-app.md → Build the installer](desktop-app.md#build-the-installer).
 
 ## Offline package QC
 

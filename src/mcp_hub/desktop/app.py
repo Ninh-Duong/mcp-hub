@@ -25,11 +25,12 @@ from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtGui import QFont, QGuiApplication
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QLayout, QVBoxLayout, QWidget
 
-from . import hub_api, prefs, screenshot, status, system, theme, usage, win32
+from . import hub_api, prefs, screenshot, status, system, theme, update, usage, win32
 from .hub_page import ChildrenPage, HubPage
 from .i18n import LANGUAGES, Translator, system_language
 from .mini import MiniBar
 from .settings import AppearancePage, SettingsPanel
+from .update_card import DOWNLOADING, FAILED, INSTALLING, READY, UpdateCard
 from .widgets import Card, Row, UsageRow, button, dot_icon, label, set_props, show_elided
 
 # Never equal to a section key, so every section draws once after a theme switch or at start.
@@ -97,6 +98,7 @@ class StatusWindow(QWidget):
         run_worker: Callable[[Callable[[], None]], None] = thread_worker,
         stream: Callable[[Callable[[tuple[str, Any]], None], threading.Event], None] = usage.stream_usage,
         now: Callable[[], datetime] = utc_now,
+        updater: update.Updater | None = None,
     ) -> None:
         super().__init__()
         self.t = translator
@@ -105,6 +107,8 @@ class StatusWindow(QWidget):
         # Hub settings (through the Hub's API) and sign-in entries: read and written on worker threads.
         self.hub_store, self.read_autostart, self.write_autostart = hub_store, read_autostart, write_autostart
         self.run_worker, self.stream, self.now = run_worker, stream, now
+        # Offers a newer app version (checked once, at start); None runs without it (from source, in tests).
+        self.updater = updater
         appearance = appearance or theme.Appearance()
         self.appearance = appearance if appearance.theme in theme.THEMES else replace(appearance, theme="light")
         self._init_state()
@@ -118,6 +122,8 @@ class StatusWindow(QWidget):
 
     def _init_state(self) -> None:
         self.hub_settings: hub_api.HubSettings | None = None
+        self.update_release: update.Release | None = None
+        self.update_state = READY
         self.autostart: dict[str, bool | None] | None = None
         self.restart_needed = False
         self.results: queue.Queue[tuple[str, Any]] = queue.Queue()
@@ -173,6 +179,9 @@ class StatusWindow(QWidget):
         outer.addWidget(self.settings)
         self.children_count, self.children_list = self._list_card(outer, "desktop.section.children")
         self.clients_count, self.clients_list = self._list_card(outer, "desktop.section.clients")
+        # Not in self.cards: it shows only while an update is available, in the full window.
+        self.update_card = UpdateCard(self.install_update, self.show_update_notes)
+        outer.addWidget(self.update_card)
         self._build_action_card(outer)
         self.outer = outer
         self.mini = MiniBar(on_expand=lambda: self.set_compact(False))
@@ -336,6 +345,8 @@ class StatusWindow(QWidget):
             ("clients", (language, hub, activity_ui, snapshot.clients if snapshot else (),
                          snapshot.recent if snapshot else ()), self._render_clients),
             ("client_usage", (language, self._client_usage_key(activity_ui)), self._render_client_usage),
+            ("update", (language, self.update_release, self.update_state, update.update_blocked(snapshot), hub == "running"),
+             self._render_update),
             ("actions", hub, self._render_actions),
             ("mini", (language, self._mini_state(activity_ui)), self._render_mini),
             ("settings", (language, hub, self.hub_settings, self._autostart_key(), self.restart_needed), self._render_settings),
@@ -484,6 +495,13 @@ class StatusWindow(QWidget):
         self.mcps_page.sync(settings, hub == "running")
         self.settings.show_pending(self.restart_needed and hub == "running")
 
+    def _render_update(self, hub: str | None) -> None:
+        release = self.update_release
+        self.update_card.setVisible(release is not None and not self.compact)
+        if release is not None:
+            self.update_card.sync(self.t, release.label, self.updater.current if self.updater else "", self.update_state,
+                                  update.update_blocked(self.snapshot), hub == "running")
+
     def _render_actions(self, hub: str | None) -> None:
         # One primary action: Start Hub while the Hub is down, Open dashboard otherwise.
         primary, secondary = (self.open_button, self.start_button) if hub == "running" else (self.start_button, self.open_button)
@@ -511,6 +529,7 @@ class StatusWindow(QWidget):
         self.refresh()
         self.poll_timer.start()
         self.drain_timer.start()
+        self._check_for_update()
 
     def refresh(self) -> None:
         if self._polling:
@@ -538,6 +557,8 @@ class StatusWindow(QWidget):
                 self.render()
             elif kind == "control_failed":
                 self._control_failed()
+            elif kind in ("update_found", "update_state"):
+                self._update_changed(kind, value)
             elif kind == "usage":
                 self._apply_usage(*value)
             else:
@@ -561,6 +582,59 @@ class StatusWindow(QWidget):
         self.render()
         if snapshot.hub == "running" and not was_running and not self.settings.isHidden():
             self.load_tab(self.settings.tab)  # the Hub can answer now
+
+    # Updates of the app itself
+
+    def _check_for_update(self) -> None:
+        """Once, at start, off the Qt thread; a failed check (no network) shows nothing."""
+        if self.updater is None:
+            return
+        updater = self.updater
+
+        def job() -> None:
+            release = updater.check()
+            if release is not None:
+                self.results.put(("update_found", release))
+
+        self.run_worker(job)
+
+    def _update_changed(self, kind: str, value: Any) -> None:
+        if kind == "update_found":
+            self.update_release = value
+        else:
+            self.update_state = value
+        self.render()
+        if self.update_state == INSTALLING:
+            self.close()  # the hidden update script waits for this process to exit, installs, and opens the new app
+
+    def preview_update(self, release: update.Release | None) -> None:
+        """Screenshot mode: show (or hide) the update card for a sample release."""
+        self.update_release, self.update_state = release, READY
+        self.render()
+
+    def install_update(self) -> None:
+        """Download, verify, and hand over to the update script; the card shows the step and any failure."""
+        release, updater = self.update_release, self.updater
+        if release is None or updater is None or self.update_state not in (READY, FAILED):
+            return
+        if update.update_blocked(self.snapshot):
+            return
+        self.update_state = DOWNLOADING
+        self.render()
+
+        def job() -> None:
+            try:
+                updater.install(release)
+            except (OSError, RuntimeError):  # DesktopError is a RuntimeError; nothing of it is shown
+                self.results.put(("update_state", FAILED))
+            else:
+                self.results.put(("update_state", INSTALLING))
+
+        self.run_worker(job)
+
+    def show_update_notes(self) -> None:
+        if self.update_release is not None and self.updater is not None:
+            self.run_worker(partial(self.updater.open_notes, self.update_release))
 
     # Activity stream: who uses each child
 
@@ -709,6 +783,7 @@ class StatusWindow(QWidget):
         self.compact = on
         for card in (*self.cards, self.settings):
             card.setVisible(not on and (card is not self.settings or self.settings_button.isChecked()))
+        self.update_card.setVisible(not on and self.update_release is not None)
         self.mini.setVisible(on)
         margin = 0 if on else theme.SPACE_S
         self.outer.setContentsMargins(margin, margin, margin, margin)
@@ -774,6 +849,7 @@ class StatusWindow(QWidget):
 
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="python -m mcp_hub.desktop", description="mcp-hub desktop status app")
+    parser.add_argument("--version", action="store_true", help="print the app's version, then exit")
     parser.add_argument("--screenshot", metavar="DIR", help="save sample-state PNGs for UI review, then exit")
     parser.add_argument("--states", default=",".join(screenshot.STATES), help="comma list: " + ",".join(screenshot.STATES))
     parser.add_argument("--lang", default=",".join(LANGUAGES), help="comma list: " + ",".join(LANGUAGES))
@@ -810,6 +886,7 @@ def run_screenshots(args: argparse.Namespace) -> int:
         write_autostart=lambda _target, _enabled: dict(screenshot.SAMPLE_AUTOSTART),
         run_worker=lambda job: job(),
         stream=lambda _put, _stop: None,
+        updater=update.Updater("0.1.1", lambda: None),
     )
     try:
         saved = screenshot.capture_all(window, Path(args.screenshot), args.states, args.lang, args.theme)
@@ -835,6 +912,9 @@ def appearance_from(saved: dict[str, Any]) -> theme.Appearance:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if args.version:
+        print(update.app_version() or "unknown")
+        return 0
     guard = None if args.screenshot is not None else win32.acquire_single_instance()
     if args.screenshot is None and guard is None:
         return 0
@@ -847,6 +927,7 @@ def main(argv: list[str] | None = None) -> int:
         Translator(saved.get("language") or system_language()),
         appearance=appearance_from(saved),
         prefs_path=prefs.PREFS_PATH,
+        updater=update.default_updater(),
     )
     window.show()
     window.restore_compact(saved, lambda x, y: QGuiApplication.screenAt(QPoint(x, y)) is not None)

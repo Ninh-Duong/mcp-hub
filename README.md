@@ -41,7 +41,8 @@ Ask your AI client, naming the tool:
 - Without the `/mcp-hub` command, write `mcp-hub:<tool> <task>` the same way.
 - The AI only reads, unless you ask it to change something (for example to sync a ticket).
 - **mcp-hub Status** (Start Menu) shows whether the Hub and each tool are working. It starts, restarts, or stops the
-  Hub, and turns tools on or off (⚙ Settings).
+  Hub, and turns tools on or off (⚙ Settings). When a newer version is released it shows an **Update** button when it
+  opens ([versions and upgrades](docs/versioning.md)).
 - To repair the install or download a missing tool, run `Setup.cmd` again. Accounts are changed in each tool's own folder.
 
 ## If something does not work

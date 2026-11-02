@@ -3,7 +3,7 @@
     uv run --isolated --group build python scripts/build_desktop.py
 
 Steps: draw the app icon with Qt, bundle the app with PyInstaller (packaging/desktop/mcp-hub-status.spec),
-check that the bundle carries the Visual C++ runtime and starts, then compile packaging/desktop/installer.iss with Inno Setup 6 (winget install JRSoftware.InnoSetup).
+check that the bundle carries the Visual C++ runtime, starts, and reports the project version, then compile packaging/desktop/installer.iss with Inno Setup 6 (winget install JRSoftware.InnoSetup).
 Everything is written below build/ and dist/, which git ignores; nothing of config/private/ is read.
 """
 from __future__ import annotations
@@ -126,6 +126,19 @@ def check_bundle(run=subprocess.run) -> None:
         raise SystemExit("The bundled app failed its self-check; run it from build/desktop/dist to see the error.")
 
 
+def check_bundle_version(version: str, run=subprocess.run) -> None:
+    """The bundled exe must report the project version: the update check compares it with the latest Release."""
+    try:
+        result = run([str(BUNDLE / EXE_NAME), "--version"], cwd=ROOT, capture_output=True, text=True,
+                     timeout=BUNDLE_CHECK_SECONDS)
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit("The bundled app did not report its version in time.") from exc
+    reported = (result.stdout or "").strip()
+    if result.returncode != 0 or reported != version:
+        raise SystemExit(f"The bundled app reports version {reported or 'nothing'}, not {version}; "
+                         "the package metadata is missing from the bundle.")
+
+
 def main() -> int:
     iscc = find_iscc()  # fail before the slow bundle step
     version = project_version()
@@ -133,6 +146,7 @@ def main() -> int:
     subprocess.run(pyinstaller_command(), check=True, cwd=ROOT, env={**os.environ, "MCP_HUB_STATUS_ICON": str(icon)})
     check_runtime_libraries()
     check_bundle()
+    check_bundle_version(version)
     subprocess.run(iscc_command(iscc, version, icon), check=True, cwd=ROOT)
     print(f"Built {DIST / f'{APP_NAME}-setup-{version}.exe'}")
     return 0
