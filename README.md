@@ -54,6 +54,7 @@ Ask your AI client, naming the tool:
 
 | Need | Read |
 |---|---|
+| Architecture and default child MCPs | [docs/parent-child-architecture.md](docs/parent-child-architecture.md) |
 | Manual or macOS/Linux setup, what each part does | [docs/manual-setup.md](docs/manual-setup.md) |
 | Connect or reconfigure an AI client | [docs/connecting-a-client.md](docs/connecting-a-client.md), [docs/clients/](docs/clients/) |
 | What each tool does | [docs/mcps/](docs/mcps/) |

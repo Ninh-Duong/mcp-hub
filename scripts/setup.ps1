@@ -4,6 +4,11 @@
 # every step skips what is already done. Account details are typed only into each child MCP's own setup
 # screen or file; this script never reads, prints, or stores them.
 
+param(
+    [switch]$Interactive,
+    [switch]$Unattended
+)
+
 $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $parent = Split-Path $repoRoot -Parent
@@ -26,6 +31,7 @@ function Write-Step {
 
 function Read-YesNo {
     param([string]$Question, [bool]$Default = $true)
+    if ($Unattended) { return $Default }
     $hint = if ($Default) { "Y/n" } else { "y/N" }
     while ($true) {
         $answer = (Read-Host "$Question [$hint]").Trim().ToLowerInvariant()
@@ -48,10 +54,12 @@ function Update-SessionPath {
 }
 
 function Select-Children {
+    param([bool]$DefaultAll = $false)
     $chosen = @()
     foreach ($name in $children.Keys) {
         $present = Test-Path -LiteralPath (Join-Path $parent $name) -PathType Container
-        if (Read-YesNo ("Use {0} ({1})?" -f $children[$name], $name) $present) { $chosen += $name }
+        $suggest = if ($DefaultAll) { $true } else { $present }
+        if (Read-YesNo ("Use {0} ({1})?" -f $children[$name], $name) $suggest) { $chosen += $name }
     }
     return $chosen
 }
@@ -74,11 +82,19 @@ function Assert-Git {
     }
 }
 
+function Assert-Node {
+    if (Get-Command node -CommandType Application -ErrorAction SilentlyContinue) { return }
+    Write-Host "Installing Node.js LTS (needed for child MCPs) ..."
+    & winget install --id OpenJS.NodeJS.LTS -e --silent --accept-package-agreements --accept-source-agreements
+    Update-SessionPath
+}
+
 function Get-ChildRepositories {
     param([string[]]$Chosen)
     $missing = @($Chosen | Where-Object { -not (Test-Path -LiteralPath (Join-Path $parent $_) -PathType Container) })
     if (-not $missing.Count) { Write-Host "All chosen child MCPs are already next to mcp-hub."; return }
     Assert-Git
+    Assert-Node
     $base = Get-RepositoryBase
     foreach ($name in $missing) {
         Write-Host "Downloading $name ..."
@@ -159,16 +175,38 @@ function Set-SourceProjects {
     [IO.File]::WriteAllText($file, $json + "`n", (New-Object Text.UTF8Encoding($false)))
 }
 
+function Initialize-ChildTemplates {
+    param([string[]]$Chosen)
+    if ($Chosen -contains "mcp-server-logs") {
+        $logsConfig = Join-Path $parent "mcp-server-logs\config"
+        if (Test-Path -LiteralPath $logsConfig -PathType Container) {
+            $example = Join-Path $logsConfig "openobserve.env.example"
+            $target = Join-Path $logsConfig "openobserve.dev.env"
+            if ((Test-Path -LiteralPath $example) -and -not (Test-Path -LiteralPath $target)) {
+                Copy-Item -LiteralPath $example $target
+            }
+        }
+    }
+    if ($Chosen -contains "mcp-read-source") {
+        $sourceConfig = Join-Path $parent "mcp-read-source\config\private\projects.json"
+        if (-not (Test-Path -LiteralPath $sourceConfig)) {
+            New-Item -ItemType Directory -Force -Path (Split-Path $sourceConfig) | Out-Null
+            [IO.File]::WriteAllText($sourceConfig, "{`"version`": 1, `"projects`": {}}`n", (New-Object Text.UTF8Encoding($false)))
+        }
+    }
+}
+
 function Set-Accounts {
     param([string[]]$Chosen)
     Update-SessionPath
+    Initialize-ChildTemplates -Chosen $Chosen
     $steps = [ordered]@{
         "mcp-jira-sync" = { Set-JiraAccount }; "mcp-pr-companion" = { Set-BitbucketAccount }
         "mcp-server-logs" = { Set-LogsAccount }; "mcp-read-source" = { Set-SourceProjects }
     }
     foreach ($name in $Chosen) {
         if (-not (Test-Path -LiteralPath (Join-Path $parent $name))) { continue }
-        if (-not (Read-YesNo ("Set up {0} now? (answer n if you did it before)" -f $children[$name]))) { continue }
+        if (-not (Read-YesNo ("Set up {0} now? (answer n to configure later in its repository)" -f $children[$name]) $false)) { continue }
         try { & $steps[$name] } catch { Write-Warning ("{0} setup stopped: {1}. Run Setup again to retry." -f $name, $_.Exception.Message) }
     }
 }
@@ -177,8 +215,8 @@ function Show-Check {
     Push-Location $repoRoot
     try { & $hubPython scripts\smoke.py } finally { Pop-Location }
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "A child marked FAIL is not ready yet, usually because its account is missing; the others work." -ForegroundColor Yellow
-        Write-Host "Fix it and run Setup again (answer n to the steps already done)."
+        Write-Host "A child marked FAIL needs its account configured in its repository. See docs/parent-child-architecture.md." -ForegroundColor Yellow
+        Write-Host "The Hub and status app are running; configure missing credentials when ready."
     }
 }
 
@@ -202,7 +240,7 @@ Ask me before writing global config or removing entries, and report what you cha
 function Invoke-Setup {
     Write-Host "mcp-hub setup. Press Enter to keep the suggested answer; run this again any time to change something." -ForegroundColor Green
     Write-Step 1 "Choose what the AI client may use"
-    $chosen = @(Select-Children)
+    $chosen = @(Select-Children -DefaultAll:(-not $Interactive))
     Write-Step 2 "Download the chosen child MCPs"
     Get-ChildRepositories -Chosen $chosen
     Write-Step 3 "Install the status app"
