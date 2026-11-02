@@ -201,3 +201,7 @@ def main() -> None:
     # Children find a runtime that preflight installed with winget after this user signed in.
     refresh_windows_path()
     asyncio.run(run_http())
+
+
+if __name__ == "__main__":
+    main()

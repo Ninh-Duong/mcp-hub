@@ -21,10 +21,12 @@ def main() -> int:
     repo_root = Path(__file__).resolve().parent.parent
     # Run the entry point exe so the background process is named mcp-hub-service.
     service_exe = repo_root / ".venv" / "Scripts" / "mcp-hub-service.exe"
+    python_exe = repo_root / ".venv" / "Scripts" / "python.exe"
+    command = [str(service_exe)] if service_exe.is_file() else [str(python_exe), "-m", "mcp_hub.service"]
     creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     with open_service_err(repo_root / "logs") as service_err:
         result = subprocess.run(
-            [str(service_exe)],
+            command,
             cwd=repo_root,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
