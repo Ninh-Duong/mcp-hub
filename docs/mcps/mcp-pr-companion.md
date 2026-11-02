@@ -62,7 +62,7 @@ After a pre-encryption file is detected, the reader treats that PR as unsynced. 
 
 ## Hub integration and diagnostics
 
-- The Hub smoke check uses `pr__check_bitbucket_connection` and expects `connected: true`. Child self-check `node bin/cli.js check` separately checks Node, dependencies, build, and required settings, including `BITBUCKET_REPOSITORY`, and prints their sources on its Config line; it is not an MCP tool.
+- The Hub smoke check uses `pr__check_bitbucket_connection` and expects `connected: true`. Without credentials the child still starts and this tool returns `No Bitbucket credentials`, which the smoke check shows as `WARN`. Child self-check `node bin/cli.js check` separately checks Node, dependencies, build, and required settings, including `BITBUCKET_REPOSITORY`, and prints their sources on its Config line; it is not an MCP tool.
 - Child logs are in `../mcp-pr-companion/Logs/mcp-server.log` (launcher errors use `[LAUNCHER]`). Hub events are in `logs/mcp-hub.jsonl`.
 - `Error: No access: Bitbucket rejected the credentials (HTTP 401)` indicates invalid credentials; fix them where `config_source.credentials` says (`hub`: the `bitbucket` block, `local`: the child's `.env`). `Failed to fetch PR metadata: HTTP 403` generally indicates a missing `read:pullrequest` or `read:repository` scope. `Error: No access: this account cannot read <ws>/<repo>` means the account lacks repository access. A network failure prevents unlocking the encrypted cache.
 - An `Unencrypted ai-context file` error indicates pre-encryption data; run `purge-plaintext` or resync that PR.

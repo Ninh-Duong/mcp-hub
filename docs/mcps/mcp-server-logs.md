@@ -50,7 +50,7 @@ Shared rules: [Hub result cache](README.md#hub-result-cache). Defaults here: 300
 
 ## Hub integration
 
-- Read-only smoke check: `logs__list_log_providers` first; each environment it reports with `configured: false` is shown as `unset` and skipped. `logs__list_openobserve_organizations` then runs for each remaining `env` (`dev`, `stg`, `prod`); every result must be JSON with an `organizations` array. A smoke PASS means every configured account reached OpenObserve, and at least one is configured. If the result shape changes, update `scripts/smoke.py` and `tests/test_smoke.py`.
+- Read-only smoke check: `logs__list_log_providers` first; each environment it reports with `configured: false` is shown as `unset` and skipped. `logs__list_openobserve_organizations` then runs for each remaining `env` (`dev`, `stg`, `prod`); every result must be JSON with an `organizations` array. A smoke PASS means every configured account reached OpenObserve, and at least one is configured; with none configured it is a WARN. If the result shape changes, update `scripts/smoke.py` and `tests/test_smoke.py`.
 - Preserve the child tool names and read/write annotations; the Hub exposes only the aliases allowlisted in `config/hub.example.json` plus overrides in `config/private/hub.json`.
 
 ## Diagnostics

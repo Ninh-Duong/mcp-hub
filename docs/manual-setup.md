@@ -114,14 +114,16 @@ Then fill each child's credentials and run `uv run python scripts/smoke.py`. Wit
 uv run python scripts/smoke.py
 ```
 
-It starts the Hub as an MCP host would and prints one line per enabled child MCP. `hub__status` also lists detected children that are disabled or need credentials:
+It starts the Hub as an MCP host would and prints one line per enabled child MCP, in turn (a failing child does not stop the next), then one for the Hub itself. `hub__status` also lists detected children that are disabled or need credentials:
 
 ```text
-mcp-jira-sync  PASS  5 tools, jira__check_connection ok
+mcp-jira-sync     PASS  5 tools, jira__check_connection ok
 mcp-server-logs   PASS  12 tools, logs__list_openobserve_organizations dev=ok stg=ok prod=ok
+mcp-read-source   WARN  8 tools, source__check_connection unset
+mcp-hub           PASS  hub__status ok, 3/3 children connected
 ```
 
-A `FAIL` line names the cause:
+`WARN` means that child's account or project folders are not filled in yet; fill them in the child's own repository, restart the Hub, and run it again. It does not fail the run. A `FAIL` line names the cause:
 
 | Output | Meaning |
 |---|---|
@@ -132,7 +134,7 @@ A `FAIL` line names the cause:
 | `<tool> <env>=failed` | The child is up but can't reach that upstream environment; check its local account file. |
 | `smoke=FAIL (<type>: Hub config is invalid …)` | `hub.json` or a child config is invalid; see `config.load.failed` in the log. |
 
-A child without a `CHECKS` entry gets `PASS  N tools, connected (no read-only check in CHECKS)`. With no enabled children, smoke exits successfully and the Hub still exposes `hub__status`; enabled children that fail to connect or fail their check make it exit 1. For checked children, exit code 0 means all checks passed; a failed upstream credential check means that child is not ready, not that sibling discovery failed. Tool responses and error texts are never printed. Full details are in `logs/mcp-hub.jsonl`.
+A child without a `CHECKS` entry gets `PASS  N tools, connected (no read-only check in CHECKS)`. With no enabled children, smoke exits successfully and the Hub still exposes `hub__status`; enabled children that fail to connect or fail their check, or a Hub that does not answer `hub__status`, make it exit 1. Exit code 0 means nothing failed (warnings are allowed); a failed upstream check means that child is not ready, not that sibling discovery failed. Tool responses and error texts are never printed. Full details are in `logs/mcp-hub.jsonl`.
 
 ## Layout
 

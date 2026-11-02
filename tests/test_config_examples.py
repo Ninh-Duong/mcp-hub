@@ -1,6 +1,7 @@
 import json
 import math
 import unittest
+from urllib.parse import urlparse
 
 from mcp_hub.config import HUB_ROOT
 
@@ -47,6 +48,17 @@ class ConfigExamplesTest(unittest.TestCase):
             for tool in feature.get("tools", []):
                 self.assertIn(tool.get("server"), config["servers"])
 
+
+    def test_every_default_child_has_one_https_repository_url_for_setup_to_clone(self) -> None:
+        servers = json.loads((HUB_ROOT / "config" / "hub.example.json").read_text(encoding="utf-8"))["servers"]
+        owners = set()
+        for server_id, server in servers.items():
+            url = urlparse(server.get("repository", ""))
+            self.assertEqual((url.scheme, url.netloc), ("https", "github.com"), server_id)
+            self.assertTrue(url.path.endswith(f"/{server_id}.git"), server_id)
+            self.assertFalse(url.username or url.password or url.query, server_id)  # never a credential in a tracked URL
+            owners.add(url.path.split("/")[1])
+        self.assertEqual(len(owners), 1)
 
     def test_hub_example_cache_ttls_skip_writes_and_pr_data(self) -> None:
         config = json.loads((HUB_ROOT / "config" / "hub.example.json").read_text(encoding="utf-8"))

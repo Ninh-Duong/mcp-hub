@@ -9,6 +9,7 @@ It checks:
 - the environment variables and HTTP routes against docs/reference.md, both ways;
 - the hubctl commands against the runbook;
 - the settings keys against docs/settings.md;
+- the default children in config/hub.example.json: each has a repository address (what Setup clones) and a contract;
 - a short list of retired wording.
 
 It prints file and line or the missing name, and exits 1 on any problem.
@@ -187,6 +188,17 @@ def settings_problems() -> list[str]:
             + [f"docs/settings.md lists settings.{g}.{k}, which does not exist" for g, k in sorted(rows - keys)])
 
 
+def child_problems() -> list[str]:
+    servers = json.loads((ROOT / "config" / "hub.example.json").read_text(encoding="utf-8"))["servers"]
+    problems = []
+    for server_id, server in servers.items():
+        if not str(server.get("repository", "")).startswith("https://"):
+            problems.append(f"default child {server_id} has no https `repository` in config/hub.example.json")
+        if not (DOCS / "mcps" / f"{server_id}.md").is_file():
+            problems.append(f"default child {server_id} has no contract docs/mcps/{server_id}.md")
+    return problems
+
+
 def retired_problems(files: Iterable[Path]) -> list[str]:
     problems = []
     for path in files:
@@ -201,7 +213,7 @@ def retired_problems(files: Iterable[Path]) -> list[str]:
 def all_problems() -> list[str]:
     files = markdown_files()
     return [*link_problems(files), *runtime_doc_problems(), *event_problems(), *env_problems(), *route_problems(),
-            *hubctl_problems(), *settings_problems(), *retired_problems(files)]
+            *hubctl_problems(), *settings_problems(), *child_problems(), *retired_problems(files)]
 
 
 def main() -> int:

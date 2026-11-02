@@ -41,11 +41,12 @@ The Hub configures 4 default child MCPs:
 
 ### 1-Click auto-setup
 
-When running `Setup.cmd` (`scripts/setup.ps1`):
-1. **Auto-detection & Auto-clone:** The setup script checks if the 4 default child repositories exist next to `mcp-hub`. Any missing default repositories are automatically cloned from the user's remote Git host.
-2. **Environment & Runtime preparation:** Installs or verifies Git, Node.js, uv, and Python 3.12. Dependencies for both the Hub and all child MCPs are prepared via `preflight.py --install`.
-3. **Decoupled credential setup:** The setup completes 100% of the platform installation without prompting for passwords or API tokens. Service and Desktop Status App start immediately.
-4. **Status reporting:** Children without credentials start in an unconfigured state (`credentials required`). The Desktop Status App displays this clearly, allowing the user to configure credentials in each child repository at their convenience.
+`Setup.cmd` (`scripts/setup.ps1`) asks nothing and can be run again at any time. See [Setup and first-run checks](architecture.md#setup-and-first-run-checks) for the boundaries it keeps.
+1. **Auto-detection and auto-clone:** The script reads the 4 default children and their GitHub addresses (`repository`) from `config/hub.example.json`. Any child missing next to `mcp-hub` is cloned from that address; a failed clone is reported and does not stop the others.
+2. **Environment and runtime preparation:** `hubctl install` installs or verifies Python and uv, syncs the locked Hub environment, and runs `python -m mcp_hub.preflight --install`, which, child by child, installs a missing runtime (Node.js) and runs the child's own `prepare` step. A child whose step fails does not stop the others.
+3. **Checks, child by child, then the Hub:** `scripts/smoke.py` connects to each child in turn and calls its read-only check, then checks that the Hub answers `hub__status`. Each line is `PASS`, `WARN`, or `FAIL`; a `FAIL` never stops the next child, and the exit code is 1 only when something failed.
+4. **Accounts are never part of Setup:** nothing in Setup asks for, opens, reads, or writes a password, token, or project path. A child whose account is not filled in yet shows `WARN`. The user fills it in that child's own repository ([below](#post-setup-credential-configuration)), restarts the Hub, and runs the smoke check again. The Desktop Status App also shows such a child as not ready.
+5. **AI clients:** Setup looks for Claude Code, Codex, Antigravity, Cursor, VS Code, and Gemini CLI (a command on `PATH` or the client's folder in the user profile) and copies one message that tells an AI client to connect itself to the Hub ([connecting-a-client.md](connecting-a-client.md)). Setup writes no client config itself.
 
 ---
 
@@ -65,12 +66,7 @@ Each child MCP manages its own credentials locally:
 
 ### 2. `mcp-pr-companion`
 - **Location:** `../mcp-pr-companion/`
-- **Configuration:** Run the child's interactive menu:
-  ```powershell
-  cd ../mcp-pr-companion
-  node bin/cli.js
-  ```
-  Sign in with your Bitbucket username and App Password.
+- **Configuration:** Copy `.env.example` to `.env` in the child and fill in `BITBUCKET_EMAIL`, `BITBUCKET_API_TOKEN`, and `BITBUCKET_REPOSITORY`. The child starts without them; until they are set, its tools answer `No Bitbucket credentials` and the smoke check shows `WARN`.
 - See [docs/mcps/mcp-pr-companion.md](mcps/mcp-pr-companion.md).
 
 ### 3. `mcp-server-logs`

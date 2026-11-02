@@ -15,6 +15,7 @@ This is the Hub's source of truth for changing a child MCP while keeping it usab
 - Return valid MCP results with documented input and output shapes. Mark failures with the MCP error flag; do not rely on message prefixes to signal failure.
 - Set tool annotations to match behavior: read-only tools must not write, and every tool that writes must declare that accurately and document what and where it writes.
 - Keep a read-only health/check tool that verifies the required upstream connection without changing data. Register it in `scripts/smoke.py` and make its success check validate the actual success result.
+- Start, complete the MCP handshake, and list every tool when the account is not filled in yet. Do not exit on missing credentials: each tool that needs them returns an error result saying they are not configured (the Hub smoke check shows that as `WARN`, a start failure as `FAIL`). Setup downloads and checks children without any account.
 - Never put credentials or private configuration values in tool descriptions, tool results, errors, or logs. Return upstream data only when it is part of the requested tool behavior.
 
 ## Configuration and secrets
