@@ -36,6 +36,19 @@
       "enabled": false,
       "repository": "https://github.com/Ninh-Duong/mcp-read-source.git",
       "configFile": "config/private/mcps/mcp-read-source.json"
+    },
+    "mcp-sqlserver": {
+      "enabled": false,
+      "repository": "https://github.com/Ninh-Duong/mcp-sqlserver.git",
+      "configFile": "config/private/mcps/mcp-sqlserver.json",
+      "prepare": {
+        "runtime": {
+          "name": "dotnet",
+          "minVersion": "10.0.0",
+          "winget": "Microsoft.DotNet.SDK.10"
+        },
+        "command": ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/prepare.ps1"]
+      }
     }
   },
   "features": {
@@ -223,6 +236,85 @@
           "server": "mcp-read-source",
           "name": "source__read",
           "exposeAs": "source__read"
+        }
+      ]
+    },
+    "sql": {
+      "enabled": false,
+      "tools": [
+        {
+          "server": "mcp-sqlserver",
+          "name": "check_connection",
+          "exposeAs": "sql__check_connection",
+          "cacheSeconds": 60
+        },
+        {
+          "server": "mcp-sqlserver",
+          "name": "list_databases",
+          "exposeAs": "sql__list_databases",
+          "cacheSeconds": 120
+        },
+        {
+          "server": "mcp-sqlserver",
+          "name": "list_tables",
+          "exposeAs": "sql__list_tables",
+          "cacheSeconds": 120
+        },
+        {
+          "server": "mcp-sqlserver",
+          "name": "describe_table",
+          "exposeAs": "sql__describe_table",
+          "cacheSeconds": 120
+        },
+        {
+          "server": "mcp-sqlserver",
+          "name": "find_columns",
+          "exposeAs": "sql__find_columns",
+          "cacheSeconds": 120
+        },
+        {
+          "server": "mcp-sqlserver",
+          "name": "lookup_rows",
+          "exposeAs": "sql__lookup_rows"
+        },
+        {
+          "server": "mcp-sqlserver",
+          "name": "get_related_rows",
+          "exposeAs": "sql__get_related_rows"
+        },
+        {
+          "server": "mcp-sqlserver",
+          "name": "run_select",
+          "exposeAs": "sql__run_select"
+        },
+        {
+          "server": "mcp-sqlserver",
+          "name": "explain_select",
+          "exposeAs": "sql__explain_select"
+        },
+        {
+          "server": "mcp-sqlserver",
+          "name": "get_object_definition",
+          "exposeAs": "sql__get_object_definition",
+          "cacheSeconds": 120
+        },
+        {
+          "server": "mcp-sqlserver",
+          "name": "search_context",
+          "exposeAs": "sql__search_context",
+          "cacheSeconds": 120
+        },
+        {
+          "server": "mcp-sqlserver",
+          "name": "get_object_context",
+          "exposeAs": "sql__get_object_context",
+          "cacheSeconds": 120
+        },
+        {
+          "server": "mcp-sqlserver",
+          "name": "check_schema_drift",
+          "exposeAs": "sql__check_schema_drift",
+          "cacheSeconds": 300
         }
       ]
     }

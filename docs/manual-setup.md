@@ -66,7 +66,7 @@ Ask me before writing global config or removing entries, and report what you cha
 
 Daily use after that: `/mcp-hub <server-id> <task>` (Codex: `$mcp-hub …`), e.g. `/mcp-hub mcp-server-logs show the prod logs for service orders-api`. For a cross-system issue, use `/mcp-hub investigate <project-alias> <task>`; the Hub routes a bounded asynchronous job (shared service only, see [docs/operations/shared-agent-hub.md](operations/shared-agent-hub.md)). Without the command installed, type `mcp-hub:<server-id> <task>` or ask for the investigation in plain language.
 
-The Hub discovers four supported child repositories next to this repo at startup. `mcp-read-source` is a separate sibling repository. Paths in Hub configuration are relative to this repo, such as `../mcp-server-logs`; they are resolved only in memory. Optional `config/private/hub.json` and per-child private configs override defaults. `MCP_HUB_CONFIG` still selects an explicit private manifest.
+The Hub discovers the supported child repositories (the servers in `config/hub.example.json`) next to this repo at startup. Paths in Hub configuration are relative to this repo, such as `../mcp-server-logs`; they are resolved only in memory. Optional `config/private/hub.json` and per-child private configs override defaults. `MCP_HUB_CONFIG` still selects an explicit private manifest.
 
 ## Default setup
 
@@ -79,14 +79,13 @@ The supported children and exposed tools are mapped in [config/hub.example.json]
   mcp-jira-sync/
   mcp-pr-companion/
   mcp-read-source/
+  mcp-sqlserver/
 ```
 
 ```powershell
 cd <parent>
-foreach ($repo in "mcp-hub", "mcp-server-logs", "mcp-jira-sync", "mcp-pr-companion") { git clone "<GIT_BASE>/$repo.git" }
+foreach ($repo in "mcp-hub", "mcp-server-logs", "mcp-jira-sync", "mcp-pr-companion", "mcp-read-source", "mcp-sqlserver") { git clone "<GIT_BASE>/$repo.git" }
 ```
-
-Place the separate `mcp-read-source` repository beside the other four. Its clone URL depends on where the user hosts it.
 
 Connect your client to `mcp-hub` using [the client guide](connecting-a-client.md). No Hub config copy or enable step is needed for a fresh clone. Call `hub__status` to see how many child repos were detected and which are connected, disabled, or need credentials. A child without credentials may remain unavailable while the others work; the Hub does not expose a child's tools until it supplies their schemas. The client still needs a path to the Hub launcher because it can start from any working directory.
 
@@ -96,8 +95,9 @@ Connect your client to `mcp-hub` using [the client guide](connecting-a-client.md
 | `mcp-jira-sync` | `../mcp-jira-sync` | `jira__*` | `jira` in `config/private/mcps/mcp-jira-sync.json`, else the child's `.env` | [docs/mcps/mcp-jira-sync.md](mcps/mcp-jira-sync.md) |
 | `mcp-pr-companion` | `../mcp-pr-companion` | `pr__*` | `bitbucket` in `config/private/mcps/mcp-pr-companion.json`, else the child's `.env` | [docs/mcps/mcp-pr-companion.md](mcps/mcp-pr-companion.md) |
 | `mcp-read-source` | `../mcp-read-source` | `source__*` | Project roots by alias in the child's `config/private/projects.json` | [docs/mcps/mcp-read-source.md](mcps/mcp-read-source.md) |
+| `mcp-sqlserver` | `../mcp-sqlserver` | `sql__*` | `mssql` in `config/private/mcps/mcp-sqlserver.json`, else the child's `dbconfig.json` | [docs/mcps/mcp-sqlserver.md](mcps/mcp-sqlserver.md) |
 
-For logs/Jira/PR credentials, each value is taken from the first place that has it: the child config's `env`, then the Hub section (copy the template to `config/private/mcps/<id>.json` and fill it by hand), then the child's own files. Every child's check tool reports which one it used; see [Configuration sources](child-mcp-compatibility.md#configuration-sources). Source roots are registered separately by alias and have no upstream credentials.
+For logs/Jira/PR/SQL Server credentials, each value is taken from the first place that has it: the child config's `env`, then the Hub section (copy the template to `config/private/mcps/<id>.json` and fill it by hand), then the child's own files. Every child's check tool reports which one it used; see [Configuration sources](child-mcp-compatibility.md#configuration-sources). Source roots are registered separately by alias and have no upstream credentials.
 
 Prepare each child once:
 
@@ -105,6 +105,7 @@ Prepare each child once:
 - `mcp-jira-sync`: nothing to install there; it runs on this repo's venv, so `uv sync` here covers its dependencies. Do not `pip install` into another Python.
 - `mcp-pr-companion`: `node bin/cli.js prepare` in the child repo (Node 20.12+).
 - `mcp-read-source`: no upstream account or build step; register local roots by alias in its private config as described in its contract.
+- `mcp-sqlserver`: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare.ps1` in the child repo (.NET 10 SDK; publishes `publish/McpSqlServer.exe` when it is missing or older than `src/`).
 
 Then fill each child's credentials and run `uv run python scripts/smoke.py`. Without a private child config, Jira starts from its template and falls back to the child's own local files; copy the template only to override them, without printing secrets. In automatic mode, the Hub selects this repo's `.venv` Python for Jira on each platform. To disable a detected child, create a minimal `config/private/hub.json` such as `{"version":1,"servers":{"mcp-jira-sync":{"enabled":false}},"features":{}}`. Private fields override defaults; `enabled: false` wins over discovery. Private configuration is never generated automatically.
 

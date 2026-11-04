@@ -95,6 +95,7 @@ CHECKS = {
     ),
     "mcp-pr-companion": (("bitbucket", "pr__check_bitbucket_connection", {}, _is_connected),),
     "mcp-read-source": (("projects", "source__check_connection", {}, _has_project_aliases),),
+    "mcp-sqlserver": (("sqlserver", "sql__check_connection", {}, _is_connected),),
 }
 
 

@@ -1,0 +1,25 @@
+{
+  "transport": "stdio",
+  "command": "publish/McpSqlServer.exe",
+  "args": ["serve"],
+  "cwd": "../mcp-sqlserver",
+  "inheritEnv": ["PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "ProgramFiles", "ProgramFiles(x86)"],
+  "timeoutSeconds": 60,
+  "connectTimeoutSeconds": 300,
+  "env": {
+    "CENTRAL_CONFIG_PATH": "../mcp-hub/config/private/mcps/mcp-sqlserver.json"
+  },
+  "mssql": {
+    "server_alias": "DEV",
+    "server": "",
+    "port": 1433,
+    "username": "",
+    "password": "",
+    "database": "master",
+    "encrypt": true,
+    "trust_server_certificate": false,
+    "allowed_databases": [],
+    "isolation": "read_uncommitted",
+    "max_rows": 100
+  }
+}

@@ -14,7 +14,7 @@ MCP"), keeps it connected, shows the AI only the allowed tools, and logs every c
    git clone <address you copied>
    ```
 
-2. **Double-click `Setup.cmd`** in the `mcp-hub` folder. It asks nothing. It downloads the four tools that are missing
+2. **Double-click `Setup.cmd`** in the `mcp-hub` folder. It asks nothing. It downloads the default tools that are missing
    next to `mcp-hub`, installs everything they need and the **mcp-hub Status** app, checks each tool in turn and then
    the Hub itself, looks for the AI clients on your PC, and copies a message for them. A tool that fails does not stop
    the others; the summary at the end names it.
