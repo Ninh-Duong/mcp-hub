@@ -2,7 +2,7 @@
 
 ## Responsibilities
 
-- **Hub config** defaults to the four curated child MCPs and their tool allowlist. Known sibling repos are discovered at startup; private config overrides defaults, including explicit disables.
+- **Hub config** defaults to the curated child MCPs in `config/hub.example.json` and their tool allowlist. Known sibling repos are discovered at startup; private config overrides defaults, including explicit disables.
 - **Per-MCP private config** holds local settings or references to credentials needed by one child MCP.
 - **Hub runtime** validates config, connects to child MCPs, exposes allowlisted tools, routes calls, and writes audit events.
 - **Shared service** keeps one Hub runtime and one connection per child alive for the signed-in Windows user. It exposes authenticated Streamable HTTP and retains the legacy stdio endpoint; a thin stdio bridge lets clients share the service.
@@ -81,7 +81,7 @@ Children run over `stdio`. The Hub launches each one with an argument array (nev
 
 `Setup.cmd` runs `scripts/setup.ps1`, a thin layer outside `src/mcp_hub/`. It asks nothing and only calls what already exists: `git clone`, `hubctl install` (environment, `preflight --install`, service, status app), and `scripts/smoke.py`.
 
-- **One list of default children.** The 4 children and their GitHub `repository` addresses live only in `config/hub.example.json`; Setup reads them there and clones those missing next to this repo. A new default child is added there (and in `docs/mcps/`), never in `setup.ps1`; `scripts/check_docs.py` fails when a default child lacks either.
+- **One list of default children.** The default children and their GitHub `repository` addresses live only in `config/hub.example.json`; Setup reads them there and clones those missing next to this repo. A new default child is added there (and in `docs/mcps/`), never in `setup.ps1`; `scripts/check_docs.py` fails when a default child lacks either.
 - **Installing stays in `prepare`.** What a child needs (runtime, packages, build) is declared in its `prepare` block and run by the preflight, one child after another. Setup adds no install steps of its own; a child that runs on the Hub's own `.venv` gets its packages from `pyproject.toml`.
 - **Accounts never pass through Setup.** It does not open, read, write, print, or ask for account values or project paths, and does not launch a child's login screen. It only prints where the user fills them in, in each child's own repository. A child that has no account yet must still start and list its tools; its read-only check then says so and the smoke check reports `WARN` (not `FAIL`).
 - **Smoke check.** `scripts/smoke.py` connects through the Hub like an MCP client and checks each child in turn: `PASS` (the check succeeded), `WARN` (the user has not filled in that child's account or project folders), or `FAIL` (not connected, tool missing, or the upstream rejected it). A child that fails or raises does not stop the next one. A last line checks the Hub itself (`hub__status`). The exit code is 1 only when something is `FAIL`.

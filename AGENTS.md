@@ -47,7 +47,7 @@ This repo is maintained entirely by AI agents. These rules are mandatory. Text r
 | `logs/mcp-hub-service.err` | Nothing. Unredacted stderr of the background service (Python tracebacks, SDK warnings), rotated to `.err.1`; the user inspects it. Report failures from `logs/mcp-hub.jsonl` instead. |
 | `.local/`, `.env`, `.env.*` | Nothing. Never read. |
 
-- Account values in a child's section (`openobserve`/`seq`, `jira`, `bitbucket`) are written as empty strings: the child then falls back to its own local files ([Configuration sources](docs/child-mcp-compatibility.md#configuration-sources)). Only the user fills in real values. Never ask the user to paste a secret into the chat.
+- Account values in a child's section (`openobserve`/`seq`, `jira`, `bitbucket`, `mssql`) are written as empty strings: the child then falls back to its own local files ([Configuration sources](docs/child-mcp-compatibility.md#configuration-sources)). Only the user fills in real values. Never ask the user to paste a secret into the chat.
 - Use `<SET_BY_USER>` only for a secret the child cannot run without and has no local fallback for. The Hub skips such a server as `credentials required` (with `MCP_HUB_CONFIG` set, it refuses to start); keep such a server `"enabled": false` until the user confirms the values are filled.
 
 ## Code standards

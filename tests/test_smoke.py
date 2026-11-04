@@ -84,6 +84,9 @@ class SmokeChecksTest(unittest.TestCase):
         result = CallToolResult(content=[TextContent(type="text", text='{"organizations":[]}')], isError=True)
         self.assertFalse(self.check(result))
 
+    def test_sqlserver_check_uses_the_read_only_connection_tool(self) -> None:
+        self.assertEqual(CHECKS["mcp-sqlserver"], (("sqlserver", "sql__check_connection", {}, _is_connected),))
+
     def test_pr_companion_check_uses_the_bitbucket_health_tool(self) -> None:
         self.assertEqual(CHECKS["mcp-pr-companion"], (("bitbucket", "pr__check_bitbucket_connection", {}, _is_connected),))
 
@@ -177,6 +180,17 @@ class SmokeWarningTest(unittest.TestCase):
         rejected = text_result("Error: Bitbucket rejected the credentials (HTTP 401).", error=True)
         self.assertEqual(self.check("mcp-pr-companion", tool, rejected), "FAIL")
         self.assertEqual(self.check("mcp-pr-companion", tool, text_result('{"connected":true}')), "PASS")
+
+    def test_sqlserver_without_an_account_warns_but_any_other_failure_fails(self) -> None:
+        tool = "sql__check_connection"
+        missing = text_result('{"success":false,"connected":false,"error_message":"SQL Server is not configured: '
+                              'server is required."}', error=True)
+        self.assertEqual(self.check("mcp-sqlserver", tool, missing), "WARN")
+        login = text_result('{"success":false,"connected":false,"error_message":"Login failed."}', error=True)
+        self.assertEqual(self.check("mcp-sqlserver", tool, login), "FAIL")
+        self.assertEqual(self.check("mcp-sqlserver", tool, text_result("not json")), "FAIL")
+        self.assertEqual(self.check("mcp-sqlserver", tool, text_result('{"connected":true}', error=True)), "FAIL")
+        self.assertEqual(self.check("mcp-sqlserver", tool, text_result('{"success":true,"connected":true}')), "PASS")
 
     def test_source_reader_warns_until_a_project_folder_is_registered(self) -> None:
         tool = "source__check_connection"

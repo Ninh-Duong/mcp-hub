@@ -276,7 +276,7 @@ class DefaultPrepareTest(unittest.TestCase):
         shutil.copy2(source / "hub.example.json", self.root / "config" / "hub.example.json")
         for path in (source / "mcps").glob("mcp-*.example.json"):
             shutil.copy2(path, self.root / "config" / "mcps" / path.name)
-        for name in ("mcp-server-logs", "mcp-pr-companion", "mcp-read-source"):
+        for name in ("mcp-server-logs", "mcp-pr-companion", "mcp-read-source", "mcp-sqlserver"):
             (self.parent / name).mkdir()
         self.patches = [
             patch.object(config, "HUB_ROOT", self.root),
@@ -301,7 +301,18 @@ class DefaultPrepareTest(unittest.TestCase):
             command=("node", "bin/cli.js", "prepare"),
             runtime=RuntimeRequirement("node", (20, 12, 0), "OpenJS.NodeJS.LTS"),
         ))
+        self.assertEqual(servers["mcp-sqlserver"].prepare, PrepareSpec(
+            command=("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/prepare.ps1"),
+            runtime=RuntimeRequirement("dotnet", (10, 0, 0), "Microsoft.DotNet.SDK.10"),
+        ))
         self.assertIsNone(servers["mcp-read-source"].prepare)
+
+    def test_sqlserver_template_passes_the_variables_nuget_needs(self) -> None:
+        server = load_config().servers["mcp-sqlserver"]
+        self.assertEqual(server.command, str(self.parent / "mcp-sqlserver" / "publish" / "McpSqlServer.exe"))
+        self.assertEqual(server.args, ("serve",))
+        for name in ("PATHEXT", "APPDATA", "LOCALAPPDATA", "ProgramFiles", "ProgramFiles(x86)"):
+            self.assertIn(name, server.inherit_env)
 
     def test_private_prepare_replaces_the_default(self) -> None:
         private = {"version": 1, "servers": {"mcp-server-logs": {"prepare": {"command": ["npm", "ci"]}}}, "features": {}}

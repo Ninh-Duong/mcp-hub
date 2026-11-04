@@ -30,12 +30,12 @@ This is the Hub's source of truth for changing a child MCP while keeping it usab
 Every child runs both standalone and under the Hub, with one rule for where its configuration comes from:
 
 1. **Standalone**: the child reads its own local files (`.env`, `config/*.env`), as documented in its repository.
-2. **Under the Hub**: the child config's `env.CENTRAL_CONFIG_PATH` points to that same private file, `config/private/mcps/<server-id>.json`, written relative to the child repo (e.g. `../mcp-hub/config/private/mcps/<server-id>.json`). The child reads only its own section of it (`openobserve`/`seq`, `jira`, `bitbucket`).
+2. **Under the Hub**: the child config's `env.CENTRAL_CONFIG_PATH` points to that same private file, `config/private/mcps/<server-id>.json`, written relative to the child repo (e.g. `../mcp-hub/config/private/mcps/<server-id>.json`). The child reads only its own section of it (`openobserve`/`seq`, `jira`, `bitbucket`, `mssql`).
 3. **Priority, per value**: variables already in the child's environment (the config's `env`) > the Hub section > the child's local files > defaults. An empty string counts as unset, so a section left empty keeps the local files in use.
 4. A relative `CENTRAL_CONFIG_PATH` resolves against the child repo root, not the process working directory.
 5. A missing or unreadable Hub file is logged by the child as a warning, and the local files are used. A child never writes the Hub file; its own login/setup commands keep writing its local files.
 6. Hub templates leave account values as empty strings. `<SET_BY_USER>` would make the Hub skip the child as `credentials required` even when its local files hold an account.
-7. The child's read-only check (and its self-check command) reports the source of each value group as `env`, `hub`, `local` or `unset`: names only, never values or the Hub file path.
+7. The child's read-only check (and its self-check command) reports the source of each value group as `env`, `hub`, `local` or `unset` (a child may add `default` for a group that only has built-in defaults): names only, never values or the Hub file path.
 
 Section key names and the source report of each child are in its contract in [mcps/](mcps/).
 

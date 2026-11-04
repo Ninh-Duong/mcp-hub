@@ -7,7 +7,7 @@ This page owns how mcp-hub is versioned, how a release is made, how each part is
 | Part | Where its version lives | How it reaches a user |
 |---|---|---|
 | **mcp-hub** (the Hub and the desktop status app) | `version` in `pyproject.toml`, the only source. A release is the Git tag `v<version>`. | The Hub is a Git checkout. The status app is an installer attached to the GitHub Release of that tag. |
-| **Child MCPs** (`mcp-jira-sync`, `mcp-pr-companion`, `mcp-server-logs`, `mcp-read-source`) | Each child's own repository. The Hub follows the child's default branch; there is no pinned child version. | A Git checkout next to the Hub, cloned by `Setup.cmd` from the address in `config/hub.example.json`. |
+| **Child MCPs** (`mcp-jira-sync`, `mcp-pr-companion`, `mcp-server-logs`, `mcp-read-source`, `mcp-sqlserver`) | Each child's own repository. The Hub follows the child's default branch; there is no pinned child version. | A Git checkout next to the Hub, cloned by `Setup.cmd` from the address in `config/hub.example.json`. |
 
 The desktop app never has a version of its own: it reports the `mcp-hub` version it was built from (the package metadata inside the bundle). `scripts/build_desktop.py` fails the build when the bundled exe's `--version` differs from `pyproject.toml`.
 

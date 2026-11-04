@@ -17,6 +17,7 @@ $accountSteps = [ordered]@{
     "mcp-pr-companion" = "copy .env.example to .env and fill BITBUCKET_EMAIL, BITBUCKET_API_TOKEN, BITBUCKET_REPOSITORY"
     "mcp-server-logs"  = "edit config/openobserve.<dev|stg|prod>.env, or run: node start.mjs --cli (Seq)"
     "mcp-read-source"  = "add your project folders to config/private/projects.json"
+    "mcp-sqlserver"    = "copy dbconfig.example.json to dbconfig.json and fill server, username, password (a read-only login is recommended: docs/readonly-login.sql)"
 }
 # AI clients that docs/clients/ covers: a command on PATH or a folder in the user profile shows it is installed.
 $aiClients = [ordered]@{
