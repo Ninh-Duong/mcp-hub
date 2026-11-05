@@ -39,6 +39,7 @@ Shared rules: [Hub result cache](README.md#hub-result-cache). Defaults here: 300
 
 ## Care
 
+- For an rcid or a service investigation, follow the playbook `hub__plan` returns ([rcid-bug](../playbooks/rcid-bug.md), [service-errors](../playbooks/service-errors.md)), with the project's log targets.
 - Cache first: `logs__list_ai_context_snapshots` → `logs__read_ai_context` before any remote search. Query OpenObserve or Seq only when no snapshot covers the service and window, or the user asks for fresh data. Never repeat an identical search within a task.
 - Read ai-context exports **only** through `logs__list_ai_context_snapshots` → `logs__read_ai_context`. Never open, copy, or decrypt `.lhub` files or anything under `ai-context/` with file tools or scripts; the access check runs inside the tool.
 - Reading order: `SUMMARY.lhub` (Bugs table, top patterns with file:line) → `read_ai_context(file, offset)` at that line in `services/<service>/<level>.lhub` → the failing request in `rcid/<field>-<id>.lhub`, or grep an rcid across files.

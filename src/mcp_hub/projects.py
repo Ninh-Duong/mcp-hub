@@ -1,11 +1,17 @@
+"""Project aliases from `config/private/projects.json`: allowed environments, and where each one's logs live.
+
+The `logs` block gives, per environment, the OpenObserve organization, stream, and request-ID field that the
+playbooks need, so an agent never has to discover them. The user fills it in; agents never open the file.
+"""
 from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 from pathlib import Path
 
-from ..config import PRIVATE_ROOT
+from .config import PRIVATE_ROOT
 
 
 ALIAS_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -17,10 +23,18 @@ class ProjectConfigError(ValueError):
 
 
 @dataclass(frozen=True)
+class LogTarget:
+    organization: str
+    stream: str
+    rcid_field: str = "rcid"
+
+
+@dataclass(frozen=True)
 class ProjectConfig:
     alias: str
     allowed_envs: tuple[str, ...]
     default_env: str | None = None
+    logs: dict[str, LogTarget] = field(default_factory=dict)
 
 
 def validate_project_env(project: ProjectConfig, env: str) -> str:
@@ -69,5 +83,22 @@ def load_projects(
             default_env = None
         if default_env is not None and (not isinstance(default_env, str) or default_env not in envs):
             raise ProjectConfigError(f"Project '{alias}' default_env must be one of its allowed_envs")
-        result[alias] = ProjectConfig(alias, tuple(envs), default_env)
+        result[alias] = ProjectConfig(alias, tuple(envs), default_env, _log_targets(alias, value.get("logs", {}), envs))
     return result
+
+
+def _log_targets(alias: str, raw: Any, envs: list[str]) -> dict[str, LogTarget]:
+    """Validate a project's `logs` block: {env: {organization, stream, rcid_field?}} for its allowed envs."""
+    if not isinstance(raw, dict):
+        raise ProjectConfigError(f"Project '{alias}' logs must be an object")
+    targets = {}
+    for env, target in raw.items():
+        if env not in envs or not isinstance(target, dict):
+            raise ProjectConfigError(f"Project '{alias}' logs keys must be allowed environments with an object each")
+        values = {key: target.get(key) for key in ("organization", "stream", "rcid_field")}
+        if values["rcid_field"] is None:
+            values["rcid_field"] = "rcid"
+        if any(not isinstance(value, str) or not value.strip() for value in values.values()):
+            raise ProjectConfigError(f"Project '{alias}' logs.{env} needs non-empty organization and stream")
+        targets[env] = LogTarget(**values)
+    return targets

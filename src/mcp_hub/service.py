@@ -14,7 +14,8 @@ from .http import create_http_app
 from .agents.config import load_agent_configs
 from .dashboard.api import create_dashboard_routes
 from .dashboard.sessions import DashboardSessions
-from .jobs.projects import load_projects
+from .playbooks import Playbook, load_playbooks
+from .projects import load_projects
 from .jobs.runner import JobRunner
 from .jobs.store import JobStore
 from .preflight import refresh_windows_path
@@ -31,11 +32,11 @@ async def run_http() -> None:
     audit = AuditLog(logs=settings.logs)
     await asyncio.to_thread(_publish_connection, service_config, admin_token, audit)
     requested = read_launch_extensions(audit=audit) | saved_extensions()
-    config = _load_hub_config(audit)
+    config, playbooks = _load_hub_config(audit)
     agent_configs = load_agent_configs()
     projects = load_projects()
     job_store = _open_job_store(settings.jobs.retention_days)
-    runtime = HubRuntime(config, audit, settings)
+    runtime = HubRuntime(config, audit, settings, playbooks=playbooks, projects=projects)
     try:
         async with AsyncExitStack() as stack:
             await runtime.connect(stack)
@@ -111,9 +112,10 @@ def _load_settings() -> Settings:
         raise
 
 
-def _load_hub_config(audit: AuditLog) -> HubConfig:
+def _load_hub_config(audit: AuditLog) -> tuple[HubConfig, dict[str, Playbook]]:
+    """The Hub config and the playbooks; either one invalid stops the start and is logged."""
     try:
-        return load_config()
+        return load_config(), load_playbooks()
     except Exception as exc:
         audit.write("config.load.failed", level=logging.ERROR, error_type=type(exc).__name__, error=str(exc))
         raise

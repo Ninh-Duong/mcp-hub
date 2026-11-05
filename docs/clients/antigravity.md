@@ -24,6 +24,7 @@ Do the general procedure in [../connecting-a-client.md](../connecting-a-client.m
 - **Limits:** 24,000 bytes per file; global plus `always_on` rules share a 20,000-token budget.
 - Do not use `~/.gemini/GEMINI.md` for this rule. Gemini CLI loads that file too, so the rules would be duplicated.
 - The rule is required here: the docs do not say whether Antigravity passes MCP server instructions to the model.
+- The rule and the skill guide the agent; the Hub enforces the plan. Without a `hub__plan` call, every child tool is refused with a message that tells the agent to plan first ([../usage-policy.md](../usage-policy.md)). After a Hub update, refresh the installed rule and skill (prompt C in [../connecting-a-client.md](../connecting-a-client.md)).
 
 ## 3. The `/mcp-hub` command
 - In Antigravity, `/` commands come from **skills**. An MCP server name never becomes a command, and MCP prompts are not documented as commands. Without a skill, `/mcp-hub` shows "No matching results".

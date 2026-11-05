@@ -1,8 +1,25 @@
 # Rules for agents using mcp-hub
 
-Version: 2026-10-31. A copy with an older version, or without this line, is stale; refresh it (connecting-a-client.md, prompt C).
+Version: 2026-11-05. A copy with an older version, or without this line, is stale; refresh it (connecting-a-client.md, prompt C).
 
 These rules apply in any workspace where the `mcp-hub` MCP server is connected. The Hub also sends them as its server instructions. Step 7 of `docs/connecting-a-client.md` in the mcp-hub repo installs them as an always-on client rule. This file has no machine paths or relative links, so it can be copied as-is.
+
+## Plan first (enforced by the Hub)
+
+- **Pick the playbook that matches the user's input,** and pass it to `hub__plan` with the `project` and `env`:
+
+  | The user gives | `playbook` |
+  |---|---|
+  | an rcid, request ID, or correlation ID | `rcid-bug` |
+  | a Jira issue key or URL for a bug | `jira-ticket-bug` |
+  | a service name (and maybe a time), no rcid | `service-errors` |
+  | a pull request URL | `pr-review` |
+
+  `hub__plan` lists every playbook with when to use it. The playbook returns the steps to follow and the project's log targets (organization, stream, request-ID field). Use exactly those targets; never list organizations or streams to find them. If the plan is refused because a project has no log targets, ask the user to add them. Do not search without them.
+- **Without a matching playbook, call `hub__plan` with your own plan before any child tool.** Give `task`, the child `servers` the task needs, the `env` the user named, and the planned `steps`. List in `writes` only the write tools the user asked for. Set `connection_checks: true` only when the user asked to check connections.
+- **Read what it returns:** a `hub_plan_id`, the allowed tools, and each child's rules (its contract). Follow those rules.
+- **Pass `hub_plan_id` with every call of the task,** including `hub__batch`, where it goes beside `calls`.
+- **The Hub refuses calls outside the plan:** another child, a tool the playbook does not list, a `limit` above the playbook's, another environment, organization, stream, or project, an omitted `env`, an undeclared write, a connection check before any failure, an identical repeat, and a third attempt at a failed call. A refusal starts with `Policy:` and says what to do. Fix the call, or call `hub__plan` again if the user's request needs a wider plan. Never plan wider than the user asked to get around a refusal.
 
 ## Cache first, no repeats
 
@@ -27,7 +44,7 @@ Your own turn between two tool calls costs several times more than the call itse
 
 - One MCP server, `mcp-hub`, that fronts several child MCPs. Each child has a server ID (e.g. `mcp-server-logs`, `mcp-jira-sync`).
 - Child tools are named `<prefix>__<tool>` (e.g. `logs__query_logs`, `jira__check_connection`). Each child tool description starts with `[<feature> via <server-id>]`, which tells you its child. `hub__status` is the Hub's own read-only tool.
-- Each child has a Hub prompt named after its server ID. The prompt lists that child's tools and its usage rules (the child's contract).
+- Each child has a Hub prompt named after its server ID. The prompt lists that child's tools and its usage rules (the child's contract). `hub__plan` returns the same contract for every planned child.
 - Call `hub__status` to see the detected sibling count and which children are connected, disabled, or need credentials. A child without tools may still be detected; report its state to the user.
 
 ## How the user calls a child
@@ -48,7 +65,7 @@ Example:
 ```
 
 1. Work with that child's tools only. If the server ID is unknown, list the available IDs (from the Hub instructions or the `[… via <server-id>]` tool descriptions) and ask.
-2. Load the child's rules first: get the Hub prompt `<server-id>` if your client supports MCP prompts. Otherwise read `docs/mcps/<server-id>.md` in the mcp-hub repo (its path is in this client's `mcp-hub` server entry).
+2. Call `hub__plan` with that server ID first. It returns the child's rules; follow them.
 3. Treat the rest of the message as the task, in any language. Words like `dev`, `stg`, `prod` name the environment, and other names usually name a service, project, or ticket.
 
 The same applies without the prefix when the user names a child or its system ("check the logs", "Jira ticket ABC-1"): use the matching child's tools.

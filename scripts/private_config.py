@@ -35,7 +35,7 @@ def main(argv: list[str]) -> None:
             print(f"{role}: provider={provider}, model={model}, state={'configured' if config.configured else 'not configured'}")
         return
     if argv == ["project-status"]:
-        from mcp_hub.jobs.projects import load_projects
+        from mcp_hub.projects import load_projects
 
         projects = load_projects(path=PRIVATE_ROOT / "projects.json", private_root=PRIVATE_ROOT)
         if not projects:
@@ -43,7 +43,8 @@ def main(argv: list[str]) -> None:
             return
         for alias, project in projects.items():
             default = project.default_env or "<ask per job>"
-            print(f"{alias}: default_env={default}, allowed_envs={','.join(project.allowed_envs)}")
+            logs = ",".join(project.logs) or "<none>"
+            print(f"{alias}: default_env={default}, allowed_envs={','.join(project.allowed_envs)}, logs_envs={logs}")
         return
     if len(argv) < 2 or argv[0] not in {"keys", "set"} or (argv[0] == "set" and len(argv) != 4):
         raise SystemExit(__doc__)

@@ -14,7 +14,7 @@ from tests.test_job_store import FakeProtector
 class IssueWorkflowTest(unittest.TestCase):
     def test_missing_environment_waits_for_input_and_does_not_run_agents(self) -> None:
         from mcp_hub.agents.config import AGENT_ROLES, AgentConfig
-        from mcp_hub.jobs.projects import ProjectConfig
+        from mcp_hub.projects import ProjectConfig
         from mcp_hub.jobs.runner import JobRunner
         from mcp_hub.jobs.store import JobStore
 
@@ -52,7 +52,7 @@ class IssueWorkflowTest(unittest.TestCase):
 
     def test_approval_after_restart_executes_only_persisted_operation(self) -> None:
         from mcp_hub.agents.config import AGENT_ROLES, AgentConfig
-        from mcp_hub.jobs.projects import ProjectConfig
+        from mcp_hub.projects import ProjectConfig
         from mcp_hub.jobs.runner import JobRunner
         from mcp_hub.jobs.store import JobStore
 
@@ -97,7 +97,7 @@ class IssueWorkflowTest(unittest.TestCase):
 
     def test_every_write_in_one_job_waits_for_its_own_approval(self) -> None:
         from mcp_hub.agents.config import AGENT_ROLES, AgentConfig
-        from mcp_hub.jobs.projects import ProjectConfig
+        from mcp_hub.projects import ProjectConfig
         from mcp_hub.jobs.runner import JobRunner
         from mcp_hub.jobs.store import JobStore
 
@@ -153,7 +153,7 @@ class IssueWorkflowTest(unittest.TestCase):
 
     def test_project_discovery_returns_aliases_and_environments_not_roots(self) -> None:
         from mcp_hub.agents.config import AGENT_ROLES, AgentConfig
-        from mcp_hub.jobs.projects import ProjectConfig
+        from mcp_hub.projects import ProjectConfig
         from mcp_hub.jobs.runner import JobRunner
         from mcp_hub.jobs.store import JobStore
 
@@ -180,7 +180,7 @@ class IssueWorkflowTest(unittest.TestCase):
         from mcp_hub.agents.config import AGENT_ROLES, AgentConfig
         from mcp_hub.agents.providers import ModelTurn
         from mcp_hub.audit import redact
-        from mcp_hub.jobs.projects import ProjectConfig
+        from mcp_hub.projects import ProjectConfig
         from mcp_hub.jobs.runner import JobRunner
         from mcp_hub.jobs.store import JobStore
 
@@ -248,7 +248,7 @@ class IssueWorkflowTest(unittest.TestCase):
 
     def test_queued_jobs_are_resumed_after_service_restart(self) -> None:
         from mcp_hub.agents.config import AGENT_ROLES, AgentConfig
-        from mcp_hub.jobs.projects import ProjectConfig
+        from mcp_hub.projects import ProjectConfig
         from mcp_hub.jobs.runner import JobRunner
         from mcp_hub.jobs.store import JobStore
 
@@ -279,7 +279,7 @@ class IssueWorkflowTest(unittest.TestCase):
 
         from mcp_hub.agents.config import AGENT_ROLES, AgentConfig
         from mcp_hub.agents.providers import ModelToolCall, ModelTurn
-        from mcp_hub.jobs.projects import ProjectConfig
+        from mcp_hub.projects import ProjectConfig
         from mcp_hub.jobs.runner import JobRunner
         from mcp_hub.jobs.store import JobStore
 

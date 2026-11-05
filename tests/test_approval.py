@@ -32,7 +32,7 @@ class ApprovalStoreTest(unittest.TestCase):
 
     def _runner(self):
         from mcp_hub.agents.config import AGENT_ROLES, AgentConfig
-        from mcp_hub.jobs.projects import ProjectConfig
+        from mcp_hub.projects import ProjectConfig
         from mcp_hub.jobs.runner import JobRunner
 
         agents = {role: AgentConfig(role, None, None) for role in AGENT_ROLES}

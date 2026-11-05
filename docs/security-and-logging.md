@@ -24,6 +24,8 @@ The Hub writes JSON Lines records for startup/shutdown, config validation, child
 
 `hub__batch` accepts only allowlisted read-only tools, and checks the whole batch before anything runs. A write tool, an unknown tool, a nested `hub__batch`, or fewer than 2 or more than 8 calls refuse the batch (`tool.call.denied` with a `reason`). Each call then takes the normal path: allowlist, its own `tool.call.*` events as request `<batch request_id>.<i>`, redaction, the result cache, and the child's timeout. The batch's own events carry `calls`, `failed`, and `duration_ms`, never arguments or results.
 
+Every direct client call to a child tool first passes the usage policy ([usage-policy.md](usage-policy.md)). The client declares a plan with `hub__plan` and passes the returned `hub_plan_id`. The Hub refuses calls outside the plan (`tool.call.denied` with `reason=policy:<rule>`) before they reach the child, and removes `hub_plan_id` from the arguments a child receives. The plan's task text and steps are never logged.
+
 On Windows, `chmod` does not restrict files, and a repo on a secondary (non-system) drive usually inherits `Authenticated Users` **modify** access. The logon task runs `scripts/service_launcher.pyw` and the `.venv` from this checkout as you, so any account that can edit it could run code as you. `hubctl install` therefore:
 
 - restricts the whole checkout to the current user, SYSTEM, and Administrators when another account can write to it (`Protect-HubCheckout`, verified with `Test-OthersCanWrite` after the change), and
@@ -81,7 +83,9 @@ When the Hub uses MCP `stdio`, stdout is reserved for protocol messages. Send ap
 | `tool.call.started` | INFO | Call routed; it carries `request_id`, `feature`, `server`, and `tool`. |
 | `tool.call.succeeded` | INFO | Call finished; includes `duration_ms`. |
 | `tool.call.failed` | ERROR | Exception, timeout (`error_type=TimeoutError`), the child has no live session (`error_type=ChildUnavailable`; answered immediately), or a child error result (`error_type=ToolError`, `error_summary` redacted). An exception group is logged by its first leaf exception. |
-| `tool.call.denied` | WARNING | A client called a tool that isn't allowlisted (`tool`, redacted and cut to 128 characters), or sent a `hub__batch` that was refused (`reason`). |
+| `tool.call.denied` | WARNING | A client called a tool that isn't allowlisted (`tool`, redacted and cut to 128 characters), sent a `hub__batch` that was refused (`reason`), or broke its plan (`reason=policy:<rule>`, rules in [usage-policy.md](usage-policy.md)). |
+| `tool.call.policy_warned` | WARNING | With `settings.policy.mode` set to `warn`: a call broke its plan and ran anyway (`reason=policy:<rule>`). |
+| `hub.plan.created` | INFO | A client declared a plan with `hub__plan`: `plan_id`, `servers`, `env_set`, `writes`, `steps` (count), `connection_checks`, `mode`, `playbook`, and `project_set`. Never the task text, the steps, the project alias, or its log targets. |
 | `tool.call.cached` | INFO | A read-only call with a `cacheSeconds` TTL was answered from the Hub result cache (or joined an identical call in flight); the child was not called. Includes `duration_ms`. |
 | `tool.call.interrupted` | WARNING | The call was cancelled before the child answered. |
 | `preflight.check` | INFO / WARNING | A pre-start check of one child: `server`, `step` (runtime name or `prepare`), and `ok`. No child output. |

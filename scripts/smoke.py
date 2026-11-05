@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import sys
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -74,6 +75,8 @@ def _has_project_aliases(result: CallToolResult) -> bool:
     )
 
 
+# The plan ID in the Hub's `hub__plan` answer.
+_PLAN_ID_RE = re.compile(r'hub_plan_id="([^"]+)"')
 # What a child answers when the user has not filled in its account yet: a warning, not a failure.
 _NOT_SET_MARKERS = ("not configured", "no bitbucket credentials")
 
@@ -99,20 +102,42 @@ CHECKS = {
 }
 
 
-async def _check_server(client: Client, tools: set[str], server_id: str) -> dict[str, bool | None]:
+async def _plan_checks(client: Client, server_ids: list[str]) -> dict[str, str]:
+    """Declare the connection checks to the Hub's usage policy; returns the `hub_plan_id` argument to pass.
+
+    Without a plan ID the checks still run, and the Hub's refusal shows up as their failure.
+    """
+    if not server_ids:
+        return {}
+    try:
+        plan = await client.call_tool("hub__plan", {
+            "task": "Smoke test: check that each child MCP answers.",
+            "servers": server_ids,
+            "steps": ["One read-only connection check per child."],
+            "connection_checks": True,
+        })
+    except Exception:
+        return {}
+    found = next((m for text in _texts(plan) if (m := _PLAN_ID_RE.search(text))), None)
+    return {"hub_plan_id": found[1]} if found else {}
+
+
+async def _check_server(
+    client: Client, tools: set[str], server_id: str, plan: dict[str, str],
+) -> dict[str, bool | None]:
     """Run one child's checks (True ok, False failed, None unset); an exception fails only this child."""
     outcomes: dict[str, bool | None] = {}
     try:
         unset = set()
         if server_id == "mcp-server-logs" and "logs__list_log_providers" in tools:
-            unset = _unconfigured_envs(await client.call_tool("logs__list_log_providers", {}))
+            unset = _unconfigured_envs(await client.call_tool("logs__list_log_providers", {**plan}))
         for label, tool, args, check in CHECKS.get(server_id, ()):
             if tool not in tools:
                 continue
             if label in unset:
                 outcomes[label] = None
                 continue
-            result = await client.call_tool(tool, args)
+            result = await client.call_tool(tool, {**args, **plan})
             outcomes[label] = None if _not_set(result) else (not result.is_error and check(result))
     except Exception:
         for label, *_ in CHECKS.get(server_id, ()):
@@ -141,8 +166,9 @@ async def _probe(server_ids: list[str]) -> tuple[set[str], dict[str, dict[str, b
             tools = {tool.name for tool in (await client.list_tools()).tools}
             connected = {prompt.name for prompt in (await client.list_prompts()).prompts}
             calls: dict[str, dict[str, bool | None]] = {}
+            plan = await _plan_checks(client, [server_id for server_id in server_ids if server_id in connected])
             for server_id in server_ids:
-                outcomes = await _check_server(client, tools, server_id) if server_id in connected else {}
+                outcomes = await _check_server(client, tools, server_id, plan) if server_id in connected else {}
                 if outcomes:
                     calls[server_id] = outcomes
             calls[HUB_ID] = {"status": await _hub_status_ok(client, tools)}
