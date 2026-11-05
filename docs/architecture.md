@@ -19,12 +19,15 @@ Dependencies flow one way: `config` → `settings` → `audit` / `extensions` / 
 |---|---|---|
 | Configuration | `config.py` | Discover sibling children, merge private overrides, validate child configs, `prepare` specs, and routes; resolve paths in memory; `is_sensitive_key`; `MCP_HUB_PRIVATE_DIR` override of `PRIVATE_ROOT` |
 | | `settings.py` | The operator tunables (`settings` in the Hub config): one frozen dataclass per group with every default, validated (unknown keys and bad values are refused) and passed to the objects that use them at start. See [settings.md](settings.md) |
+| | `projects.py` | Project aliases from `config/private/projects.json`: allowed environments and per-environment log targets, used by `hub__plan` and the job runner |
 | | `service_config.py` | Generate and validate `config/private/service.json` (loopback host, the port from `settings.http.port`, client bearer token); write the connection file with each run's admin token, restricted to the user |
 | Contracts | `audit.py` | Redacted JSONL audit log with rotation, one handler per file; `redact`, `describe_exception`; `MCP_HUB_LOG_DIR` override |
 | | `extensions.py` | Extension contract (`CallObserver`, `ActivitySource`, `DashboardExtension`), the one-shot launch file (`read_launch_extensions`), and the saved extensions in the Hub config (`saved_extensions`) |
 | | `hub_settings.py` | The only writer of the Hub settings the desktop app changes (through `dashboard/settings_api.py`) in `config/private/hub.json`: `servers.<id>.enabled` and the saved `extensions` list (`config.server_switches` lists the children) |
-| Hub runtime | `server.py` | `HubRuntime`: allowlist and routing, `hub__status`, `hub__batch`, per-child prompts, server instructions, the MCP server factory, and the per-client stdio entrypoint (`mcp-hub`) |
+| Hub runtime | `server.py` | `HubRuntime`: allowlist and routing, `hub__status`, `hub__plan`, `hub__batch`, per-child prompts, server instructions, the MCP server factory, and the per-client stdio entrypoint (`mcp-hub`) |
 | | `batch.py` | `hub__batch`: validates a batch of 2 to 8 read-only calls as a whole, runs them in parallel through `HubRuntime.call_child_tool` (limits from `settings.batch`), and joins their results in order. See [batch.md](batch.md) |
+| | `policy.py` | The usage policy: `hub__plan`, the plan store, and the checks that refuse a call outside its plan (other children, another environment, undeclared writes, early connection checks, repeats, and a playbook's tools, limit, and targets). See [usage-policy.md](usage-policy.md) |
+| | `playbooks.py` | Parse the task recipes in `docs/playbooks/<id>.md` (frontmatter and steps) once at start. See [playbooks/README.md](playbooks/README.md) |
 | | `children.py` | One `ChildSupervisor` task per child: launch (`child_environment`), handshake, tool listing, reconnect with backoff |
 | | `child_logs.py` | Size-capped child stderr logs (`logs/children/<server-id>.log`) drained by a thread |
 | | `result_cache.py` | In-memory TTL cache for read-only tool results, single-flight, size-bounded |
@@ -35,7 +38,7 @@ Dependencies flow one way: `config` → `settings` → `audit` / `extensions` / 
 | | `control.py` | Run `hubctl.ps1` hidden through Windows PowerShell by absolute path: `launch_hubctl` (dashboard and desktop stop/restart through `/dashboard/api/control/*`) and `run_hubctl` with `autostart_state` / `set_autostart` (the Hub's sign-in task, for the settings API) |
 | Features | `dashboard/api.py`, `dashboard/sessions.py`, `dashboard/settings_api.py` | Dashboard routes, static-file allowlist, pairing and session cookies, service control through `control.launch_hubctl`, and the settings API the desktop app uses (`hub_settings`, the Hub's sign-in task) |
 | | `desktop/` (`connection`, `hub_api`, `system`, `status`, `usage`, `i18n`, `theme`, `widgets`, `settings`, `hub_page`, `mini`, `win32`, `prefs`, `screenshot`, `app`) | Desktop status app, installed on its own (`packaging/desktop/`, `scripts/build_desktop.py`): the connection file, the Hub's settings and control API, starting the Hub's task and its own sign-in entry, Hub snapshot over HTTP, the live "who uses each child" line from the activity stream, locale text, light/dark design tokens and the Qt stylesheet, frosted cards, the Settings card (Appearance, Hub, and MCPs tabs), the acrylic window style and single instance, remembered choices, the `--screenshot` review mode, and the Qt window; see [desktop-app.md](desktop-app.md) |
-| | `jobs/runner.py`, `jobs/store.py`, `jobs/policy.py`, `jobs/projects.py` | Investigation jobs: queue and limits, SQLite store with DPAPI blobs, side-effect policy, project aliases |
+| | `jobs/runner.py`, `jobs/store.py`, `jobs/policy.py` | Investigation jobs: queue and limits, SQLite store with DPAPI blobs, side-effect policy |
 | | `agents/config.py`, `agents/providers.py`, `agents/specialists.py`, `agents/coordinator.py` | Agent config, OpenAI/Anthropic/Gemini adapters (lazy SDK imports), specialist tool loops, coordinator summary |
 | | `security/dpapi.py` | Windows DPAPI encryption for job blobs; `dpapi_available` |
 | Extension | `activity_ui/` (`extension`, `tracker`, `client_sessions`, `middleware`, `recorder`, `routes`) | Optional activity UI: live activity, connected-client tracking, the batched `tool_calls` writer, and the activity dashboard routes |
@@ -45,6 +48,8 @@ The dashboard UI is plain ES modules served from an allowlist in `dashboard/api.
 ## Core and extensions
 
 The core tool-call path is `HubRuntime.call_child_tool`: route lookup, one audit line, the child call under its timeout (`_invoke_child`, the single point a result cache wraps), and one audit line for the outcome. `HubRuntime.observers` is empty by default, so the core path has no activity tracking, client tracking, or store access. Core modules (`server`, `http`, `extensions`, `dashboard/api.py`, `jobs`) never import an extension.
+
+**Usage policy.** `HubRuntime.call_tool` checks a client's direct child call, and every call of a `hub__batch`, against the plan named by its `hub_plan_id` (`policy.check`) before `call_child_tool`, then records the outcome. The job runner calls `call_child_tool` directly, so investigation jobs keep their own policy. See [usage-policy.md](usage-policy.md).
 
 **Result cache.** `_invoke_child` sends a read-only tool (`readOnlyHint=true`) with a `cacheSeconds` TTL through `ResultCache.get_or_call`: a fresh successful result is returned without calling the child (`tool.call.cached`), and identical concurrent calls share one child call. Any call to a child's tool that is not read-only drops that child's cached entries. The rules and per-child defaults are in [mcps/README.md](mcps/README.md#hub-result-cache); agents still read child caches first ([client-rules.md](client-rules.md)).
 

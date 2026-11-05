@@ -23,7 +23,7 @@ from ..security.dpapi import WINDOWS_ONLY_MESSAGE
 from ..server import is_read_only_tool
 from ..settings import JobSettings
 from .policy import SideEffectPolicy
-from .projects import ProjectConfig, validate_project_env
+from ..projects import ProjectConfig, validate_project_env
 from .store import JobStore, TERMINAL_STATES
 
 

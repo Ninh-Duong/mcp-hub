@@ -14,14 +14,14 @@ In tasks with three or more calls, the tools took about a quarter of the time. S
 `hub__batch` sends 2 to 8 **independent, read-only** calls in **one** request. The Hub runs them in parallel and returns every result in order. Five reads then cost one client turn instead of five.
 
 ```json
-{"calls": [
+{"hub_plan_id": "<from hub__plan>", "calls": [
   {"tool": "jira__read_ticket", "arguments": {"issue_key": "ABC-123"}},
   {"tool": "logs__list_ai_context_snapshots", "arguments": {}},
   {"tool": "pr__list_synced_prs", "arguments": {}}
 ]}
 ```
 
-Each result is headed `[i] <tool>: ok|error (<ms> ms)`.
+Each result is headed `[i] <tool>: ok|error (<ms> ms)`. The `hub_plan_id` comes from `hub__plan`, and every call in the batch is checked against that plan ([usage-policy.md](usage-policy.md)).
 
 ## Rules
 

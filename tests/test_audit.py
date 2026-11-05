@@ -57,7 +57,7 @@ class InheritedEnvironmentRedactionTest(unittest.IsolatedAsyncioTestCase):
         with patch.dict("os.environ", {"MCP_HUB_TEST_API_KEY": env_secret}):
             async with AsyncExitStack() as stack:
                 await runtime.connect(stack)
-        self.assertEqual([tool.name for tool in runtime.public_tools], ["hub__status", "hub__batch"])
+        self.assertEqual([tool.name for tool in runtime.public_tools], ["hub__status", "hub__plan", "hub__batch"])
 
         log = (self.tmp / "audit.jsonl").read_text(encoding="utf-8")
         self.assertNotIn(env_secret, log)

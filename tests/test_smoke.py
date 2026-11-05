@@ -38,7 +38,8 @@ class SmokeChecksTest(unittest.TestCase):
 
         self.assertEqual(connected, {"mcp-server-logs"})
         self.assertEqual(calls["mcp-server-logs"], {"dev": True, "stg": True, "prod": True})
-        self.assertEqual(client.call_tool.await_args_list, [
+        checks = [args for args in client.call_tool.await_args_list if args.args[0] != "hub__plan"]
+        self.assertEqual(checks, [
             call("logs__list_openobserve_organizations", {"env": "dev"}),
             call("logs__list_openobserve_organizations", {"env": "stg"}),
             call("logs__list_openobserve_organizations", {"env": "prod"}),

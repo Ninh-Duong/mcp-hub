@@ -115,7 +115,7 @@ class SupervisedChildTest(unittest.IsolatedAsyncioTestCase):
         result = await self.echo(runtime, "fake", "after")
         self.assertFalse(result.is_error)
         self.assertEqual(result.content[0].text, "naïve café 🌺 after")
-        self.assertEqual([tool.name for tool in runtime.public_tools], ["hub__status", "hub__batch", "fake__echo"])
+        self.assertEqual([tool.name for tool in runtime.public_tools], ["hub__status", "hub__plan", "hub__batch", "fake__echo"])
 
     async def test_calls_while_reconnecting_fail_fast_as_unavailable(self) -> None:
         runtime = await self.start(child("fake", FAKE_CHILD_HOOKS="1"), backoff=SLOW)
@@ -181,7 +181,7 @@ class SupervisedChildTest(unittest.IsolatedAsyncioTestCase):
         await wait_until(lambda: self.audit.named("server.reconnect.failed", "broken"))
         retry = self.audit.named("server.reconnect.failed", "broken")[0]
         self.assertEqual(retry["retry_in_seconds"], FAST.delay(1))
-        self.assertEqual([tool.name for tool in runtime.public_tools], ["hub__status", "hub__batch"])
+        self.assertEqual([tool.name for tool in runtime.public_tools], ["hub__status", "hub__plan", "hub__batch"])
 
 
 class CappedLogTest(unittest.TestCase):

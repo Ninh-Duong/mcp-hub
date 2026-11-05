@@ -69,6 +69,22 @@ class BatchSettings:
 
 
 @dataclass(frozen=True)
+class PolicySettings:
+    # enforce: refuse calls that break the client's hub__plan; warn: run them with a warning; off: no plan needed.
+    mode: str = "enforce"
+    # Plans kept in memory; the least recently used is dropped, and a call naming it must plan again.
+    max_plans: int = 256
+    # Connection checks: allowed only after a failed call, or when the plan says the user asked for checks.
+    # Listing OpenObserve organizations is discovery, not a check; playbooks pass the project's targets instead.
+    health_check_tools: tuple[str, ...] = (
+        "jira__check_connection",
+        "pr__check_bitbucket_connection",
+        "source__check_connection",
+        "sql__check_connection",
+    )
+
+
+@dataclass(frozen=True)
 class Settings:
     http: HttpSettings = field(default_factory=HttpSettings)
     children: ChildrenSettings = field(default_factory=ChildrenSettings)
@@ -77,12 +93,15 @@ class Settings:
     dashboard: DashboardSettings = field(default_factory=DashboardSettings)
     jobs: JobSettings = field(default_factory=JobSettings)
     batch: BatchSettings = field(default_factory=BatchSettings)
+    policy: PolicySettings = field(default_factory=PolicySettings)
 
 
 # Lowest accepted value per key; everything else must only be positive. The port stays out of the
 # privileged range, and a batch needs at least two calls to be one.
 _MINIMUMS = {("http", "port"): 1024, ("logs", "backups"): 0, ("batch", "max_calls"): 2}
 _MAXIMUMS = {("http", "port"): 65535}
+# Text settings and the values each accepts.
+_CHOICES = {("policy", "mode"): ("enforce", "warn", "off")}
 
 
 def load_settings(config_path: str | Path | None = None) -> Settings:
@@ -117,7 +136,28 @@ def _parse_group(group: str, cls: type, raw: dict[str, Any]) -> Any:
     return cls(**values)
 
 
-def _checked(label: str, key: tuple[str, str], value: Any, kind: type) -> int | float:
+def _checked(label: str, key: tuple[str, str], value: Any, kind: type) -> Any:
+    if kind is str:
+        return _checked_choice(label, key, value)
+    if kind is tuple:
+        return _checked_names(label, value)
+    return _checked_number(label, key, value, kind)
+
+
+def _checked_choice(label: str, key: tuple[str, str], value: Any) -> str:
+    choices = _CHOICES[key]
+    if value not in choices:
+        raise ConfigError(f"{label} must be one of: {', '.join(choices)}")
+    return value
+
+
+def _checked_names(label: str, value: Any) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)) or not all(isinstance(item, str) and item for item in value):
+        raise ConfigError(f"{label} must be a list of tool names")
+    return tuple(value)
+
+
+def _checked_number(label: str, key: tuple[str, str], value: Any, kind: type) -> int | float:
     wrong_kind = kind is int and not isinstance(value, int)
     if isinstance(value, bool) or not isinstance(value, (int, float)) or wrong_kind or not math.isfinite(value):
         raise ConfigError(f"{label} must be {'a whole number' if kind is int else 'a number'}")

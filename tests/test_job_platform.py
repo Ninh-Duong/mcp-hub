@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from mcp_hub.agents import providers
 from mcp_hub.agents.config import AGENT_ROLES, AgentConfig
-from mcp_hub.jobs.projects import ProjectConfig
+from mcp_hub.projects import ProjectConfig
 from mcp_hub.jobs.runner import JobRunner, create_provider
 from mcp_hub.jobs.store import JobStore
 from mcp_hub.security import dpapi

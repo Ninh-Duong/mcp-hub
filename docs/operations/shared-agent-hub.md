@@ -29,8 +29,8 @@ Copy-Item ../mcp-read-source/config/projects.example.json ../mcp-read-source/con
 ```
 
 - In the Hub's `config/private/agents.json`, set a provider (`openai`, `gemini`, or `anthropic`), model, and API key independently for `coordinator`, `logs`, `source`, `jira`, and `pr`. The key is read only inside the Hub process. Check readiness with `uv run python scripts/private_config.py agent-status`.
-- In the Hub's `config/private/projects.json`, register each project alias, optional `default_env`, and allowed environments (`dev`, `stg`, `prod`). Run `uv run python scripts/private_config.py project-status` to validate the aliases and environments.
-- In the source child's `config/private/projects.json`, map the same alias to a local repository root. The source child reads the root mapping; the Hub's project config contains only the alias and environment choices.
+- In the Hub's `config/private/projects.json`, register each project alias, optional `default_env`, allowed environments (`dev`, `stg`, `prod`), and optional log targets per environment (below). Run `uv run python scripts/private_config.py project-status` to validate the aliases and environments.
+- In the source child's `config/private/projects.json`, map the same alias to a local repository root. The source child reads the root mapping; the Hub's project config contains only the alias, environment choices, and log targets.
 - Copy and fill the private MCP configs for logs/Jira/PR as described in their contracts under `docs/mcps/`. Their existing local fallbacks still work.
 
 The examples start with empty `projects` maps so a copied file is valid before the user adds a repo. A matching entry pair looks like this:
@@ -38,8 +38,11 @@ The examples start with empty `projects` maps so a copied file is valid before t
 Hub `config/private/projects.json`:
 
 ```json
-{"version":1,"projects":{"app":{"default_env":"dev","allowed_envs":["dev","stg","prod"]}}}
+{"version":1,"projects":{"app":{"default_env":"dev","allowed_envs":["dev","stg","prod"],
+  "logs":{"dev":{"organization":"<SET_BY_USER>","stream":"<SET_BY_USER>","rcid_field":"rcid"}}}}}
 ```
+
+`logs` is optional. Per allowed environment it names the OpenObserve `organization` and `stream` where the project's logs live, and the request-ID field (`rcid_field`, default `rcid`). The log playbooks (`rcid-bug`, `service-errors`, `jira-ticket-bug`) need it: `hub__plan` returns these targets to the agent, so the agent never has to discover them, and refuses a log playbook for an environment without them ([usage-policy.md](../usage-policy.md#playbooks)). `project-status` lists which environments have a `logs` entry, never the values.
 
 Source child `config/private/projects.json`:
 

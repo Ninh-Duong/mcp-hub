@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -89,7 +90,7 @@ class StdioCompatibilityTest(unittest.TestCase):
         async with asyncio.timeout(timeout):
             async with Client(stdio_client(params)) as client:
                 tools = await client.list_tools()
-                self.assertEqual([tool.name for tool in tools.tools], ["hub__status", "hub__batch", "fake__echo_unicode"])
+                self.assertEqual([tool.name for tool in tools.tools], ["hub__status", "hub__plan", "hub__batch", "fake__echo_unicode"])
                 self.assertTrue(tools.tools[0].annotations.read_only_hint)
                 status = await client.call_tool("hub__status", {})
                 self.assertFalse(status.is_error)
@@ -102,8 +103,21 @@ class StdioCompatibilityTest(unittest.TestCase):
                 self.assertIn("Use only these mcp-hub tools", prompt_text)
                 self.assertIn("Task: ping", prompt_text)
 
-                result = await client.call_tool("fake__echo_unicode", {"text": "mcp-hub"})
-                self.assertFalse(result.is_error)
+                refused = await client.call_tool("fake__echo_unicode", {"text": "mcp-hub"})
+                self.assertTrue(refused.is_error)
+                self.assertIn("Call hub__plan first", refused.content[0].text)
+                plan = await client.call_tool(
+                    # The fake tool declares no readOnlyHint, so the Hub treats it as one that may write.
+                    "hub__plan", {"task": "echo", "servers": ["fake-child"], "steps": ["fake__echo_unicode"],
+                                  "writes": ["fake__echo_unicode"]},
+                )
+                self.assertFalse(plan.is_error)
+                self.assertIn("fake__echo_unicode", plan.content[0].text)
+                plan_id = re.search(r'hub_plan_id="([^"]+)"', plan.content[0].text)[1]
+
+                # The Hub removes hub_plan_id before the call reaches the child.
+                result = await client.call_tool("fake__echo_unicode", {"text": "mcp-hub", "hub_plan_id": plan_id})
+                self.assertFalse(result.is_error, result.content[0].text)
                 self.assertEqual(result.content[0].text, "naïve café 🌺 mcp-hub")
 
 

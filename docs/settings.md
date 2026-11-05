@@ -17,7 +17,8 @@ The values an operator may want to change live in one optional `settings` object
 - **Unknown groups or keys are refused.** So is a value of the wrong type or out of range. The Hub does not start; `config.load.failed` in `logs/mcp-hub.jsonl` names the key, so a typo never silently keeps a default.
 - Keys are camelCase, like the rest of the Hub config.
 - **Whole numbers:** a key whose default is a whole number takes only whole numbers.
-- **Other numbers:** every other key takes any finite number.
+- **Other numbers:** every other numeric key takes any finite number.
+- **Text and lists:** `policy.mode` takes one of the listed words; `policy.healthCheckTools` takes a list of tool names.
 - All values must be positive, except where the table gives another range.
 
 | Group | Key | Default | What it changes |
@@ -41,6 +42,9 @@ The values an operator may want to change live in one optional `settings` object
 | `batch` | `maxCalls` | `8` | Most calls in one `hub__batch` (at least 2); the tool's schema follows it. |
 | `batch` | `maxPerChild` | `4` | Most calls of one batch that one child serves at the same time. |
 | `batch` | `timeoutSeconds` | `120` | Time the whole batch may take; a call still running is cancelled and reported. |
+| `policy` | `mode` | `"enforce"` | How the Hub applies a client's `hub__plan`: `enforce` refuses calls that break it, `warn` runs them with a warning, `off` needs no plan. See [usage-policy.md](usage-policy.md). |
+| `policy` | `maxPlans` | `256` | Plans kept in memory; the least recently used one is dropped, and a call naming it must plan again. |
+| `policy` | `healthCheckTools` | `jira__check_connection`, `pr__check_bitbucket_connection`, `source__check_connection`, `sql__check_connection` | Tool names treated as connection checks: allowed only after a failed call of the plan, or with `connection_checks: true`. A list of strings. |
 
 ## What stays in code
 

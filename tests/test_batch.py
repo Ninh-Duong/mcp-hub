@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 import tempfile
 import time
 import unittest
@@ -13,7 +14,7 @@ from mcp.types import CallToolRequestParams, CallToolResult, TextContent, Tool
 from mcp_hub import batch
 from mcp_hub.config import HubConfig, ServerConfig, ToolRoute
 from mcp_hub.server import HubRuntime
-from mcp_hub.settings import BatchSettings, Settings
+from mcp_hub.settings import BatchSettings, PolicySettings, Settings
 
 ROUTES = (
     ToolRoute("logs", "logs-child", "query", "logs__query", cache_seconds=60),
@@ -57,7 +58,8 @@ class BatchRuntimeTest(unittest.IsolatedAsyncioTestCase):
         root = Path(tempfile.mkdtemp())
         servers = {sid: ServerConfig(sid, "python", (), root, {}, ()) for sid in ("logs-child", "jira-child")}
         self.audit = MagicMock()
-        self.runtime = HubRuntime(HubConfig(root / "hub.json", servers, ROUTES), self.audit)
+        # The usage policy has its own tests; these exercise the batch itself.
+        self.runtime = HubRuntime(HubConfig(root / "hub.json", servers, ROUTES), self.audit, Settings(policy=PolicySettings(mode="off")))
         self.logs, self.jira = SlowClient(), SlowClient()
         self.runtime.child_connected("logs-child", self.logs, {"query": tool("query", True), "export": tool("export", False)})
         self.runtime.child_connected("jira-child", self.jira, {"read": tool("read", True)})
@@ -137,7 +139,7 @@ class BatchRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.events()[-1][0], "tool.call.failed")
 
     async def test_a_call_still_running_at_the_limit_is_cancelled(self) -> None:
-        self.runtime.settings = Settings(batch=BatchSettings(timeout_seconds=0.2))
+        self.runtime.settings = replace(self.runtime.settings, batch=BatchSettings(timeout_seconds=0.2))
         result = await self.call(calls(("logs__query", {"delay": 0}), ("jira__read", {"delay": 5})))
         texts = [block.text for block in result.content]
         self.assertTrue(texts[2].startswith("[2] jira__read: error"))
