@@ -110,7 +110,14 @@ if ($Prepare) {
         # The service launcher compares this with uv.lock to see whether the environment is current.
         $lockFile = Join-Path $repoRoot "uv.lock"
         if (Test-Path -LiteralPath $lockFile -PathType Leaf) {
-            $lockHash = (Get-FileHash -LiteralPath $lockFile -Algorithm SHA256).Hash.ToLowerInvariant()
+            # Plain .NET hashing: a hidden powershell.exe started by hubctl can lack the Utility module.
+            $sha256 = [Security.Cryptography.SHA256]::Create()
+            try {
+                $lockBytes = [IO.File]::ReadAllBytes($lockFile)
+                $lockHash = ([BitConverter]::ToString($sha256.ComputeHash($lockBytes)) -replace "-", "").ToLowerInvariant()
+            } finally {
+                $sha256.Dispose()
+            }
             [IO.File]::WriteAllText((Join-Path $repoRoot ".venv\.mcp-hub-lock.sha256"), $lockHash, [Text.Encoding]::ASCII)
         }
     }
