@@ -212,8 +212,9 @@ class BootstrapScriptsTest(unittest.TestCase):
         script = (HUB_ROOT / "scripts" / "start.ps1").read_text(encoding="utf-8")
         prepare = script[script.index("if ($Prepare) {"):script.index("$previousClientName")]
         self.assertLess(prepare.index("sync --locked"), prepare.index("if ($LASTEXITCODE -eq 0)"))
-        self.assertLess(prepare.index("if ($LASTEXITCODE -eq 0)"), prepare.index("Get-FileHash"))
-        self.assertIn("-Algorithm SHA256).Hash.ToLowerInvariant()", prepare)
+        self.assertLess(prepare.index("if ($LASTEXITCODE -eq 0)"), prepare.index("ComputeHash"))
+        self.assertNotIn("Get-FileHash", prepare)  # not available in every powershell.exe that hubctl starts
+        self.assertIn("[Security.Cryptography.SHA256]::Create()", prepare)
         self.assertIn(f'".venv\\{launcher.LOCK_STAMP_NAME}"', prepare)  # the same name the launcher reads
         self.assertIn("exit $LASTEXITCODE", prepare)  # the sync's own exit code is what the caller sees
         self.assertEqual(script.count(launcher.LOCK_STAMP_NAME), 1)  # one writer
