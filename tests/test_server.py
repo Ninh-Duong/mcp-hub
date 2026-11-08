@@ -1,17 +1,43 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from mcp.types import CallToolRequestParams
+from mcp.types import CallToolRequestParams, CallToolResult, TextContent
 
 from mcp_hub.audit import AuditLog
-from mcp_hub.config import HubConfig
+from mcp_hub.config import HubConfig, ToolRoute
+from mcp_hub.extensions import Condensed
 from mcp_hub.full_results import FullResultStore
 from mcp_hub.server import FULL_RESULT_TOOL, HubRuntime
+from mcp_hub.settings import Settings
+
+
+class FakeCondenser:
+    def __init__(
+        self,
+        text: str = "condensed summary",
+        kept: int = 5,
+        total: int = 100,
+        delay: float = 0.0,
+        fail: bool = False,
+    ) -> None:
+        self.text = text
+        self.kept = kept
+        self.total = total
+        self.delay = delay
+        self.fail = fail
+
+    async def condense(self, text: str, task: str | None) -> Condensed | None:
+        if self.delay:
+            await asyncio.sleep(self.delay)
+        if self.fail:
+            raise RuntimeError("condenser failed")
+        return Condensed(text=self.text, kept_lines=self.kept, total_lines=self.total, source="bitnet")
 
 
 class ServerFullResultToolTest(unittest.IsolatedAsyncioTestCase):
@@ -64,6 +90,109 @@ class ServerFullResultToolTest(unittest.IsolatedAsyncioTestCase):
         res = await self.runtime.call_tool(self.ctx, params)
         self.assertTrue(res.is_error)
         self.assertIn("Result expired or unknown", res.content[0].text)
+
+
+class ServerCondenseHookTest(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.audit = AuditLog(self.root / "audit.jsonl")
+        self.addCleanup(self.audit.close)
+        route = ToolRoute("feature", "logs-server", "query", "logs__query")
+        self.config = HubConfig(self.root / "hub.json", {}, (route,))
+        settings = Settings()
+        self.runtime = HubRuntime(self.config, self.audit, settings=settings)
+        self.runtime.routes["logs__query"] = route
+        self.runtime._read_only.add("logs__query")
+        self.store = FullResultStore(max_entries=10, ttl_seconds=60.0)
+        self.runtime.full_results = self.store
+        self.runtime.condenser = FakeCondenser()
+
+    async def test_small_result_not_condensed(self) -> None:
+        small = CallToolResult(content=[TextContent(type="text", text="small result")])
+        res = await self.runtime._maybe_condense("logs__query", small, "find errors", "req-1")
+        self.assertEqual(res, small)
+
+    async def test_error_result_not_condensed(self) -> None:
+        large_error = CallToolResult(
+            content=[TextContent(type="text", text="error\n" * 1500)],
+            is_error=True,
+        )
+        res = await self.runtime._maybe_condense("logs__query", large_error, "find errors", "req-1")
+        self.assertEqual(res, large_error)
+
+    async def test_write_tool_not_condensed(self) -> None:
+        self.runtime._read_only.discard("logs__query")
+        large = CallToolResult(content=[TextContent(type="text", text="data\n" * 1500)])
+        res = await self.runtime._maybe_condense("logs__query", large, "find errors", "req-1")
+        self.assertEqual(res, large)
+
+    async def test_large_read_only_result_is_condensed(self) -> None:
+        large_text = "log line with information\n" * 400  # > 6000 chars
+        large = CallToolResult(content=[TextContent(type="text", text=large_text)])
+        res = await self.runtime._maybe_condense("logs__query", large, "find errors", "req-1")
+        self.assertFalse(res.is_error)
+        output = res.content[0].text
+        self.assertIn("condensed summary", output)
+        self.assertIn("[Condensed by mcp-hub: kept 5 of 100 lines.", output)
+        self.assertIn("Full result: hub__get_full_result result_id=\"r-", output)
+
+        # Retrieve full result from store
+        rid = output.split('result_id="')[1].split('"')[0]
+        paged = self.store.page(rid)
+        self.assertIsNotNone(paged)
+        self.assertEqual(paged["total_chars"], len(large_text))
+
+        # Check audit event and ensure no raw text is logged
+        lines = (self.root / "audit.jsonl").read_text(encoding="utf-8").splitlines()
+        condense_events = [json.loads(line) for line in lines if "tool.result.condensed" in line]
+        self.assertEqual(len(condense_events), 1)
+        ev = condense_events[0]
+        self.assertEqual(ev["source"], "bitnet")
+        self.assertEqual(ev["kept_lines"], 5)
+        self.assertEqual(ev["total_lines"], 100)
+        self.assertNotIn("log line with information", json.dumps(ev))
+
+    async def test_condenser_failure_falls_back_to_original(self) -> None:
+        self.runtime.condenser = FakeCondenser(fail=True)
+        large_text = "log line with information\n" * 400
+        large = CallToolResult(content=[TextContent(type="text", text=large_text)])
+        res = await self.runtime._maybe_condense("logs__query", large, "find errors", "req-1")
+        self.assertEqual(res, large)
+
+        lines = (self.root / "audit.jsonl").read_text(encoding="utf-8").splitlines()
+        ev = [json.loads(line) for line in lines if "tool.result.condensed" in line][0]
+        self.assertEqual(ev["source"], "fallback")
+
+    async def test_condenser_none_regression(self) -> None:
+        self.runtime.condenser = None
+        large_text = "log line with information\n" * 400
+        large = CallToolResult(content=[TextContent(type="text", text=large_text)])
+        res = await self.runtime._maybe_condense("logs__query", large, "find errors", "req-1")
+        self.assertEqual(res, large)
+
+    async def test_batch_condenses_only_large_item(self) -> None:
+        large_text = "log line with information\n" * 400
+
+        async def fake_call_child(name: str, args: dict, **kwargs) -> CallToolResult:
+            if args.get("large"):
+                return CallToolResult(content=[TextContent(type="text", text=large_text)])
+            return CallToolResult(content=[TextContent(type="text", text="short text")])
+
+        self.runtime.call_child_tool = fake_call_child  # type: ignore[assignment]
+        self.runtime.settings = Settings(policy=self.runtime.settings.policy.__class__(mode="off"))
+        batch_args = {
+            "calls": [
+                {"tool": "logs__query", "arguments": {"large": False}},
+                {"tool": "logs__query", "arguments": {"large": True}},
+            ]
+        }
+        res = await self.runtime._call_batch(batch_args, "req-batch", "client")
+        self.assertFalse(res.is_error)
+        output = "\n".join(b.text for b in res.content if hasattr(b, "text"))
+        self.assertIn("short text", output)
+        self.assertIn("[Condensed by mcp-hub:", output)
 
 
 if __name__ == "__main__":

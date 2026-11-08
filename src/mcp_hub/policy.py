@@ -84,6 +84,7 @@ class Plan:
     playbook: Playbook | None = None
     project: str | None = None
     target: LogTarget | None = None
+    task: str = ""
     # Call key -> number of failed attempts, or _SUCCEEDED once it succeeded.
     seen: dict[str, int] = field(default_factory=dict)
     had_failure: bool = False
@@ -172,7 +173,7 @@ class PlanBook:
 
 def parse_plan(arguments: Mapping[str, Any], catalog: PlanCatalog, plan_id: str) -> Plan:
     """Validate `hub__plan` arguments against the Hub's tools, playbooks, and projects; PolicyRefused says the fix."""
-    _text(arguments.get("task"), "task")
+    task = _text(arguments.get("task"), "task")
     playbook = _playbook(arguments, catalog)
     servers = _servers(arguments, catalog, playbook)
     steps = _steps(arguments, playbook)
@@ -187,7 +188,7 @@ def parse_plan(arguments: Mapping[str, Any], catalog: PlanCatalog, plan_id: str)
     checks = arguments.get("connection_checks", False)
     if not isinstance(checks, bool):
         raise PolicyRefused("'connection_checks' must be true or false.")
-    return Plan(plan_id, frozenset(servers), env, frozenset(writes), checks, steps, playbook, project, target)
+    return Plan(plan_id, frozenset(servers), env, frozenset(writes), checks, steps, playbook, project, target, task=task)
 
 
 def _playbook(arguments: Mapping[str, Any], catalog: PlanCatalog) -> Playbook | None:
