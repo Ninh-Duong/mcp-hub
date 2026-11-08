@@ -7,11 +7,11 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from mcp.types import CallToolRequestParams, CallToolResult, TextContent
+from mcp.types import CallToolRequestParams, CallToolResult, TextContent, Tool
 
 from mcp_hub.audit import AuditLog
 from mcp_hub.config import HubConfig, ToolRoute
-from mcp_hub.extensions import Condensed
+from mcp_hub.extensions import Condensed, PlanContext, PlanHints
 from mcp_hub.full_results import FullResultStore
 from mcp_hub.server import FULL_RESULT_TOOL, HubRuntime
 from mcp_hub.settings import Settings
@@ -193,6 +193,96 @@ class ServerCondenseHookTest(unittest.IsolatedAsyncioTestCase):
         output = "\n".join(b.text for b in res.content if hasattr(b, "text"))
         self.assertIn("short text", output)
         self.assertIn("[Condensed by mcp-hub:", output)
+
+
+
+
+class FakePlanAssistant:
+    def __init__(self, hints: PlanHints | None = None, fail: bool = False, delay: float = 0.0) -> None:
+        self._hints = hints
+        self.fail = fail
+        self.delay = delay
+
+    async def hints(self, context: PlanContext) -> PlanHints | None:
+        if self.delay:
+            await asyncio.sleep(self.delay)
+        if self.fail:
+            raise RuntimeError("assistant failed")
+        return self._hints
+
+
+class ServerPlanAssistTest(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.audit = AuditLog(self.root / "audit.jsonl")
+        self.addCleanup(self.audit.close)
+        route = ToolRoute("feature", "logs-server", "query", "logs__query")
+        self.config = HubConfig(self.root / "hub.json", {}, (route,))
+        settings = Settings()
+        self.runtime = HubRuntime(self.config, self.audit, settings=settings)
+        from mcp_hub.policy import CallFacts
+        self.runtime.routes["logs__query"] = route
+        self.runtime._call_facts["logs__query"] = CallFacts("logs__query", "logs-server", True, True)
+        self.runtime.public_tools = [Tool(name="logs__query", input_schema={"type": "object"})]
+        self.runtime.clients["logs-server"] = SimpleNamespace()  # mark as connected child
+        self.ctx = SimpleNamespace(request_id="req-plan", session=None)
+
+    async def test_plan_created_without_assistant_has_assist_off(self) -> None:
+        args = {"task": "Find error", "servers": ["logs-server"], "steps": ["step 1"]}
+        params = CallToolRequestParams(name="hub__plan", arguments=args)
+        res = await self.runtime.call_tool(self.ctx, params)
+        self.assertFalse(res.is_error)
+        lines = (self.root / "audit.jsonl").read_text(encoding="utf-8").splitlines()
+        ev = [json.loads(line) for line in lines if "hub.plan.created" in line][0]
+        self.assertEqual(ev["assist"], "off")
+
+    async def test_plan_assistant_fills_servers_env_and_window(self) -> None:
+        from datetime import UTC, datetime, timedelta
+        now = datetime.now(UTC)
+        hints = PlanHints(
+            servers=("logs-server",),
+            env="stg",
+            since=now - timedelta(hours=2),
+            until=now,
+            source="rules",
+        )
+        self.runtime.plan_assistant = FakePlanAssistant(hints=hints)
+        args = {"task": "Find error in stg", "steps": ["step 1"]}
+        params = CallToolRequestParams(name="hub__plan", arguments=args)
+        res = await self.runtime.call_tool(self.ctx, params)
+        self.assertFalse(res.is_error)
+        lines = (self.root / "audit.jsonl").read_text(encoding="utf-8").splitlines()
+        ev = [json.loads(line) for line in lines if "hub.plan.created" in line][0]
+        self.assertEqual(ev["assist"], "rules")
+        self.assertEqual(ev["servers"], ["logs-server"])
+        self.assertTrue(ev["env_set"])
+
+    async def test_plan_assistant_failure_gives_fallback(self) -> None:
+        self.runtime.plan_assistant = FakePlanAssistant(fail=True)
+        args = {"task": "Find error", "servers": ["logs-server"], "steps": ["step 1"]}
+        params = CallToolRequestParams(name="hub__plan", arguments=args)
+        res = await self.runtime.call_tool(self.ctx, params)
+        self.assertFalse(res.is_error)
+        lines = (self.root / "audit.jsonl").read_text(encoding="utf-8").splitlines()
+        ev = [json.loads(line) for line in lines if "hub.plan.created" in line][0]
+        self.assertEqual(ev["assist"], "fallback")
+
+    async def test_hinted_env_outside_project_is_dropped(self) -> None:
+        from mcp_hub.projects import ProjectConfig
+        self.runtime.projects = {"myproj": ProjectConfig("myproj", ("dev", "stg"), default_env="dev")}
+        hints = PlanHints(servers=("logs-server",), env="prod", source="rules")
+        self.runtime.plan_assistant = FakePlanAssistant(hints=hints)
+        args = {"task": "Find error", "project": "myproj", "steps": ["step 1"]}
+        params = CallToolRequestParams(name="hub__plan", arguments=args)
+        res = await self.runtime.call_tool(self.ctx, params)
+        self.assertFalse(res.is_error)
+        lines = (self.root / "audit.jsonl").read_text(encoding="utf-8").splitlines()
+        ev = [json.loads(line) for line in lines if "hub.plan.created" in line][0]
+        self.assertEqual(ev["assist"], "rules")
+        self.assertIn("Environment: dev.", res.content[0].text)
+        self.assertNotIn("Environment: prod.", res.content[0].text)
 
 
 if __name__ == "__main__":
