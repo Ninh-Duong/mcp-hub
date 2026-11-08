@@ -139,7 +139,7 @@ class DashboardAPITest(unittest.TestCase):
         self.assertIn("frame-ancestors 'none'", dashboard.headers.get("content-security-policy", ""))
         self.assertEqual(status.json()["children"]["sample-child"], "connected")
         self.assertEqual(status.json()["activity"]["children"]["sample-child"]["tool_count"], 2)
-        self.assertEqual(status.json()["extensions"], {"activityUi": True})
+        self.assertEqual(status.json()["extensions"], {"activityUi": True, "bitnet": False})
         self.assertNotIn(self.token, status.text)
 
     def test_dashboard_rejects_cross_origin_requests(self) -> None:
@@ -365,7 +365,7 @@ class CoreDashboardTest(unittest.TestCase):
     def test_status_reports_the_extension_off_without_activity_or_clients(self) -> None:
         with TestClient(self.app) as client:
             status = client.get("/dashboard/api/status", headers=self.headers).json()
-        self.assertEqual(status["extensions"], {"activityUi": False})
+        self.assertEqual(status["extensions"], {"activityUi": False, "bitnet": False})
         self.assertNotIn("activity", status)
         self.assertNotIn("clients", status)
 

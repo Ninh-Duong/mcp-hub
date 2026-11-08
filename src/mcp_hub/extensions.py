@@ -7,19 +7,61 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from .config import PRIVATE_ROOT, ConfigError, resolved_config_path
 
 ACTIVITY_UI = "activity-ui"
+BITNET = "bitnet"
 # Top-level key of the Hub config that keeps extensions on across starts.
 EXTENSIONS_KEY = "extensions"
-KNOWN_EXTENSIONS = frozenset({ACTIVITY_UI})
+KNOWN_EXTENSIONS = frozenset({ACTIVITY_UI, BITNET})
 # Dashboard status flag for each extension, always reported so the UI knows what is installed.
-STATUS_FLAGS = {ACTIVITY_UI: "activityUi"}
+STATUS_FLAGS = {ACTIVITY_UI: "activityUi", BITNET: "bitnet"}
 LAUNCH_FILE = PRIVATE_ROOT / "launch.json"
+
+
+@dataclass(frozen=True)
+class PlanContext:
+    task: str                                  # the user's request (never logged)
+    playbooks: Mapping[str, str]               # playbook id -> "when to use"
+    servers: tuple[str, ...]                   # connected child server IDs
+    envs: tuple[str, ...]                      # the project's allowed envs ("" tuple when no project)
+    now: datetime                              # timezone-aware UTC
+
+
+@dataclass(frozen=True)
+class PlanHints:
+    playbook: str | None = None
+    servers: tuple[str, ...] = ()
+    env: str | None = None
+    since: datetime | None = None              # UTC
+    until: datetime | None = None              # UTC
+    source: str = "rules"                      # "rules" | "bitnet"
+
+
+class PlanAssistant(Protocol):
+    async def hints(self, context: PlanContext) -> PlanHints | None: ...
+
+
+@dataclass(frozen=True)
+class Condensed:
+    text: str
+    kept_lines: int
+    total_lines: int
+    source: str                                # "rules" | "bitnet"
+
+
+class ResultCondenser(Protocol):
+    async def condense(self, text: str, task: str | None) -> Condensed | None: ...
+
+
+class DraftSummarizer(Protocol):
+    async def summarize(self, question: str, findings: list[dict[str, Any]]) -> str | None: ...
 
 
 class CallObserver(Protocol):
