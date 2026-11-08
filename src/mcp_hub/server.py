@@ -736,6 +736,11 @@ _JOB_INSTRUCTIONS = (
     "environment; hub__approve_job requires the one-time dashboard code; hub__cancel_job stops a job."
 )
 
+_CONDENSED_INSTRUCTIONS = (
+    " Results may be condensed (footer names result_id; use hub__get_full_result only if evidence is missing). "
+    "With BitNet on, hub__plan may fill playbook, servers, env, and time window from task."
+)
+
 
 def _repo_relative(path: Path) -> str:
     """A path for the log without the user's home or drive: relative to the checkout when it is inside it."""
@@ -771,7 +776,7 @@ def _server_instructions(runtime: HubRuntime, with_jobs: bool) -> str:
     groups = "\n".join(f"- {sid}: {', '.join(tools)}" for sid, tools in runtime.tools_by_server().items())
     rules = HUB_ROOT / "docs" / "client-rules.md"
     return (
-        f"{INSTRUCTIONS_SUMMARY}{_JOB_INSTRUCTIONS if with_jobs else ''}\n\nDetected siblings: {len(runtime.config.detected)}; "
+        f"{INSTRUCTIONS_SUMMARY}{_JOB_INSTRUCTIONS if with_jobs else ''}{_CONDENSED_INSTRUCTIONS}\n\nDetected siblings: {len(runtime.config.detected)}; "
         f"connected children: {len(runtime.clients)}."
         f"\nTools by child MCP (server ID: tools):\n{groups}\n\n"
         + (rules.read_text(encoding="utf-8") if rules.is_file() else "")

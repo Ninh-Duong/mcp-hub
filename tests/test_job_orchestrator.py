@@ -6,7 +6,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
-from mcp.types import CallToolResult, TextContent
+from unittest.mock import AsyncMock
+
+from mcp.types import CallToolResult, TextContent, Tool
 
 from mcp_hub.agents.config import AgentConfig
 from mcp_hub.agents.providers import ModelProvider, ModelToolCall, ModelTurn
@@ -205,6 +207,107 @@ class SpecialistCondenserTest(unittest.IsolatedAsyncioTestCase):
 
         res = await executor.run("job-1", "logs", "Analyze logs")
         self.assertEqual(res.summary, "Done after failure")
+
+
+class OfflineInvestigationTest(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = JobStore(Path(self.tmp.name) / "jobs.sqlite3", protector=_PlainProtector())
+        log_tool = Tool(
+            name="logs__get_openobserve_service_logs",
+            description="",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "organization": {"type": "string"},
+                    "stream": {"type": "string"},
+                    "env": {"type": "string"},
+                    "query": {"type": "string"},
+                },
+            },
+            annotations={"readOnlyHint": True},
+        )
+        self.runtime = SimpleNamespace(
+            routes={"logs__get_openobserve_service_logs": SimpleNamespace(server_id="mcp-server-logs")},
+            public_tools={"logs__get_openobserve_service_logs": log_tool},
+            audit=None,
+            call_child_tool=AsyncMock(return_value=CallToolResult(content=[TextContent(type="text", text="log line 1\nlog line 2")], is_error=False)),
+        )
+        self.project = ProjectConfig(
+            "orders", ("dev",), default_env="dev",
+            logs={"dev": SimpleNamespace(organization="org1", stream="default")},
+        )
+
+    async def asyncTearDown(self) -> None:
+        self.store.close()
+        self.tmp.cleanup()
+
+    async def test_offline_investigation_calls_fixed_tools_and_saves_draft(self) -> None:
+        summarizer = AsyncMock()
+        summarizer.summarize = AsyncMock(return_value="Draft (local model):\n- Analyzed logs")
+        runner = JobRunner(
+            store=self.store,
+            runtime=self.runtime,
+            projects={"orders": self.project},
+            agents={},
+            summarizer=summarizer,
+        )
+        try:
+            job_id = self.store.create_job(project="orders", question="Orders failing", env="dev")
+            self.store.transition_job(job_id, "running", event="job.started")
+            await runner._execute_job(job_id)
+
+            job = self.store.get_job(job_id)
+            self.assertEqual(job["state"], "partial")
+            self.assertIn("Draft (local model):", job["summary"])
+            self.runtime.call_child_tool.assert_awaited()
+            called_args = self.runtime.call_child_tool.call_args.args
+            self.assertEqual(called_args[0], "logs__get_openobserve_service_logs")
+            self.assertEqual(called_args[1]["organization"], "org1")
+            self.assertEqual(called_args[1]["stream"], "default")
+            self.assertEqual(called_args[1]["env"], "dev")
+        finally:
+            await runner.close()
+
+    async def test_no_summarizer_uses_fallback_summary(self) -> None:
+        runner = JobRunner(
+            store=self.store,
+            runtime=self.runtime,
+            projects={"orders": self.project},
+            agents={},
+            summarizer=None,
+        )
+        try:
+            job_id = self.store.create_job(project="orders", question="Orders failing", env="dev")
+            self.store.transition_job(job_id, "running", event="job.started")
+            await runner._execute_job(job_id)
+
+            job = self.store.get_job(job_id)
+            self.assertEqual(job["state"], "partial")
+            self.assertIn("Coordinator agent is not configured.", job["summary"])
+        finally:
+            await runner.close()
+
+    async def test_summarizer_returning_none_uses_fallback_summary(self) -> None:
+        summarizer = AsyncMock()
+        summarizer.summarize = AsyncMock(return_value=None)
+        runner = JobRunner(
+            store=self.store,
+            runtime=self.runtime,
+            projects={"orders": self.project},
+            agents={},
+            summarizer=summarizer,
+        )
+        try:
+            job_id = self.store.create_job(project="orders", question="Orders failing", env="dev")
+            self.store.transition_job(job_id, "running", event="job.started")
+            await runner._execute_job(job_id)
+
+            job = self.store.get_job(job_id)
+            self.assertEqual(job["state"], "partial")
+            self.assertIn("Coordinator agent is not configured.", job["summary"])
+        finally:
+            await runner.close()
 
 
 if __name__ == "__main__":

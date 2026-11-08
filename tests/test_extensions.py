@@ -308,12 +308,14 @@ class LaunchFileTest(_AuditCase):
             self.assertEqual(saved_extensions(), frozenset())
 
     def test_service_installs_only_requested_extensions(self) -> None:
-        self.assertIsNone(service.install_extensions(frozenset(), self.runtime, None, self.audit))
+        self.assertEqual(service.install_extensions(frozenset(), self.runtime, None, self.audit), {})
         self.assertEqual(self.runtime.observers, ())
-        self.assertIsNone(service.install_extensions(frozenset({"unknown"}), self.runtime, None, self.audit))
+        self.assertEqual(service.install_extensions(frozenset({"unknown"}), self.runtime, None, self.audit), {})
         self.assertIn("extension.unknown", self.log())
 
-        ui = service.install_extensions(frozenset({ACTIVITY_UI}), self.runtime, None, self.audit)
+        installed = service.install_extensions(frozenset({ACTIVITY_UI}), self.runtime, None, self.audit)
+        self.assertIn(ACTIVITY_UI, installed)
+        ui = installed[ACTIVITY_UI]
         self.assertIsInstance(ui, ActivityUi)
         self.assertEqual(self.runtime.observers, (ui,))
         self.assertIs(self.runtime.activity_source, ui)

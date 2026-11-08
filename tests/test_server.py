@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 from mcp.types import CallToolRequestParams, CallToolResult, TextContent, Tool
 
@@ -283,6 +284,21 @@ class ServerPlanAssistTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ev["assist"], "rules")
         self.assertIn("Environment: dev.", res.content[0].text)
         self.assertNotIn("Environment: prod.", res.content[0].text)
+
+
+class ServerInstructionsTest(unittest.TestCase):
+    def test_instructions_include_condensed_and_bitnet_guidance(self) -> None:
+        from mcp_hub.server import _server_instructions
+
+        runtime = MagicMock()
+        runtime.tools_by_server.return_value = {"srv1": ["tool1"]}
+        runtime.config.detected = []
+        runtime.clients = {}
+
+        instructions = _server_instructions(runtime, with_jobs=True)
+        self.assertIn("Results may be condensed", instructions)
+        self.assertIn("hub__get_full_result", instructions)
+        self.assertIn("With BitNet on, hub__plan may fill", instructions)
 
 
 if __name__ == "__main__":
