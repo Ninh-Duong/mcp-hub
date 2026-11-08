@@ -237,7 +237,7 @@ class SpecialistExecutor:
                 if len(raw_text) >= self.condense_min_chars:
                     try:
                         condensed = await asyncio.wait_for(
-                            self.condenser.condense(call.name, raw_text, role),
+                            self.condenser.condense(raw_text, call.name),
                             timeout=self.condense_timeout_seconds,
                         )
                         target = (
