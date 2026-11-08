@@ -38,8 +38,10 @@ from .audit import AuditLog, default_log_dir, describe_exception, redact
 from .batch import BATCH_TOOL, BatchRefused, batch_result, batch_tool, parse_calls, run_batch
 from .children import Backoff, ChildOpener, ChildSupervisor, ChildUnavailable, open_stdio_client
 from .config import HUB_ROOT, HubConfig, ServerConfig, ToolRoute, is_sensitive_key, load_config
-from .extensions import ActivitySource, CallObserver, PlanAssistant, ResultCondenser, empty_activity
+from datetime import UTC, datetime
+from .extensions import ActivitySource, CallObserver, PlanAssistant, PlanContext, PlanHints, ResultCondenser, empty_activity
 from .full_results import FullResultStore
+from .plan_merge import merge_plan_arguments
 from . import policy
 from .playbooks import Playbook, load_playbooks
 from .policy import PLAN_TOOL, CallFacts, PlanBook, PlanCatalog, PolicyRefused, Violation
@@ -324,11 +326,51 @@ class HubRuntime:
     def policy_mode(self) -> str:
         return self.settings.policy.mode
 
+    async def _assist_plan(self, arguments: dict[str, Any]) -> tuple[dict[str, Any], str]:
+        task = arguments.get("task")
+        if self.plan_assistant is None or not isinstance(task, str) or not task.strip():
+            return arguments, "off"
+        proj = self.projects.get(arguments["project"]) if isinstance(arguments.get("project"), str) else None
+        envs = tuple(proj.allowed_envs) if proj is not None else ()
+        context = PlanContext(
+            task=task,
+            playbooks={pb_id: pb.when for pb_id, pb in self.playbooks.items()},
+            servers=tuple(self.clients.keys()),
+            envs=envs,
+            now=datetime.now(UTC),
+        )
+        try:
+            hints = await asyncio.wait_for(
+                self.plan_assistant.hints(context),
+                self.settings.bitnet.plan_timeout_seconds,
+            )
+        except Exception:
+            hints = None
+        if hints is None:
+            return arguments, "fallback"
+        cleaned_hints = self._clean_hints(hints, context)
+        merged, used = merge_plan_arguments(arguments, cleaned_hints)
+        assist = cleaned_hints.source if (used or hints is not None) else "fallback"
+        return merged, assist
+
+    def _clean_hints(self, hints: PlanHints, context: PlanContext) -> PlanHints:
+        pb = hints.playbook if hints.playbook in context.playbooks else None
+        servers = tuple(s for s in hints.servers if s in context.servers)
+        env = hints.env if (not context.envs or hints.env in context.envs) else None
+        return replace(hints, playbook=pb, servers=servers, env=env)
+
     async def _create_plan(self, arguments: dict[str, Any], request_id: str) -> CallToolResult:
         """`hub__plan`: store a new plan and return its ID, its tools, and each planned child's contract."""
+        arguments, assist = await self._assist_plan(arguments)
         fields = {"request_id": request_id, "feature": "hub", "server": "mcp-hub", "tool": PLAN_TOOL}
         try:
-            plan = self.plans.create(arguments, PlanCatalog(self._call_facts, self.playbooks, self.projects))
+            plan = self.plans.create(
+                arguments,
+                PlanCatalog(
+                    self._call_facts, self.playbooks, self.projects,
+                    max_window_hours=self.settings.jobs.max_window_hours,
+                ),
+            )
         except PolicyRefused as exc:
             self.audit.write("tool.call.denied", level=logging.WARNING, **fields, reason="policy:plan")
             return _error_result(f"Policy: {exc}")
@@ -338,6 +380,7 @@ class HubRuntime:
             env_set=plan.env is not None, writes=sorted(plan.writes), steps=len(plan.steps),
             connection_checks=plan.connection_checks, mode=self.policy_mode,
             playbook=plan.playbook.id if plan.playbook else None, project_set=plan.project is not None,
+            assist=assist,
         )
         text = policy.plan_summary(plan, self.tools_by_server(), contracts)
         return CallToolResult(content=[TextContent(type="text", text=text)])
