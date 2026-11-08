@@ -64,6 +64,7 @@ Ask your AI client, naming the tool:
 | Connect or reconfigure an AI client | [docs/connecting-a-client.md](docs/connecting-a-client.md), [docs/clients/](docs/clients/) |
 | What each tool does | [docs/mcps/](docs/mcps/) |
 | Faster multi-step reads (`hub__batch`) | [docs/batch.md](docs/batch.md) |
+| Local BitNet AI (planner, result condenser, offline draft) | [docs/bitnet.md](docs/bitnet.md) |
 | Plan-first usage policy (`hub__plan`) | [docs/usage-policy.md](docs/usage-policy.md) |
 | Task playbooks (rcid, Jira bug, service errors, PR review) | [docs/playbooks/README.md](docs/playbooks/README.md) |
 | The Status app | [docs/desktop-app.md](docs/desktop-app.md) |

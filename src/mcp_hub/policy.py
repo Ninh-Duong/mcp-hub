@@ -23,7 +23,10 @@ import secrets
 from collections import OrderedDict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, NamedTuple
+
+from .plan_merge import parse_window
 
 from mcp.types import Tool
 
@@ -71,6 +74,7 @@ class PlanCatalog:
     tools: Mapping[str, CallFacts]
     playbooks: Mapping[str, Playbook] = field(default_factory=dict)
     projects: Mapping[str, ProjectConfig] = field(default_factory=dict)
+    max_window_hours: int = 168
 
 
 @dataclass
@@ -84,6 +88,8 @@ class Plan:
     playbook: Playbook | None = None
     project: str | None = None
     target: LogTarget | None = None
+    task: str = ""
+    window: tuple[datetime, datetime] | None = None
     # Call key -> number of failed attempts, or _SUCCEEDED once it succeeded.
     seen: dict[str, int] = field(default_factory=dict)
     had_failure: bool = False
@@ -103,6 +109,8 @@ _PLAN_SCHEMA: dict[str, Any] = {
                               "description": "True only when the user asked to check connections."},
         "playbook": {"type": "string", "description": "The playbook that matches the user's input (listed above)."},
         "project": {"type": "string", "description": "The project alias (see hub__list_projects); log playbooks need it."},
+        "since": {"type": "string", "format": "date-time", "description": "UTC window for log/SQL time filters."},
+        "until": {"type": "string", "format": "date-time", "description": "UTC window for log/SQL time filters."},
     },
     "required": ["task"],
     "additionalProperties": False,
@@ -172,7 +180,7 @@ class PlanBook:
 
 def parse_plan(arguments: Mapping[str, Any], catalog: PlanCatalog, plan_id: str) -> Plan:
     """Validate `hub__plan` arguments against the Hub's tools, playbooks, and projects; PolicyRefused says the fix."""
-    _text(arguments.get("task"), "task")
+    task = _text(arguments.get("task"), "task")
     playbook = _playbook(arguments, catalog)
     servers = _servers(arguments, catalog, playbook)
     steps = _steps(arguments, playbook)
@@ -187,7 +195,11 @@ def parse_plan(arguments: Mapping[str, Any], catalog: PlanCatalog, plan_id: str)
     checks = arguments.get("connection_checks", False)
     if not isinstance(checks, bool):
         raise PolicyRefused("'connection_checks' must be true or false.")
-    return Plan(plan_id, frozenset(servers), env, frozenset(writes), checks, steps, playbook, project, target)
+    try:
+        window = parse_window(arguments.get("since"), arguments.get("until"), catalog.max_window_hours)
+    except ValueError as exc:
+        raise PolicyRefused(str(exc)) from exc
+    return Plan(plan_id, frozenset(servers), env, frozenset(writes), checks, steps, playbook, project, target, task=task, window=window)
 
 
 def _playbook(arguments: Mapping[str, Any], catalog: PlanCatalog) -> Playbook | None:
@@ -395,6 +407,10 @@ def plan_summary(plan: Plan, tools_by_server: Mapping[str, list[str]], contracts
         "after a failed call; no identical repeats. Batch independent reads with hub__batch.",
     ]
     lines.extend(_scope_lines(plan))
+    if plan.window is not None:
+        since_iso = plan.window[0].isoformat()
+        until_iso = plan.window[1].isoformat()
+        lines.append(f"Time window: {since_iso} to {until_iso} (UTC). Use exactly this window for every log and SQL time filter.")
     for server_id in sorted(plan.servers):
         lines.append(f"\n## {server_id}\nTools: {', '.join(tools_by_server.get(server_id, []))}")
         if contracts.get(server_id):

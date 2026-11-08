@@ -39,12 +39,22 @@ The values an operator may want to change live in one optional `settings` object
 | `jobs` | `maxChildCalls` | `30` | Child tool calls one investigation may make. |
 | `jobs` | `retentionDays` | `30` | Days finished jobs and their encrypted evidence are kept. |
 | `jobs` | `approvalCodeMinutes` | `10` | Lifetime of a one-time write-approval code. |
+| `jobs` | `maxWindowHours` | `168` | Longest `since` to `until` span accepted in a plan or investigation job (in hours). |
 | `batch` | `maxCalls` | `8` | Most calls in one `hub__batch` (at least 2); the tool's schema follows it. |
 | `batch` | `maxPerChild` | `4` | Most calls of one batch that one child serves at the same time. |
 | `batch` | `timeoutSeconds` | `120` | Time the whole batch may take; a call still running is cancelled and reported. |
 | `policy` | `mode` | `"enforce"` | How the Hub applies a client's `hub__plan`: `enforce` refuses calls that break it, `warn` runs them with a warning, `off` needs no plan. See [usage-policy.md](usage-policy.md). |
 | `policy` | `maxPlans` | `256` | Plans kept in memory; the least recently used one is dropped, and a call naming it must plan again. |
 | `policy` | `healthCheckTools` | `jira__check_connection`, `pr__check_bitbucket_connection`, `source__check_connection`, `sql__check_connection` | Tool names treated as connection checks: allowed only after a failed call of the plan, or with `connection_checks: true`. A list of strings. |
+| `bitnet` | `port` | `8766` | llama-server port on `127.0.0.1` (`1024` to `65535`). |
+| `bitnet` | `threads` | `0` | CPU threads for llama-server; `0` means auto (half the CPU count, at least 1). |
+| `bitnet` | `model` | `"BitNet-b1.58-2B-4T"` | Model folder name under `vendor/bitnet/models/`. |
+| `bitnet` | `maxRestarts` | `3` | Sidecar restarts before marked unavailable. |
+| `bitnet` | `planTimeoutSeconds` | `3` | Time budget in seconds for `PlanAssistant.hints`. |
+| `bitnet` | `condenseTimeoutSeconds` | `8` | Time budget in seconds for `ResultCondenser.condense`. |
+| `bitnet` | `condenseMinChars` | `6000` | Minimum tool result text length to condense. |
+| `bitnet` | `fullResultTtlSeconds` | `1800` | Lifetime in seconds of a stored original result. |
+| `bitnet` | `fullResultMaxEntries` | `50` | Maximum number of original results kept in memory (LRU). |
 
 ## What stays in code
 

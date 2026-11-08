@@ -208,5 +208,14 @@
   "desktop.mini.clients": "{count} AI",
   "desktop.mini.dot": "{name} · {detail}",
   "desktop.settings.needsHub": "Start the Hub to see and change its settings.",
-  "desktop.settings.hub.autostartAppSource": "Available in the installed app."
+  "desktop.settings.hub.autostartAppSource": "Available in the installed app.",
+  "desktop.settings.hub.bitnet": "BitNet (local AI)",
+  "desktop.settings.hub.bitnetHint": "Plans requests and condenses large results on this PC. The first start installs about 1.5 GB into vendor/bitnet.",
+  "desktop.bitnet.state.off": "Off",
+  "desktop.bitnet.state.installing": "Installing…",
+  "desktop.bitnet.state.starting": "Starting…",
+  "desktop.bitnet.state.ready": "Ready",
+  "desktop.bitnet.state.restarting": "Restarting…",
+  "desktop.bitnet.state.unavailable": "Unavailable",
+  "desktop.bitnet.state.stopped": "Stopped"
 }

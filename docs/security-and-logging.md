@@ -88,6 +88,8 @@ When the Hub uses MCP `stdio`, stdout is reserved for protocol messages. Send ap
 | `hub.plan.created` | INFO | A client declared a plan with `hub__plan`: `plan_id`, `servers`, `env_set`, `writes`, `steps` (count), `connection_checks`, `mode`, `playbook`, and `project_set`. Never the task text, the steps, the project alias, or its log targets. |
 | `tool.call.cached` | INFO | A read-only call with a `cacheSeconds` TTL was answered from the Hub result cache (or joined an identical call in flight); the child was not called. Includes `duration_ms`. |
 | `tool.call.interrupted` | WARNING | The call was cancelled before the child answered. |
+| `tool.result.condensed` | INFO | A large read-only result was condensed: `request_id`, `server`, `tool`, `kept_lines`, `total_lines`, `source` (`rules` | `bitnet` | `fallback`), and `duration_ms`. Never the result content. |
+| `bitnet.sidecar.state` | INFO | Sidecar lifecycle or supervisor state change: `state`, `restarts`, and `error_type` when unavailable. |
 | `preflight.check` | INFO / WARNING | A pre-start check of one child: `server`, `step` (runtime name or `prepare`), and `ok`. No child output. |
 | `connection_file.failed` | WARNING | The service could not write the connection file, or restrict it to the current user (`error_type` only). The Hub still starts. If the file was not written, the desktop app shows **Not installed** and `hubctl stop`/`open` cannot reach the dashboard API until a later start writes it. |
 | `extension.unknown` | WARNING | The launch file named an extension the Hub does not know; it is ignored. |

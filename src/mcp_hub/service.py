@@ -3,13 +3,14 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import AsyncExitStack, suppress
+from pathlib import Path
 from typing import Any, Callable
 
 import uvicorn
 
 from .audit import AuditLog
-from .config import HubConfig, load_config
-from .extensions import ACTIVITY_UI, KNOWN_EXTENSIONS, read_launch_extensions, saved_extensions
+from .config import HUB_ROOT, HubConfig, load_config
+from .extensions import ACTIVITY_UI, BITNET, KNOWN_EXTENSIONS, read_launch_extensions, saved_extensions
 from .http import create_http_app
 from .agents.config import load_agent_configs
 from .dashboard.api import create_dashboard_routes
@@ -45,20 +46,25 @@ async def run_http() -> None:
             )
             job_runner.resume_queued_jobs()
             job_runner.watch_pending_approvals()
-            ui = install_extensions(requested, runtime, job_store, audit)
+            hub_root = getattr(config, "root", None) or HUB_ROOT
+            extensions = install_extensions(
+                requested, runtime, job_store, audit, job_runner=job_runner, root=hub_root,
+            )
             tokens = (service_config.token, admin_token)
-            await _serve(runtime, job_runner, ui, service_config.host, service_config.port, tokens, job_store)
+            await _serve(runtime, job_runner, extensions, service_config.host, service_config.port, tokens, job_store)
     finally:
         job_store.close()
 
 
 async def _serve(
-    runtime: HubRuntime, job_runner: JobRunner, ui: Any | None, host: str, port: int,
+    runtime: HubRuntime, job_runner: JobRunner, extensions: dict[str, Any] | Any, host: str, port: int,
     tokens: tuple[str, str], job_store: JobStore,
 ) -> None:
     """`tokens` is (client token, admin token)."""
+    ext_map = extensions if isinstance(extensions, dict) else ({ACTIVITY_UI: extensions} if extensions is not None else {})
     shutdown_event = asyncio.Event()
-    app = _build_http_app(runtime, job_runner, tokens, host, port, shutdown_event, ui)
+    app = _build_http_app(runtime, job_runner, tokens, host, port, shutdown_event, ext_map)
+    installed_names = list(ext_map.keys())
     runtime.audit.write(
         "hub.started",
         servers=list(runtime.config.servers),
@@ -66,10 +72,14 @@ async def _serve(
         transport="streamable-http",
         host=host,
         port=port,
-        extensions=[ACTIVITY_UI] if ui is not None else [],
+        extensions=installed_names,
     )
-    if ui is not None:
-        ui.start()
+    for ext in ext_map.values():
+        if hasattr(ext, "start"):
+            res = ext.start()
+            if asyncio.iscoroutine(res):
+                await res
+    ui = ext_map.get(ACTIVITY_UI)
     try:
         await _serve_until_stopped(
             app, host, port, shutdown_event, job_store, ui.close_listeners if ui is not None else None,
@@ -77,20 +87,38 @@ async def _serve(
         )
     finally:
         await job_runner.close()
-        if ui is not None:
-            await ui.close()  # after the runner, so calls it interrupted are written too
+        for ext in ext_map.values():
+            if hasattr(ext, "close"):
+                res = ext.close()
+                if asyncio.iscoroutine(res):
+                    await res
         runtime.audit.write("hub.stopped")
 
 
-def install_extensions(requested: frozenset[str], runtime: HubRuntime, store: JobStore, audit: AuditLog) -> Any | None:
+def install_extensions(
+    requested: frozenset[str],
+    runtime: HubRuntime,
+    store: JobStore | None = None,
+    audit: AuditLog | None = None,
+    *,
+    job_runner: JobRunner | None = None,
+    root: Path | None = None,
+) -> dict[str, Any]:
     """Install the extensions requested for this start; the default is none (fast mode)."""
     for name in sorted(requested - KNOWN_EXTENSIONS):
-        audit.write("extension.unknown", level=logging.WARNING, extension=name)
-    if ACTIVITY_UI not in requested:
-        return None
-    from .activity_ui import install  # imported only when requested; core modules never import it
+        if audit is not None:
+            audit.write("extension.unknown", level=logging.WARNING, extension=name)
+    installed: dict[str, Any] = {}
+    if ACTIVITY_UI in requested:
+        from .activity_ui import install as install_activity_ui
 
-    return install(runtime, store=store, audit=audit)
+        installed[ACTIVITY_UI] = install_activity_ui(runtime, store=store, audit=audit)
+    if BITNET in requested:
+        from .bitnet import install as install_bitnet
+
+        hub_root = root or getattr(getattr(runtime, "config", None), "root", None) or HUB_ROOT
+        installed[BITNET] = install_bitnet(runtime, job_runner, root=hub_root, audit=audit)
+    return installed
 
 
 def _publish_connection(service_config: Any, admin_token: str, audit: AuditLog) -> None:
@@ -131,20 +159,26 @@ def _open_job_store(retention_days: int) -> JobStore:
 
 def _build_http_app(
     runtime: HubRuntime, job_runner: JobRunner, tokens: tuple[str, str], host: str, port: int,
-    shutdown_event: asyncio.Event, ui: Any | None = None,
+    shutdown_event: asyncio.Event, extensions: dict[str, Any] | Any = None,
 ):
+    ext_map = extensions if isinstance(extensions, dict) else ({ACTIVITY_UI: extensions} if extensions is not None else {})
     sessions = DashboardSessions(settings=getattr(runtime, "settings", Settings()).dashboard)
     server = create_mcp_server(runtime, job_runner)
+    ui = ext_map.get(ACTIVITY_UI)
     if ui is not None:
         ui.attach_server(server)
+    dashboard_exts = tuple(
+        ext.dashboard_extension() for ext in ext_map.values() if hasattr(ext, "dashboard_extension")
+    )
     routes = create_dashboard_routes(
         runtime, job_runner, sessions, shutdown_callback=shutdown_event.set,
-        extensions=(ui.dashboard_extension(),) if ui is not None else (),
+        extensions=dashboard_exts,
     )
     token, admin_token = tokens
+    middleware = ui.middleware() if ui is not None else ()
     return create_http_app(
         server, token, host=host, port=port, custom_routes=routes, sessions=sessions,
-        middleware=ui.middleware() if ui is not None else (), admin_token=admin_token,
+        middleware=middleware, admin_token=admin_token,
     )
 
 

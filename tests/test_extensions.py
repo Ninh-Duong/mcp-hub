@@ -178,8 +178,9 @@ class ActivityUiTest(_AuditCase):
         self.assertEqual({route.path for route in extension.routes},
                          {"/dashboard/api/activity", "/dashboard/api/activity/stream"})
         self.assertEqual(set(extension.status_fields()), {"activity", "clients"})
-        self.assertEqual(status_flags((ACTIVITY_UI,)), {"activityUi": True})
-        self.assertEqual(status_flags(()), {"activityUi": False})
+        self.assertEqual(status_flags((ACTIVITY_UI,)), {"activityUi": True, "bitnet": False})
+        self.assertEqual(status_flags({"bitnet"}), {"activityUi": False, "bitnet": True})
+        self.assertEqual(status_flags(()), {"activityUi": False, "bitnet": False})
 
     async def test_attach_server_serves_presence_listen(self) -> None:
         server = create_mcp_server(self.runtime)
@@ -307,12 +308,14 @@ class LaunchFileTest(_AuditCase):
             self.assertEqual(saved_extensions(), frozenset())
 
     def test_service_installs_only_requested_extensions(self) -> None:
-        self.assertIsNone(service.install_extensions(frozenset(), self.runtime, None, self.audit))
+        self.assertEqual(service.install_extensions(frozenset(), self.runtime, None, self.audit), {})
         self.assertEqual(self.runtime.observers, ())
-        self.assertIsNone(service.install_extensions(frozenset({"unknown"}), self.runtime, None, self.audit))
+        self.assertEqual(service.install_extensions(frozenset({"unknown"}), self.runtime, None, self.audit), {})
         self.assertIn("extension.unknown", self.log())
 
-        ui = service.install_extensions(frozenset({ACTIVITY_UI}), self.runtime, None, self.audit)
+        installed = service.install_extensions(frozenset({ACTIVITY_UI}), self.runtime, None, self.audit)
+        self.assertIn(ACTIVITY_UI, installed)
+        ui = installed[ACTIVITY_UI]
         self.assertIsInstance(ui, ActivityUi)
         self.assertEqual(self.runtime.observers, (ui,))
         self.assertIs(self.runtime.activity_source, ui)
@@ -334,9 +337,26 @@ class LaunchFileTest(_AuditCase):
         with TestClient(full) as client:
             full_status = client.get("/dashboard/api/status", headers=headers).json()
             full_activity = client.get("/dashboard/api/activity", headers=headers).status_code
-        self.assertEqual((fast_status["extensions"], fast_activity), ({"activityUi": False}, 404))
-        self.assertEqual((full_status["extensions"], full_activity), ({"activityUi": True}, 503))
+        self.assertEqual((fast_status["extensions"], fast_activity), ({"activityUi": False, "bitnet": False}, 404))
+        self.assertEqual((full_status["extensions"], full_activity), ({"activityUi": True, "bitnet": False}, 503))
         self.assertIn("clients", full_status)
+
+
+    def test_bitnet_contracts_are_frozen(self) -> None:
+        from datetime import UTC, datetime
+        from dataclasses import FrozenInstanceError
+        from mcp_hub.extensions import BITNET, KNOWN_EXTENSIONS, PlanContext, PlanHints, Condensed
+
+        self.assertIn(BITNET, KNOWN_EXTENSIONS)
+        ctx = PlanContext(task="t", playbooks={}, servers=(), envs=(), now=datetime.now(UTC))
+        with self.assertRaises(FrozenInstanceError):
+            ctx.task = "changed"  # type: ignore[misc]
+        hints = PlanHints()
+        with self.assertRaises(FrozenInstanceError):
+            hints.source = "other"  # type: ignore[misc]
+        condensed = Condensed(text="ok", kept_lines=1, total_lines=1, source="rules")
+        with self.assertRaises(FrozenInstanceError):
+            condensed.text = "no"  # type: ignore[misc]
 
 
 if __name__ == "__main__":

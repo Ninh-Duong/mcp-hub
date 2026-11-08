@@ -38,6 +38,19 @@ class ParsePlanTest(unittest.TestCase):
         self.assertEqual((plan.servers, plan.env, plan.writes), (frozenset({"logs-child"}), "stg", frozenset({"logs__export"})))
         self.assertTrue(plan.connection_checks)
 
+    def test_window_parsing_in_plan_and_summary(self) -> None:
+        args = plan_args(since="2026-11-08T00:00:00Z", until="2026-11-08T12:00:00Z")
+        plan = policy.parse_plan(args, CATALOG, "p-window")
+        self.assertIsNotNone(plan.window)
+        summary = policy.plan_summary(plan, {"logs-child": ["logs__query"]}, {})
+        self.assertIn("Time window: 2026-11-08T00:00:00+00:00 to 2026-11-08T12:00:00+00:00 (UTC).", summary)
+
+    def test_over_limit_window_in_plan_is_refused(self) -> None:
+        args = plan_args(since="2026-11-01T00:00:00Z", until="2026-11-08T12:00:00Z")
+        cat = PlanCatalog(FACTS, max_window_hours=24)
+        with self.assertRaises(PolicyRefused):
+            policy.parse_plan(args, cat, "p-over")
+
     def test_invalid_plans_are_refused_with_the_fix(self) -> None:
         cases = {
             "no task": plan_args(task=" "),

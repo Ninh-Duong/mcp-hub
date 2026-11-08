@@ -30,6 +30,7 @@ class HubSettings:
     servers: tuple[ServerSwitch, ...]
     # False when the Hub runs with a custom MCP_HUB_CONFIG: the app then only shows the values.
     editable: bool
+    bitnet: bool = False
 
 
 def settings_from(value: dict[str, Any]) -> HubSettings:
@@ -41,7 +42,12 @@ def settings_from(value: dict[str, Any]) -> HubSettings:
                      item.get("reason") if isinstance(item.get("reason"), str) else None)
         for item in servers
     )
-    return HubSettings(value.get("activity_ui") is True, switches, value.get("editable") is True)
+    return HubSettings(
+        value.get("activity_ui") is True,
+        switches,
+        value.get("editable") is True,
+        bitnet=value.get("bitnet") is True,
+    )
 
 
 class HubClient:
@@ -58,6 +64,9 @@ class HubClient:
 
     def set_activity_ui(self, enabled: bool) -> None:
         self._call("/dashboard/api/settings/tracking", {"enabled": enabled})
+
+    def set_bitnet(self, enabled: bool) -> None:
+        self._call("/dashboard/api/settings/bitnet", {"enabled": enabled})
 
     def set_server_enabled(self, server_id: str, enabled: bool) -> None:
         self._call(f"/dashboard/api/settings/servers/{quote(server_id, safe='')}", {"enabled": enabled})
