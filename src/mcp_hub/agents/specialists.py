@@ -53,7 +53,10 @@ _REUSED_NOTE = (
     "Do not repeat identical calls."
 )
 _ERROR_NOTE = "Error: {error}. No result was produced; adjust the call or answer with the evidence you have."
-_DEFAULT_PROMPT = "Use only your provided read-only tools and cite evidence."
+_DEFAULT_PROMPT = (
+    "Use only your provided read-only tools and cite evidence. "
+    "When the task has a `window`, use exactly that UTC window for every log and SQL time filter."
+)
 
 
 def tools_for_role(role: str, tools: list[Any], allow: Callable[[Any], bool] = is_read_only_tool) -> list[Any]:
