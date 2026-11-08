@@ -18,7 +18,8 @@ from ..agents.specialists import (
     EvidenceRef, SpecialistExecutor, SpecialistResult, SpecialistError, ToolCallOutcome,
 )
 from ..audit import redact
-from ..plan_merge import fold, parse_window
+from ..extensions import DraftSummarizer, PlanAssistant, PlanContext, ResultCondenser
+from ..plan_merge import fold, parse_window, roles_for_servers
 from ..result_cache import cache_key
 from ..security.dpapi import WINDOWS_ONLY_MESSAGE
 from ..server import is_read_only_tool
@@ -140,9 +141,21 @@ class JobRunner:
         provider_factory: Callable[[AgentConfig], ModelProvider] = create_provider,
         policy: SideEffectPolicy | None = None,
         limits: JobSettings = JobSettings(),
+        plan_assistant: PlanAssistant | None = None,
+        condenser: ResultCondenser | None = None,
+        summarizer: DraftSummarizer | None = None,
+        plan_timeout_seconds: float = 3.0,
+        condense_min_chars: int = 6000,
+        condense_timeout_seconds: float = 8.0,
     ) -> None:
         self.store = store
         self.limits = limits
+        self.plan_assistant = plan_assistant
+        self.condenser = condenser
+        self.summarizer = summarizer
+        self.plan_timeout_seconds = plan_timeout_seconds
+        self.condense_min_chars = condense_min_chars
+        self.condense_timeout_seconds = condense_timeout_seconds
         self._job_window = timedelta(seconds=limits.max_job_seconds)
         self.runtime = runtime
         self.projects = projects
@@ -524,10 +537,58 @@ class JobRunner:
         if self.store.get_job(job_id)["state"] == "running":
             self.store.transition_job(job_id, "failed", event="job.failed")
 
+    async def _plan_job(self, job_id: str, request: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
+        if self.plan_assistant is None:
+            await _db(self.store.append_event, job_id, "job.planned", agent=None, tool="off")
+            return _roles_for(request), request
+
+        hints = None
+        source = "fallback"
+        try:
+            project = self.projects.get(request.get("project"))
+            envs = tuple(project.allowed_envs) if project else ()
+            routes = getattr(self.runtime, "routes", {})
+            servers = tuple(sorted({getattr(r, "server_id", "") for r in routes.values()} - {""}))
+            context = PlanContext(
+                task=request.get("question", ""),
+                playbooks={},
+                servers=servers,
+                envs=envs,
+                now=self.store.clock(),
+            )
+            hints = await asyncio.wait_for(
+                self.plan_assistant.assist_plan(context),
+                timeout=self.plan_timeout_seconds,
+            )
+            if hints and hints.source:
+                source = hints.source
+        except Exception:
+            hints = None
+            source = "fallback"
+
+        await _db(self.store.append_event, job_id, "job.planned", agent=None, tool=source)
+        if hints is None:
+            return _roles_for(request), request
+
+        hinted_roles = roles_for_servers(hints.servers, getattr(self.runtime, "routes", {}))
+        allowed_roles = set(AGENT_ROLES) - {"coordinator"}
+        roles: list[str] = []
+        for role in [*_roles_for(request), *hinted_roles]:
+            if role in allowed_roles and role not in roles:
+                roles.append(role)
+
+        req = dict(request)
+        if req.get("since") is None and req.get("until") is None and hints.since is not None and hints.until is not None:
+            req["since"] = hints.since.isoformat()
+            req["until"] = hints.until.isoformat()
+            await _db(self.store.update_request, job_id, since=req["since"], until=req["until"])
+        return roles, req
+
     async def _execute_job(self, job_id: str) -> None:
         self._tool_counts[job_id] = 0
         request = await _db(self.store.get_request, job_id)
-        findings, incomplete, timed_out = await self._investigate(job_id, request)
+        roles, request = await self._plan_job(job_id, request)
+        findings, incomplete, timed_out = await self._investigate(job_id, request, roles=roles)
         summary, synthesized = await self._summarize(request, findings, timed_out)
         final_state = "partial" if incomplete or timed_out or not synthesized else "completed"
         await _db(self._finish_job, job_id, redact(summary, limit=4000), final_state)
@@ -574,15 +635,18 @@ class JobRunner:
             return _fallback_summary(findings, *notes, f"Coordinator failed ({type(exc).__name__})."), False
         return "\n\n".join([summary, *notes]), True
 
-    async def _investigate(self, job_id: str, request: dict[str, Any]) -> tuple[list[SpecialistResult], bool, bool]:
+    async def _investigate(
+        self, job_id: str, request: dict[str, Any], roles: list[str] | None = None,
+    ) -> tuple[list[SpecialistResult], bool, bool]:
         """Run the specialists for at most the job window; return findings, incomplete, and timed out.
 
         A specialist still running at the limit is cancelled; it and any failed specialist keep
         the evidence they already stored.
         """
+        specialist_roles = roles if roles is not None else _roles_for(request)
         tasks = {
             role: asyncio.create_task(self._run_specialist(job_id, role, request), name=f"mcp-hub-{role}-{job_id}")
-            for role in _roles_for(request)
+            for role in specialist_roles
         }
         try:
             _done, pending = await asyncio.wait(tasks.values(), timeout=self.limits.max_job_seconds)
@@ -605,6 +669,9 @@ class JobRunner:
             save_result=self.store.save_encrypted_result,
             call_tool=self._call_child_tool,
             tool_filter=self.policy.offers_tool,
+            condenser=self.condenser,
+            condense_min_chars=self.condense_min_chars,
+            condense_timeout_seconds=self.condense_timeout_seconds,
         )
         await _db(self.store.append_event, job_id, "agent.started", agent=role)
         return await executor.run(job_id, role, _specialist_task(request))
