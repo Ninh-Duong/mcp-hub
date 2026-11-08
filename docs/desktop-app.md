@@ -12,6 +12,7 @@ A small frosted-glass window (Qt), installed on its own with `mcp-hub-status-set
   - **Hub:**
     - Start, Restart, and Stop the Hub (`hubctl start`, `restart`, `stop`).
     - **Track AI clients**, the activity UI saved for every start (see [Hub settings](#hub-settings)).
+    - **BitNet (local AI)**, plan requests and condense large results on this PC.
     - **Start Hub at sign-in** (the Hub's task, changed through the Hub's API) and **Open this app at sign-in** (the app's own entry in the user's Run key; only in the installed app).
   - **MCPs:** each child MCP on or off.
 
@@ -105,7 +106,7 @@ The **connection file** is `%LOCALAPPDATA%\mcp-hub\connection.json`: `{"version"
 |---|---|
 | `desktop/usage.py` | Logic, no Qt. `stream_usage` (a worker thread) reads `GET /dashboard/api/activity/stream` with the bearer and forwards its snapshot and call events. It reconnects with a backoff from 1 to `STREAM_RETRY_MAX_SECONDS` (30 s). `UsageBoard` keeps the running calls and the last finished call per child; `usage()` gives a child's line and `client_usage()` the children each client uses. |
 | `desktop/connection.py` | Reads the connection file: `load_connection` accepts only a `127.0.0.1` URL and a token of at least 32 characters, and raises `ConnectionMissing` (shown as **Not installed**) otherwise. The token is never in an error or `repr`. |
-| `desktop/hub_api.py` | `HubClient`: the Hub's settings API (`read_settings`, `set_activity_ui`, `set_server_enabled`, `read_hub_autostart`, `set_hub_autostart`) and `control` (restart or stop). It holds the app's own `HubSettings` and `ServerSwitch` dataclasses. Failures are `OSError` or `ValueError`. |
+| `desktop/hub_api.py` | `HubClient`: the Hub's settings API (`read_settings`, `set_activity_ui`, `set_bitnet`, `set_server_enabled`, `read_hub_autostart`, `set_hub_autostart`) and `control` (restart or stop). It holds the app's own `HubSettings` and `ServerSwitch` dataclasses. Failures are `OSError` or `ValueError`. |
 | `desktop/system.py` | What the app does on Windows itself: `start_hub` (the Hub's scheduled task, no window) and its own Run-key entry (`app_autostart`, `set_app_autostart`, only when frozen). |
 | `desktop/status.py` | Logic, no Qt. It reads the URL and admin token from the connection file. It calls `GET /health`, then `GET /dashboard/api/status` with the bearer, and builds a `HubSnapshot`. `open_dashboard` sends `POST /dashboard/pair` and opens the link. Requests go only to the `127.0.0.1` URL in the connection file, bypass any configured proxy, and time out after 3 s. |
 | `desktop/i18n.py` | `Translator`: text from the `desktop.*` keys (plus the shared `connection.*` and `clients.empty` keys) in `dashboard/locales/<lang>.json`; `system_language` reads the Windows display language. |
@@ -113,7 +114,7 @@ The **connection file** is `%LOCALAPPDATA%\mcp-hub\connection.json`: `{"version"
 | `desktop/widgets.py` | `Card` (the frosted panel, styled by `QFrame#card`), `Row` (tone glyph, name, detail), `Page` (a Settings tab, with segment and slider rows), `ConfirmButton` (two-step confirm), `button`, `label`, `set_props` (stylesheet properties), and `dot_icon`. |
 | `desktop/mini.py` | `MiniBar`, the pinned one-line bar of compact mode: dots updated in place, drag to move (`startSystemMove`). |
 | `desktop/settings.py` | `SettingsPanel`, the Settings card (title, tab row, one visible page, restart notice), and `AppearancePage`. Pages report choices through callbacks and show the current ones through `sync`; `StatusWindow` applies and saves them. |
-| `desktop/hub_page.py` | `HubPage` (Hub control, Track AI clients, the two sign-in switches) and `ChildrenPage` (one On/Off row per child). Both show `desktop.settings.needsHub` while the Hub is not running. |
+| `desktop/hub_page.py` | `HubPage` (Hub control, Track AI clients, BitNet switch, the two sign-in switches) and `ChildrenPage` (one On/Off row per child). Both show `desktop.settings.needsHub` while the Hub is not running. |
 | `desktop/update.py` | Logic, no Qt. `check_latest` (one request to the latest Release; any failure is `None`), `update_blocked` (the health gate), `download_verified` (the SHA-256 is compared before anything runs), `launch_update` (the hidden PowerShell that waits, installs silently, and reopens the app), `install`, and the `Updater` the window takes (a fake in tests). |
 | `desktop/update_card.py` | `UpdateCard`: the card above the actions, with its note line (version in use, the gate, progress, or the one fixed failure sentence). |
 | `desktop/win32.py` | Windows integration, each with a harmless fallback: the window style (title bar theme, rounded corners, acrylic accent), the single-instance mutex, the AppUserModelID shared with the installed shortcut (`set_app_id`), the Windows app theme, and screen capture. |

@@ -84,6 +84,22 @@ class HubSettingsTest(unittest.TestCase):
         hub_settings.set_activity_ui(False)
         self.assertNotIn("extensions", json.loads(self.hub_json.read_text(encoding="utf-8")))
 
+    def test_set_extension_manages_extensions_list_and_validates(self) -> None:
+        self.write_hub_json({"version": 1, "servers": {}, "features": {}, "extensions": ["activity-ui"]})
+        hub_settings.set_extension("bitnet", True)
+        self.assertEqual(json.loads(self.hub_json.read_text(encoding="utf-8"))["extensions"], ["activity-ui", "bitnet"])
+        settings = hub_settings.read_settings()
+        self.assertTrue(settings.activity_ui)
+        self.assertTrue(settings.bitnet)
+
+        hub_settings.set_extension("activity-ui", False)
+        self.assertEqual(json.loads(self.hub_json.read_text(encoding="utf-8"))["extensions"], ["bitnet"])
+        hub_settings.set_extension("bitnet", False)
+        self.assertNotIn("extensions", json.loads(self.hub_json.read_text(encoding="utf-8")))
+
+        with self.assertRaises(config.ConfigError):
+            hub_settings.set_extension("unknown-ext", True)
+
     def test_credentials_placeholder_is_reported_without_reading_out_values(self) -> None:
         child = {"transport": "stdio", "command": "node", "cwd": "../mcp-server-logs", "env": {"TOKEN": config.SECRET_PLACEHOLDER}}
         (self.private / "mcps" / "mcp-server-logs.json").write_text(json.dumps(child), encoding="utf-8")

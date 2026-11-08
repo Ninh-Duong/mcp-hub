@@ -14,11 +14,13 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Iterable, Sequence
 
 from .audit import AuditLog
 from .children import child_environment
-from .config import HubConfig, PrepareSpec, RuntimeRequirement, ServerConfig, load_config
+from .config import HUB_ROOT, HubConfig, PrepareSpec, RuntimeRequirement, ServerConfig, load_config
+from .extensions import BITNET, saved_extensions
 
 _VERSION_RE = re.compile(r"(\d+)(?:\.(\d+))?(?:\.(\d+))?")
 VERSION_TIMEOUT_SECONDS = 30.0
@@ -216,11 +218,52 @@ def check_server(server: ServerConfig, *, install: bool, runner: Runner = run_hi
     return results
 
 
-def run_preflight(config: HubConfig, *, install: bool, runner: Runner = run_hidden,
-                  which: Which = find_executable, platform: str = sys.platform) -> list[CheckResult]:
+def check_bitnet(
+    install: bool,
+    *,
+    runner: Runner = run_hidden,
+    saved: Callable[[], frozenset[str]] = saved_extensions,
+    root: Path | None = None,
+    model: str = "BitNet-b1.58-2B-4T",
+) -> CheckResult | None:
+    if BITNET not in saved():
+        return None
+    hub_root = root or HUB_ROOT
+    if not install:
+        install_json = hub_root / "vendor" / "bitnet" / "install.json"
+        if install_json.is_file():
+            return CheckResult("bitnet", "runtime", True, "ready")
+        return CheckResult("bitnet", "runtime", False, "not installed (run preflight --install)")
+    script = hub_root / "scripts" / "install_bitnet.ps1"
+    cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), "-Model", model]
+    try:
+        proc = runner(cmd, timeout=3600.0)
+    except subprocess.TimeoutExpired:
+        return CheckResult("bitnet", "runtime", False, "timed out after 3600s")
+    except OSError as exc:
+        return CheckResult("bitnet", "runtime", False, f"could not start ({type(exc).__name__})")
+    lines = [line.strip() for line in (proc.stdout or "").splitlines() if line.strip()]
+    detail = lines[-1] if lines else f"exit {proc.returncode}"
+    return CheckResult("bitnet", "runtime", proc.returncode == 0, detail)
+
+
+def run_preflight(
+    config: HubConfig,
+    *,
+    install: bool,
+    runner: Runner = run_hidden,
+    which: Which = find_executable,
+    platform: str = sys.platform,
+    saved: Callable[[], frozenset[str]] = saved_extensions,
+    root: Path | None = None,
+    model: str = "BitNet-b1.58-2B-4T",
+) -> list[CheckResult]:
     results: list[CheckResult] = []
     for server in config.servers.values():
         results.extend(check_server(server, install=install, runner=runner, which=which, platform=platform))
+    bitnet_res = check_bitnet(install=install, runner=runner, saved=saved, root=root, model=model)
+    if bitnet_res is not None:
+        results.append(bitnet_res)
     return results
 
 
@@ -239,9 +282,12 @@ def main(argv: list[str] | None = None) -> int:
                         help="install missing runtimes with winget and prepare child dependencies")
     args = parser.parse_args(argv)
     refresh_windows_path()
-    results = run_preflight(load_config(), install=args.install)
+    from .settings import load_settings
+
+    settings = load_settings()
+    results = run_preflight(load_config(), install=args.install, model=settings.bitnet.model)
     report(results, AuditLog())
-    return 0 if all(result.ok for result in results) else 1
+    return 0 if all(result.ok for result in results if result.server_id != "bitnet") else 1
 
 
 if __name__ == "__main__":

@@ -25,6 +25,7 @@ TONES = ("ok", "wait", "off", "error")
 HUB_TONES = {"running": "ok", "starting": "wait", "stopped": "error", "not_installed": "off", "unauthorized": "error"}
 _CHILD_TONES = {"connected": "ok", "connecting": "wait", "reconnecting": "wait", "disabled": "off"}
 
+
 def loopback_opener() -> urllib.request.OpenerDirector:
     """Plain HTTP only, for the Hub on 127.0.0.1. Without a ProxyHandler no proxy configured for other traffic
     ever sees the token, and without an HTTPS handler no TLS setup runs (it can fail in the installed app)."""
@@ -61,6 +62,7 @@ class HubSnapshot:
     # AI clients seen in the last 30 minutes that are not connected now.
     recent: tuple[str, ...] = ()
     checked_at: datetime = field(default_factory=datetime.now)
+    bitnet_state: str | None = None
 
     @property
     def tone(self) -> str:
@@ -107,6 +109,8 @@ def snapshot_from_status(status: dict[str, Any]) -> HubSnapshot:
     children = status.get("children") if isinstance(status.get("children"), dict) else {}
     extensions = status.get("extensions") if isinstance(status.get("extensions"), dict) else {}
     clients = status.get("clients") if isinstance(status.get("clients"), list) else []
+    bitnet = status.get("bitnet") if isinstance(status.get("bitnet"), dict) else {}
+    bitnet_state = str(bitnet.get("state")) if bitnet.get("state") else None
     return HubSnapshot(
         hub="running",
         activity_ui=bool(extensions.get("activityUi")),
@@ -114,6 +118,7 @@ def snapshot_from_status(status: dict[str, Any]) -> HubSnapshot:
         clients=client_labels(clients),
         client_names=live_client_names(clients),
         recent=recent_clients(clients),
+        bitnet_state=bitnet_state,
     )
 
 
@@ -166,4 +171,3 @@ def open_dashboard(
     if not isinstance(token, str) or not token:
         raise DesktopError("Dashboard pairing failed (no pairing token)")
     browser(f"{connection.url}/dashboard/?pair={quote(token, safe='')}")
-

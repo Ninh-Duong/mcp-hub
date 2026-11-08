@@ -14,12 +14,14 @@ from starlette.routing import Route
 
 from .. import control, hub_settings
 from ..config import ConfigError
+from ..extensions import BITNET
 
 
 def settings_payload(settings: hub_settings.HubSettings) -> dict[str, Any]:
     return {
         "editable": settings.editable,
         "activity_ui": settings.activity_ui,
+        "bitnet": settings.bitnet,
         "servers": [{"id": item.server_id, "enabled": item.enabled, "reason": item.reason} for item in settings.servers],
     }
 
@@ -52,6 +54,7 @@ class SettingsHandlers:
         return [
             Route("/dashboard/api/settings", self.settings, methods=["GET"]),
             Route("/dashboard/api/settings/tracking", self.tracking, methods=["POST"]),
+            Route("/dashboard/api/settings/bitnet", self.bitnet, methods=["POST"]),
             Route("/dashboard/api/settings/servers/{server_id:str}", self.server, methods=["POST"]),
             Route("/dashboard/api/settings/autostart", self.autostart, methods=["GET", "POST"]),
         ]
@@ -68,13 +71,19 @@ class SettingsHandlers:
     async def tracking(self, request: Request) -> Response:
         enabled = await _enabled(request)
         if enabled is None:
-            return _error("Expected {\"enabled\": true|false}.", 400)
+            return _error('Expected {"enabled": true|false}.', 400)
         return await self._write(self.store.set_activity_ui, enabled)
+
+    async def bitnet(self, request: Request) -> Response:
+        enabled = await _enabled(request)
+        if enabled is None:
+            return _error('Expected {"enabled": true|false}.', 400)
+        return await self._write(self.store.set_extension, BITNET, enabled)
 
     async def server(self, request: Request) -> Response:
         enabled = await _enabled(request)
         if enabled is None:
-            return _error("Expected {\"enabled\": true|false}.", 400)
+            return _error('Expected {"enabled": true|false}.', 400)
         server_id = request.path_params["server_id"]
         try:
             current = await asyncio.to_thread(self.store.read_settings)
@@ -100,7 +109,7 @@ class SettingsHandlers:
             else:
                 enabled = await _enabled(request)
                 if enabled is None:
-                    return _error("Expected {\"enabled\": true|false}.", 400)
+                    return _error('Expected {"enabled": true|false}.', 400)
                 state = await asyncio.to_thread(self.write_autostart, "hub", enabled)
         except OSError:
             return _error("The sign-in task could not be read or changed.", 503)

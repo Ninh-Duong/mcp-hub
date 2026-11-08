@@ -24,6 +24,7 @@ class FakeStore:
 
     def __init__(self) -> None:
         self.activity_ui, self.editable, self.fail_read, self.fail_write = False, True, False, False
+        self.bitnet = False
         self.enabled = {"sample-child": True, "other-child": False}
 
     def read_settings(self) -> hub_settings.HubSettings:
@@ -31,7 +32,7 @@ class FakeStore:
             raise OSError("unreadable")
         servers = tuple(ServerSwitch(server_id, enabled, "credentials required" if server_id == "sample-child" else None)
                         for server_id, enabled in self.enabled.items())
-        return hub_settings.HubSettings(self.activity_ui, servers, self.editable)
+        return hub_settings.HubSettings(self.activity_ui, servers, self.editable, bitnet=self.bitnet)
 
     def _check(self) -> None:
         if self.fail_write or not self.editable:
@@ -40,6 +41,13 @@ class FakeStore:
     def set_activity_ui(self, enabled: bool) -> None:
         self._check()
         self.activity_ui = enabled
+
+    def set_extension(self, name: str, enabled: bool) -> None:
+        self._check()
+        if name == "bitnet":
+            self.bitnet = enabled
+        elif name == "activity-ui":
+            self.activity_ui = enabled
 
     def set_server_enabled(self, server_id: str, enabled: bool) -> None:
         self._check()
@@ -80,7 +88,7 @@ class SettingsApiTest(unittest.TestCase):
         response = self.call("GET", "/dashboard/api/settings")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {
-            "editable": True, "activity_ui": False,
+            "editable": True, "activity_ui": False, "bitnet": False,
             "servers": [{"id": "sample-child", "enabled": True, "reason": "credentials required"},
                         {"id": "other-child", "enabled": False, "reason": None}],
         })
@@ -88,11 +96,12 @@ class SettingsApiTest(unittest.TestCase):
     def test_every_settings_route_needs_the_bearer(self) -> None:
         bare = {"Host": "127.0.0.1:8765"}
         for method, path in (("GET", "/dashboard/api/settings"), ("POST", "/dashboard/api/settings/tracking"),
+                             ("POST", "/dashboard/api/settings/bitnet"),
                              ("POST", "/dashboard/api/settings/servers/other-child"),
                              ("GET", "/dashboard/api/settings/autostart")):
             with self.subTest(path=path):
                 self.assertEqual(self.call(method, path, {"enabled": True}, headers=bare).status_code, 401)
-        self.assertTrue(self.store.enabled["sample-child"] and not self.store.activity_ui)
+        self.assertTrue(self.store.enabled["sample-child"] and not self.store.activity_ui and not self.store.bitnet)
 
     def test_tracking_and_children_are_changed_and_answered_with_the_new_settings(self) -> None:
         tracking = self.call("POST", "/dashboard/api/settings/tracking", {"enabled": True})
@@ -101,6 +110,17 @@ class SettingsApiTest(unittest.TestCase):
         self.assertEqual(child.status_code, 200)
         self.assertTrue(child.json()["servers"][1]["enabled"])
         self.assertTrue(self.store.enabled["other-child"])
+
+    def test_bitnet_is_changed_and_answered_with_the_new_settings(self) -> None:
+        bitnet = self.call("POST", "/dashboard/api/settings/bitnet", {"enabled": True})
+        self.assertEqual((bitnet.status_code, bitnet.json()["bitnet"]), (200, True))
+        self.assertTrue(self.store.bitnet)
+        # Bad body
+        self.assertEqual(self.call("POST", "/dashboard/api/settings/bitnet", {"enabled": "yes"}).status_code, 400)
+        # Conflict when not editable
+        self.store.editable = False
+        refused = self.call("POST", "/dashboard/api/settings/bitnet", {"enabled": False})
+        self.assertEqual(refused.status_code, 409)
 
     def test_bad_bodies_unknown_children_and_custom_configs_are_refused(self) -> None:
         for body in (None, {"enabled": "yes"}, {"enabled": 1}, ["enabled"]):
@@ -135,7 +155,7 @@ class SettingsApiTest(unittest.TestCase):
         self.assertIs(handlers.read_autostart, control.autostart_state)
         self.assertIs(handlers.write_autostart, control.set_autostart)
         self.assertEqual(settings_payload(hub_settings.HubSettings(True, (), False)),
-                         {"editable": False, "activity_ui": True, "servers": []})
+                         {"editable": False, "activity_ui": True, "bitnet": False, "servers": []})
 
 
 if __name__ == "__main__":

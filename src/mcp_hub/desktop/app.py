@@ -195,6 +195,7 @@ class StatusWindow(QWidget):
         self.hub_page = HubPage(
             on_start=self.start_hub, on_restart=self.restart_hub, on_stop=self.stop_hub,
             on_tracking=self.set_tracking, on_autostart=self.set_autostart,
+            on_bitnet=self.set_bitnet,
         )
         self.mcps_page = ChildrenPage(on_toggle=self.set_child)
         pages = {"appearance": self.appearance_page, "hub": self.hub_page, "mcps": self.mcps_page}
@@ -349,7 +350,7 @@ class StatusWindow(QWidget):
              self._render_update),
             ("actions", hub, self._render_actions),
             ("mini", (language, self._mini_state(activity_ui)), self._render_mini),
-            ("settings", (language, hub, self.hub_settings, self._autostart_key(), self.restart_needed), self._render_settings),
+            ("settings", (language, hub, self.hub_settings, self._autostart_key(), self.restart_needed, snapshot.bitnet_state if snapshot else None), self._render_settings),
             ("icon", snapshot.tone if snapshot else "wait", self._render_icon),
         )
 
@@ -491,7 +492,8 @@ class StatusWindow(QWidget):
     def _render_settings(self, hub: str | None) -> None:
         # Settings live in the Hub, so they can be read and changed only while it runs.
         settings = self.hub_settings if hub == "running" else None
-        self.hub_page.sync(hub, settings, self.autostart)
+        bitnet_state = self.snapshot.bitnet_state if self.snapshot else None
+        self.hub_page.sync(hub, settings, self.autostart, bitnet_state)
         self.mcps_page.sync(settings, hub == "running")
         self.settings.show_pending(self.restart_needed and hub == "running")
 
@@ -758,6 +760,12 @@ class StatusWindow(QWidget):
         if self.hub_settings is not None and self.hub_settings.activity_ui == enabled:
             return
         write = partial(self.hub_store.set_activity_ui, enabled)
+        self._run("hub_changed", self._write_hub_settings, write, error_key="desktop.error.settings")
+
+    def set_bitnet(self, enabled: bool) -> None:
+        if self.hub_settings is not None and self.hub_settings.bitnet == enabled:
+            return
+        write = partial(self.hub_store.set_bitnet, enabled)
         self._run("hub_changed", self._write_hub_settings, write, error_key="desktop.error.settings")
 
     def set_child(self, server_id: str, enabled: bool) -> None:
