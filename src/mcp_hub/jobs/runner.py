@@ -556,8 +556,9 @@ class JobRunner:
                 envs=envs,
                 now=self.store.clock(),
             )
+            call_fn = getattr(self.plan_assistant, "hints", None) or getattr(self.plan_assistant, "assist_plan", None)
             hints = await asyncio.wait_for(
-                self.plan_assistant.assist_plan(context),
+                call_fn(context),
                 timeout=self.plan_timeout_seconds,
             )
             if hints and hints.source:
