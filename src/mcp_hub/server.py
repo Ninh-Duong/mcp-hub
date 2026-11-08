@@ -38,7 +38,8 @@ from .audit import AuditLog, default_log_dir, describe_exception, redact
 from .batch import BATCH_TOOL, BatchRefused, batch_result, batch_tool, parse_calls, run_batch
 from .children import Backoff, ChildOpener, ChildSupervisor, ChildUnavailable, open_stdio_client
 from .config import HUB_ROOT, HubConfig, ServerConfig, ToolRoute, is_sensitive_key, load_config
-from .extensions import ActivitySource, CallObserver, empty_activity
+from .extensions import ActivitySource, CallObserver, PlanAssistant, ResultCondenser, empty_activity
+from .full_results import FullResultStore
 from . import policy
 from .playbooks import Playbook, load_playbooks
 from .policy import PLAN_TOOL, CallFacts, PlanBook, PlanCatalog, PolicyRefused, Violation
@@ -51,6 +52,7 @@ _CLIENT_LABEL_RE = re.compile(r"[^A-Za-z0-9_. -]")
 # Characters scanned for redaction beyond the summary limit, so a secret cut at the limit is still matched.
 _SUMMARY_REDACTION_MARGIN = 256
 _ERROR_PREFIXES = ("❌", "Error:")
+FULL_RESULT_TOOL = "hub__get_full_result"
 SUMMARY_LIMIT = 1000
 # A denied tool name comes from the client, so the log keeps a short, redacted copy of it.
 DENIED_NAME_LIMIT = 128
@@ -110,6 +112,9 @@ class HubRuntime:
         self.playbooks: Mapping[str, Playbook] = load_playbooks() if playbooks is None else playbooks
         self.projects: Mapping[str, ProjectConfig] = projects or {}
         self._health_tools = frozenset(settings.policy.health_check_tools)
+        self.plan_assistant: PlanAssistant | None = None
+        self.condenser: ResultCondenser | None = None
+        self.full_results: FullResultStore | None = None
         self._starting = False
 
     def add_observer(self, observer: CallObserver) -> None:
@@ -141,6 +146,9 @@ class HubRuntime:
         for supervisor in self.supervisors.values():
             supervisor.start()
         await asyncio.gather(*(supervisor.wait_first_attempt() for supervisor in self.supervisors.values()))
+        self.plan_assistant: PlanAssistant | None = None
+        self.condenser: ResultCondenser | None = None
+        self.full_results: FullResultStore | None = None
         self._starting = False
         self._register_routes()
         self.audit.write(
@@ -222,12 +230,13 @@ class HubRuntime:
     ) -> ListToolsResult:
         if self.observers:
             self.notify_client(ctx)
+        tools = [*self.public_tools, _full_result_tool()] if self.full_results is not None else self.public_tools
         self.audit.write(
             "hub.tools.listed",
             request_id=str(ctx.request_id) if ctx.request_id is not None else None,
-            tool_count=len(self.public_tools),
+            tool_count=len(tools),
         )
-        return ListToolsResult(tools=self.public_tools)
+        return ListToolsResult(tools=tools)
 
     def tools_by_server(self) -> dict[str, list[str]]:
         grouped: dict[str, list[str]] = {}
@@ -303,6 +312,8 @@ class HubRuntime:
         arguments = params.arguments or {}
         if params.name == "hub__status":
             return self._hub_status(request_id)
+        if params.name == FULL_RESULT_TOOL and self.full_results is not None:
+            return self._get_full_result(arguments, request_id)
         if params.name == PLAN_TOOL:
             return await self._create_plan(arguments, request_id)
         if params.name == BATCH_TOOL:
@@ -373,6 +384,22 @@ class HubRuntime:
             "children": children,
             "result_cache": self.result_cache.stats(),
         }))])
+
+    def _get_full_result(self, arguments: dict[str, Any], request_id: str) -> CallToolResult:
+        fields = {"request_id": request_id, "feature": "hub", "server": "mcp-hub", "tool": FULL_RESULT_TOOL}
+        self.audit.write("tool.call.started", **fields)
+        rid = arguments.get("result_id")
+        offset = int(arguments.get("offset", 0))
+        limit = int(arguments.get("limit", 20000))
+        page = (
+            self.full_results.page(str(rid), offset=offset, limit=limit)
+            if self.full_results is not None and isinstance(rid, str)
+            else None
+        )
+        self.audit.write("tool.call.succeeded", **fields, duration_ms=0)
+        if page is None:
+            return _error_result("Result expired or unknown; repeat the original call.")
+        return CallToolResult(content=[TextContent(type="text", text=json.dumps(page))])
 
     async def _call_batch(self, arguments: dict[str, Any], request_id: str, client_name: str) -> CallToolResult:
         """Run independent read-only calls in parallel; each one is audited as `<request_id>.<i>`."""
@@ -543,6 +570,24 @@ def child_contract(server_id: str) -> str:
     """The child's rules, `docs/mcps/<server-id>.md`, or an empty string when there is none."""
     doc = HUB_ROOT / "docs" / "mcps" / f"{server_id}.md"
     return doc.read_text(encoding="utf-8") if doc.is_file() else ""
+
+
+def _full_result_tool() -> Tool:
+    return Tool(
+        name=FULL_RESULT_TOOL,
+        description="Retrieve a page of an original, un-condensed tool result by its result_id.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "result_id": {"type": "string", "description": "The result_id returned in the condensed result footer."},
+                "offset": {"type": "integer", "minimum": 0, "default": 0, "description": "Character offset to read from."},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 50000, "default": 20000, "description": "Maximum characters to return."},
+            },
+            "required": ["result_id"],
+            "additionalProperties": False,
+        },
+        annotations={"readOnlyHint": True},
+    )
 
 
 def _hub_status_tool() -> Tool:

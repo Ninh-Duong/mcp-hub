@@ -47,3 +47,10 @@ The shared service listens on `127.0.0.1` and `settings.http.port` (default 8765
 | GET | `/dashboard/api/activity/stream` | admin token, session | Activity UI only: live call events (server-sent events, keep-alive every 15 s) |
 
 The client token gets `403` on every `/dashboard` route. The admin token gets `403` on the three approval routes; see [security-and-logging.md](security-and-logging.md).
+
+
+## MCP tools
+
+| Tool | Who | What |
+|---|---|---|
+| `hub__get_full_result` | client token | Retrieve a page of an original, un-condensed result by its `result_id` (`offset`, `limit` up to 50000). Exists only with the `bitnet` extension. |
