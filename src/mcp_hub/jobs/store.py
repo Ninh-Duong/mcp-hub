@@ -170,12 +170,17 @@ class JobStore:
         issue_key: str | None = None,
         rcid: str | None = None,
         state: str = "queued",
+        since: str | None = None,
+        until: str | None = None,
     ) -> str:
         if state not in {"queued", "awaiting_input"}:
             raise ValueError("A new job must start queued or awaiting_input")
         now = self._timestamp()
         job_id = uuid.uuid4().hex
-        request = {"project": project, "question": question, "env": env, "issue_key": issue_key, "rcid": rcid}
+        request = {
+            "project": project, "question": question, "env": env,
+            "issue_key": issue_key, "rcid": rcid, "since": since, "until": until,
+        }
         with self._lock, self._connection:
             self._connection.execute(
                 "INSERT INTO jobs(job_id,created_at,updated_at,state,request_blob,expires_at) VALUES(?,?,?,?,?,?)",

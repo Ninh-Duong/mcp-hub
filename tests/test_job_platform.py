@@ -11,7 +11,7 @@ from unittest.mock import patch
 from mcp_hub.agents import providers
 from mcp_hub.agents.config import AGENT_ROLES, AgentConfig
 from mcp_hub.projects import ProjectConfig
-from mcp_hub.jobs.runner import JobRunner, create_provider
+from mcp_hub.jobs.runner import JobRunner, _specialist_task, create_provider
 from mcp_hub.jobs.store import JobStore
 from mcp_hub.security import dpapi
 from mcp_hub.security.dpapi import WINDOWS_ONLY_MESSAGE, DPAPIProtector
@@ -90,6 +90,56 @@ class ProviderPackageTest(_RunnerCase):
             status = runner.agent_status()
         self.assertEqual(set(runner.providers), set(AGENT_ROLES))
         self.assertEqual({(entry["configured"], entry["unavailable"]) for entry in status.values()}, {(True, None)})
+
+
+class JobWindowTest(_RunnerCase):
+    def test_submit_issue_with_valid_window_stores_window_and_reaches_specialist_task(self) -> None:
+        runner = self.runner(_PlainProtector())
+        submitted = asyncio.run(
+            runner.submit_issue(
+                project="orders",
+                question="Why did orders fail?",
+                since="2026-11-08T00:00:00Z",
+                until="2026-11-08T12:00:00Z",
+            )
+        )
+        req = runner.store.get_request(submitted["job_id"])
+        self.assertEqual(req["since"], "2026-11-08T00:00:00+00:00")
+        self.assertEqual(req["until"], "2026-11-08T12:00:00+00:00")
+        task_json = _specialist_task(req)
+        self.assertIn('"window": {"since": "2026-11-08T00:00:00+00:00", "until": "2026-11-08T12:00:00+00:00"}', task_json)
+
+    def test_submit_issue_without_window_byte_identical(self) -> None:
+        runner = self.runner(_PlainProtector())
+        submitted = asyncio.run(runner.submit_issue(project="orders", question="Why?"))
+        req = runner.store.get_request(submitted["job_id"])
+        self.assertIsNone(req["since"])
+        self.assertIsNone(req["until"])
+        task_json = _specialist_task(req)
+        self.assertNotIn("window", task_json)
+        self.assertEqual(
+            task_json,
+            '{"project": "orders", "question": "Why?", "environment": "dev", "issue_key": null, "rcid": null}',
+        )
+
+    def test_submit_issue_invalid_window_returns_error(self) -> None:
+        runner = self.runner(_PlainProtector())
+        # One-sided window
+        res1 = asyncio.run(
+            runner.call_tool("hub__submit_issue", {"project": "orders", "question": "Why?", "since": "2026-11-08T00:00:00Z"})
+        )
+        self.assertTrue(res1.is_error)
+        self.assertIn("Both 'since' and 'until' are required", res1.content[0].text)
+
+        # Inverted window
+        res2 = asyncio.run(
+            runner.call_tool(
+                "hub__submit_issue",
+                {"project": "orders", "question": "Why?", "since": "2026-11-08T12:00:00Z", "until": "2026-11-08T00:00:00Z"},
+            )
+        )
+        self.assertTrue(res2.is_error)
+        self.assertIn("strictly before", res2.content[0].text)
 
 
 if __name__ == "__main__":

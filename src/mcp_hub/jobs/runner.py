@@ -18,6 +18,7 @@ from ..agents.specialists import (
     EvidenceRef, SpecialistExecutor, SpecialistResult, SpecialistError, ToolCallOutcome,
 )
 from ..audit import redact
+from ..plan_merge import parse_window
 from ..result_cache import cache_key
 from ..security.dpapi import WINDOWS_ONLY_MESSAGE
 from ..server import is_read_only_tool
@@ -56,7 +57,9 @@ _JOB_TOOLS: tuple[tuple[str, str, dict[str, Any], tuple[str, ...], bool], ...] =
     ("hub__submit_issue", "Start an asynchronous issue investigation using configured logs, source, Jira, and PR "
      "agents. At most {max_queued} jobs can wait in the queue.",
      {"project": {"type": "string"}, "question": {"type": "string"}, "env": _ENV,
-      "issue_key": {"type": "string"}, "rcid": {"type": "string"}},
+      "issue_key": {"type": "string"}, "rcid": {"type": "string"},
+      "since": {"type": "string", "format": "date-time"},
+      "until": {"type": "string", "format": "date-time"}},
      ("project", "question"), False),
     ("hub__get_job", "Get investigation state, summary, evidence references, and metadata timeline.",
      _JOB_ID, ("job_id",), True),
@@ -215,6 +218,8 @@ class JobRunner:
         env: str | None = None,
         issue_key: str | None = None,
         rcid: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
     ) -> dict[str, str]:
         self._require_encryption()
         project_config = self.projects.get(project)
@@ -227,6 +232,9 @@ class JobRunner:
         for label, value in (("issue_key", issue_key), ("rcid", rcid)):
             if value is not None and (not isinstance(value, str) or len(value) > 256):
                 raise ValueError(f"{label} must be at most 256 characters")
+        window = parse_window(since, until, self.limits.max_window_hours)
+        since_iso = window[0].isoformat() if window else None
+        until_iso = window[1].isoformat() if window else None
         state = "queued" if selected_env else "awaiting_input"
         async with self._submit_lock:
             if state == "queued":
@@ -234,6 +242,7 @@ class JobRunner:
             job_id = await _db(
                 self.store.create_job,
                 project=project, question=question, env=selected_env, issue_key=issue_key, rcid=rcid, state=state,
+                since=since_iso, until=until_iso,
             )
         if state == "queued":
             self._schedule(job_id)
@@ -754,11 +763,14 @@ def _roles_for(request: dict[str, Any]) -> list[str]:
 
 
 def _specialist_task(request: dict[str, Any]) -> str:
-    return json.dumps({
+    payload: dict[str, Any] = {
         "project": request["project"], "question": request["question"],
         "environment": request["env"], "issue_key": request.get("issue_key"),
         "rcid": request.get("rcid"),
-    }, ensure_ascii=False)
+    }
+    if request.get("since") is not None and request.get("until") is not None:
+        payload["window"] = {"since": request["since"], "until": request["until"]}
+    return json.dumps(payload, ensure_ascii=False)
 
 
 async def _cancel_all(tasks: Any) -> None:

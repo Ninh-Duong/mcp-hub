@@ -196,5 +196,23 @@ class JobStoreTest(unittest.TestCase):
         self.assertEqual(expired["summary"]["total_calls"], 0)
 
 
+    def test_create_job_stores_window(self) -> None:
+        job_id = self.store.create_job(
+            project="orders",
+            question="Investigate ORD-1",
+            env="prod",
+            since="2026-11-08T00:00:00+00:00",
+            until="2026-11-08T12:00:00+00:00",
+        )
+        req = self.store.get_request(job_id)
+        self.assertEqual(req["since"], "2026-11-08T00:00:00+00:00")
+        self.assertEqual(req["until"], "2026-11-08T12:00:00+00:00")
+
+        plain_id = self.store.create_job(project="orders", question="No window")
+        plain_req = self.store.get_request(plain_id)
+        self.assertIsNone(plain_req["since"])
+        self.assertIsNone(plain_req["until"])
+
+
 if __name__ == "__main__":
     unittest.main()
