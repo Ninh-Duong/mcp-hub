@@ -1,6 +1,6 @@
 # BitNet local orchestrator: overview
 
-Status: approved
+Status: done
 
 Read this file, then **only** your own track file. Do not re-discuss the Decisions. Do not read other track files unless your track file tells you to.
 

@@ -3,13 +3,14 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import uuid
 from datetime import datetime, timedelta
 from typing import Any, Callable, TypeVar
 
 from mcp.types import CallToolResult, TextContent, Tool
 
 from ..agents.config import AGENT_ROLES, AgentConfig
-from ..agents.coordinator import synthesize
+from ..agents.coordinator import _findings_payload, synthesize
 from ..agents.providers import (
     PACKAGE_MISSING_MESSAGE, PROVIDER_PACKAGES, AnthropicProvider, GeminiProvider, ModelProvider, OpenAIProvider,
     provider_package_installed,
@@ -48,6 +49,40 @@ _SECRET_ARGUMENT_RE = re.compile(
 _SQL_RE = re.compile(r"\b(sql|database|db|table|query|stored procedure|bang|du lieu|co so du lieu)\b")
 _UNKNOWN_TOOL = object()
 _T = TypeVar("_T")
+
+_DETERMINISTIC_TOOLS: dict[str, tuple[str, ...]] = {
+    "logs": ("logs__get_openobserve_service_logs", "logs__search_openobserve_logs"),
+    "sql": ("sql__search_context",),
+}
+
+
+def _build_deterministic_args(
+    role: str, props: dict[str, Any], project: Any, request: dict[str, Any],
+) -> dict[str, Any] | None:
+    args: dict[str, Any] = {}
+    if role == "logs":
+        env = request.get("env", "")
+        target = project.logs.get(env) if project and project.logs else None
+        if target is None:
+            return None
+        if "organization" in props:
+            args["organization"] = target.organization
+        if "stream" in props:
+            args["stream"] = target.stream
+        if "env" in props:
+            args["env"] = env
+        if "start_time" in props and request.get("since"):
+            args["start_time"] = request["since"]
+        if "end_time" in props and request.get("until"):
+            args["end_time"] = request["until"]
+        if "query" in props:
+            args["query"] = request.get("question", "")
+    elif role == "sql":
+        if "query" in props:
+            args["query"] = request.get("question", "")
+        if "env" in props:
+            args["env"] = request.get("env", "")
+    return args
 
 
 _ENV = {"type": "string", "enum": ["dev", "stg", "prod"]}
@@ -618,6 +653,11 @@ class JobRunner:
         notes = [_TIME_LIMIT_NOTE.format(limit=_limit_text(self.limits.max_job_seconds))] if timed_out else []
         coordinator = self.providers.get("coordinator")
         if coordinator is None:
+            if self.summarizer is not None:
+                payload = _findings_payload(findings)
+                draft = await self.summarizer.summarize(request["question"], payload)
+                if draft is not None:
+                    return "\n\n".join([draft, *notes]), False
             return _fallback_summary(findings, *notes, "Coordinator agent is not configured."), False
         audit = getattr(self.runtime, "audit", None)
         redactor = (lambda text: audit.redact_content(text, limit=12000)) if audit is not None else None
@@ -659,9 +699,57 @@ class JobRunner:
         findings, incomplete = await _db(self._record_findings, job_id, outcomes)
         return findings, incomplete, bool(pending)
 
+    async def _run_deterministic_specialist(
+        self, job_id: str, role: str, request: dict[str, Any],
+    ) -> SpecialistResult:
+        candidates = _DETERMINISTIC_TOOLS.get(role, ())
+        tool_name = next((name for name in candidates if name in self.runtime.public_tools), None)
+        if tool_name is None:
+            await _db(self.store.append_event, job_id, "agent.unavailable", agent=role)
+            return SpecialistResult(role, "", (), "Agent is not configured.")
+
+        tool = self.runtime.public_tools[tool_name]
+        schema = (
+            getattr(tool, "input_schema", None)
+            or getattr(tool, "inputSchema", None)
+            or (tool.get("input_schema") or tool.get("inputSchema") if isinstance(tool, dict) else {})
+            or {}
+        )
+        props = schema.get("properties", {}) if isinstance(schema, dict) else {}
+        project = self.projects.get(request.get("project", ""))
+        args = _build_deterministic_args(role, props, project, request)
+        if args is None:
+            await _db(self.store.append_event, job_id, "agent.unavailable", agent=role)
+            return SpecialistResult(role, "", (), "No log targets configured for project.")
+
+        await _db(self.store.append_event, job_id, "agent.started", agent=role)
+        source_id = f"{role}-{uuid.uuid4().hex[:8]}"
+        try:
+            outcome = await self._call_child_tool(job_id, role, tool_name, args, tool, source_id)
+            if isinstance(outcome, CallToolResult):
+                outcome = ToolCallOutcome(outcome, source_id)
+            if not outcome.reused:
+                payload = outcome.result.model_dump(mode="json")
+                await asyncio.to_thread(self.store.save_encrypted_result, job_id, outcome.source_id, payload)
+            if not outcome.result.is_error and self.condenser is not None:
+                raw_text = "\n".join(b.text for b in (outcome.result.content or []) if isinstance(b, TextContent))
+                if len(raw_text) >= self.condense_min_chars:
+                    try:
+                        await asyncio.wait_for(
+                            self.condenser.condense(raw_text, request.get("question")),
+                            timeout=self.condense_timeout_seconds,
+                        )
+                    except Exception:
+                        pass
+            return SpecialistResult(role, "", (EvidenceRef(outcome.source_id, tool_name, role),), None)
+        except Exception as exc:
+            return SpecialistResult(role, "", (), f"Specialist failed ({type(exc).__name__}).")
+
     async def _run_specialist(self, job_id: str, role: str, request: dict[str, Any]) -> SpecialistResult:
         provider = self.providers.get(role)
         if provider is None:
+            if self.summarizer is not None:
+                return await self._run_deterministic_specialist(job_id, role, request)
             await _db(self.store.append_event, job_id, "agent.unavailable", agent=role)
             return SpecialistResult(role, "", (), "Agent is not configured.")
         executor = SpecialistExecutor(

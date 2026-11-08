@@ -42,6 +42,7 @@ Dependencies flow one way: `config` → `settings` → `audit` / `extensions` / 
 | | `agents/config.py`, `agents/providers.py`, `agents/specialists.py`, `agents/coordinator.py` | Agent config, OpenAI/Anthropic/Gemini adapters (lazy SDK imports), specialist tool loops, coordinator summary |
 | | `security/dpapi.py` | Windows DPAPI encryption for job blobs; `dpapi_available` |
 | Extension | `activity_ui/` (`extension`, `tracker`, `client_sessions`, `middleware`, `recorder`, `routes`) | Optional activity UI: live activity, connected-client tracking, the batched `tool_calls` writer, and the activity dashboard routes |
+| | `bitnet/` (`client`, `condense`, `planner`, `sidecar`, `summarize`) | Optional local BitNet model extension: deterministic planning assistant, result condenser with LRU full-result store, offline draft summarizer, and llama-server supervisor; see [bitnet.md](bitnet.md) |
 
 The dashboard UI is plain ES modules served from an allowlist in `dashboard/api.py`; its text comes from `dashboard/locales/<lang>.json` (English default, Vietnamese optional). `app.js` loads the activity modules (`barn.js`, `activity.js`, `stream.js`) through `ui_extension.js` with a dynamic `import()` only when `/dashboard/api/status` reports `extensions.activityUi`. Code standards for all modules are in [AGENTS.md](../AGENTS.md#code-standards).
 
@@ -52,6 +53,8 @@ The core tool-call path is `HubRuntime.call_child_tool`: route lookup, one audit
 **Usage policy.** `HubRuntime.call_tool` checks a client's direct child call, and every call of a `hub__batch`, against the plan named by its `hub_plan_id` (`policy.check`) before `call_child_tool`, then records the outcome. The job runner calls `call_child_tool` directly, so investigation jobs keep their own policy. See [usage-policy.md](usage-policy.md).
 
 **Result cache.** `_invoke_child` sends a read-only tool (`readOnlyHint=true`) with a `cacheSeconds` TTL through `ResultCache.get_or_call`: a fresh successful result is returned without calling the child (`tool.call.cached`), and identical concurrent calls share one child call. Any call to a child's tool that is not read-only drops that child's cached entries. The rules and per-child defaults are in [mcps/README.md](mcps/README.md#hub-result-cache); agents still read child caches first ([client-rules.md](client-rules.md)).
+
+**Local model hooks.** Core defines hook interfaces in `extensions.py` (`PlanAssistant`, `ResultCondenser`, `DraftSummarizer`) and `full_results.py` (`FullResultStore`). `HubRuntime` and `JobRunner` use these hooks when provided, falling back to deterministic heuristics when absent. Core modules never import `bitnet`; `service.py` wires the `bitnet` extension lazily only when requested, setting `runtime.plan_assistant`, `runtime.condenser`, `runtime.full_results`, and `job_runner.summarizer`. See [bitnet.md](bitnet.md).
 
 An extension implements `CallObserver` (`call_started`, `call_finished`, `client_seen`; metadata only, never arguments or results) and may contribute a `DashboardExtension` (routes, status fields, and the `hubctl` flags that keep it on across a dashboard restart). Observer hooks run on the event loop, so they only update memory or enqueue; a failing observer is logged (`extension.observer.failed`) and never fails the call.
 

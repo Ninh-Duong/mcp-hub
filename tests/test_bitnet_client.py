@@ -5,15 +5,10 @@ import unittest
 
 import httpx
 
-from mcp_hub.bitnet import install
 from mcp_hub.bitnet.client import BitnetClient
 
 
 class BitnetClientTest(unittest.IsolatedAsyncioTestCase):
-    async def test_stub_install_raises_not_implemented(self) -> None:
-        with self.assertRaises(NotImplementedError):
-            install()
-
     async def test_valid_json_reply(self) -> None:
         expected = {"playbook": "rcid-bug", "env": "prod"}
 
