@@ -59,6 +59,7 @@ class JobSettings:
     max_child_calls: int = 30
     retention_days: int = 30
     approval_code_minutes: float = 10.0
+    max_window_hours: int = 168
 
 
 @dataclass(frozen=True)
@@ -85,6 +86,20 @@ class PolicySettings:
 
 
 @dataclass(frozen=True)
+class BitnetSettings:
+    # Local BitNet extension (docs/bitnet.md). Used only when the `bitnet` extension is on.
+    port: int = 8766
+    threads: int = 0
+    model: str = "BitNet-b1.58-2B-4T"
+    max_restarts: int = 3
+    plan_timeout_seconds: float = 3.0
+    condense_timeout_seconds: float = 8.0
+    condense_min_chars: int = 6000
+    full_result_ttl_seconds: float = 1800.0
+    full_result_max_entries: int = 50
+
+
+@dataclass(frozen=True)
 class Settings:
     http: HttpSettings = field(default_factory=HttpSettings)
     children: ChildrenSettings = field(default_factory=ChildrenSettings)
@@ -94,12 +109,19 @@ class Settings:
     jobs: JobSettings = field(default_factory=JobSettings)
     batch: BatchSettings = field(default_factory=BatchSettings)
     policy: PolicySettings = field(default_factory=PolicySettings)
+    bitnet: BitnetSettings = field(default_factory=BitnetSettings)
 
 
 # Lowest accepted value per key; everything else must only be positive. The port stays out of the
 # privileged range, and a batch needs at least two calls to be one.
-_MINIMUMS = {("http", "port"): 1024, ("logs", "backups"): 0, ("batch", "max_calls"): 2}
-_MAXIMUMS = {("http", "port"): 65535}
+_MINIMUMS = {
+    ("http", "port"): 1024,
+    ("logs", "backups"): 0,
+    ("batch", "max_calls"): 2,
+    ("bitnet", "port"): 1024,
+    ("bitnet", "threads"): 0,
+}
+_MAXIMUMS = {("http", "port"): 65535, ("bitnet", "port"): 65535}
 # Text settings and the values each accepts.
 _CHOICES = {("policy", "mode"): ("enforce", "warn", "off")}
 
@@ -138,7 +160,11 @@ def _parse_group(group: str, cls: type, raw: dict[str, Any]) -> Any:
 
 def _checked(label: str, key: tuple[str, str], value: Any, kind: type) -> Any:
     if kind is str:
-        return _checked_choice(label, key, value)
+        if key in _CHOICES:
+            return _checked_choice(label, key, value)
+        if not isinstance(value, str) or not value.strip():
+            raise ConfigError(f"{label} must be a non-empty string")
+        return value.strip()
     if kind is tuple:
         return _checked_names(label, value)
     return _checked_number(label, key, value, kind)
