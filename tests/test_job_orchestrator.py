@@ -29,13 +29,13 @@ class _PlainProtector:
 
 class _FakeAssistant(PlanAssistant):
     def __init__(self, hints: PlanHints | None = None, should_raise: bool = False) -> None:
-        self.hints = hints
+        self._hints = hints
         self.should_raise = should_raise
 
-    async def assist_plan(self, context: PlanContext) -> PlanHints | None:
+    async def hints(self, context: PlanContext) -> PlanHints | None:
         if self.should_raise:
             raise RuntimeError("Assistant failed")
-        return self.hints
+        return self._hints
 
 
 class _FakeCondenser(ResultCondenser):
