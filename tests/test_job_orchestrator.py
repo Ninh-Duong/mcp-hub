@@ -43,7 +43,7 @@ class _FakeCondenser(ResultCondenser):
         self.should_raise = should_raise
         self.called = False
 
-    async def condense(self, tool_name: str, raw_text: str, role: str) -> Condensed:
+    async def condense(self, text: str, task: str | None = None) -> Condensed:
         self.called = True
         if self.should_raise:
             raise RuntimeError("Condenser failed")
@@ -51,8 +51,7 @@ class _FakeCondenser(ResultCondenser):
             text="condensed summary line",
             kept_lines=5,
             total_lines=100,
-            original_chars=len(raw_text),
-            condensed_chars=len("condensed summary line"),
+            source="rules",
         )
 
 
