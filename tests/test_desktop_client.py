@@ -56,23 +56,30 @@ class HubClientTest(unittest.TestCase):
         return hub_api.HubClient(opener=opener, connection_file=self.path), opener
 
     def test_settings_are_read_and_changed_over_http_with_the_bearer(self) -> None:
-        settings = {"editable": True, "activity_ui": True, "servers": [
+        settings = {"editable": True, "activity_ui": True, "bitnet": True, "servers": [
             {"id": "sample-child", "enabled": True, "reason": "credentials required"},
             {"id": "other child", "enabled": False, "reason": 3},
         ]}
         client, opener = self.client({
             "/dashboard/api/settings": settings, "/dashboard/api/settings/tracking": settings,
+            "/dashboard/api/settings/bitnet": settings,
             "/dashboard/api/settings/servers/other%20child": settings,
         })
         read = client.read_settings()
         self.assertEqual(read, hub_api.HubSettings(True, (
             hub_api.ServerSwitch("sample-child", True, "credentials required"),
-            hub_api.ServerSwitch("other child", False, None)), True))
+            hub_api.ServerSwitch("other child", False, None)), True, bitnet=True))
+        # Payload without bitnet defaults to False
+        settings_no_bitnet = {"editable": True, "activity_ui": False, "servers": []}
+        self.assertFalse(hub_api.settings_from(settings_no_bitnet).bitnet)
+
         client.set_activity_ui(False)
+        client.set_bitnet(True)
         client.set_server_enabled("other child", True)
         self.assertEqual([request[:3] for request in opener.requests], [
             ("GET", "/dashboard/api/settings", f"Bearer {TOKEN}"),
             ("POST", "/dashboard/api/settings/tracking", f"Bearer {TOKEN}"),
+            ("POST", "/dashboard/api/settings/bitnet", f"Bearer {TOKEN}"),
             ("POST", "/dashboard/api/settings/servers/other%20child", f"Bearer {TOKEN}"),
         ])
 

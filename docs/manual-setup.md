@@ -47,7 +47,7 @@ The window has **Start Hub** and **Open dashboard** buttons. Its ⚙ Settings ca
 
 The Hub saves those changes to `config/private/hub.json` (they apply at the next Hub start), so the Hub and MCPs tabs need a running Hub; Restart and Stop ask for a second click. Secrets never appear in the app. Design rules, states, and keys are in [docs/desktop-app.md](desktop-app.md).
 
-Every start first syncs the locked Python environment and runs the pre-start checks: each enabled child's runtime (Node.js is installed or upgraded with winget when needed) and its dependency step. `hubctl preflight` only reports them. See [Pre-start checks](operations/shared-agent-hub.md#pre-start-checks).
+Every start first syncs the locked Python environment and runs the pre-start checks: each enabled child's runtime (Node.js is installed or upgraded with winget when needed) and its dependency step. When the BitNet extension is on, preflight also runs `scripts/install_bitnet.ps1`. `hubctl preflight` only reports them. See [Pre-start checks](operations/shared-agent-hub.md#pre-start-checks).
 
 Clients with a safe dynamic-header helper can connect over HTTP using `scripts/http_headers.ps1`. Other clients use the stdio bridge by passing `-Bridge -ClientName "<AI_CLIENT>"` to `scripts/start.ps1`. The existing stdio launcher remains available for development and per-client compatibility.
 

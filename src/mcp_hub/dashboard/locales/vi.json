@@ -208,5 +208,14 @@
   "desktop.mini.clients": "{count} AI",
   "desktop.mini.dot": "{name} · {detail}",
   "desktop.settings.needsHub": "Hãy chạy Hub để xem và đổi cài đặt của nó.",
-  "desktop.settings.hub.autostartAppSource": "Chỉ có ở bản app đã cài."
+  "desktop.settings.hub.autostartAppSource": "Chỉ có ở bản app đã cài.",
+  "desktop.settings.hub.bitnet": "BitNet (AI cục bộ)",
+  "desktop.settings.hub.bitnetHint": "Lập kế hoạch yêu cầu và cô đọng kết quả lớn ngay trên máy tính này. Lần khởi động đầu tiên sẽ cài đặt khoảng 1,5 GB vào vendor/bitnet.",
+  "desktop.bitnet.state.off": "Tắt",
+  "desktop.bitnet.state.installing": "Đang cài đặt…",
+  "desktop.bitnet.state.starting": "Đang khởi động…",
+  "desktop.bitnet.state.ready": "Sẵn sàng",
+  "desktop.bitnet.state.restarting": "Đang khởi động lại…",
+  "desktop.bitnet.state.unavailable": "Không khả dụng",
+  "desktop.bitnet.state.stopped": "Đã dừng"
 }

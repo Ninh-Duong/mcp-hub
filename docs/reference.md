@@ -41,6 +41,7 @@ The shared service listens on `127.0.0.1` and `settings.http.port` (default 8765
 | POST | `/dashboard/api/service/shutdown` | admin token, session | Graceful stop; `hubctl stop` uses it |
 | GET | `/dashboard/api/settings` | admin token only | Children on/off, tracking, and whether the config is editable: booleans and IDs only |
 | POST | `/dashboard/api/settings/tracking` | admin token only | `{"enabled": bool}`: the activity UI at the next start |
+| POST | `/dashboard/api/settings/bitnet` | admin token only | `{"enabled": bool}`: the BitNet extension at the next start |
 | POST | `/dashboard/api/settings/servers/{server_id}` | admin token only | `{"enabled": bool}` for one child (404 unknown, 409 with `MCP_HUB_CONFIG`) |
 | GET, POST | `/dashboard/api/settings/autostart` | admin token only | The Hub's sign-in task, `{"hub": bool}` (503 when `hubctl` fails) |
 | GET | `/dashboard/api/activity` | admin token, session | Activity UI only: one day's calls (`date`, `limit`, `offset`, filters) |
