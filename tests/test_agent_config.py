@@ -21,7 +21,7 @@ class AgentConfigTest(unittest.TestCase):
     def test_loads_each_supported_provider_without_repr_leaking_key(self) -> None:
         from mcp_hub.agents.config import load_agent_configs
 
-        provider_map = dict(zip(self.roles, ("openai", "gemini", "anthropic", "openai", "gemini")))
+        provider_map = dict(zip(self.roles, ("openai", "gemini", "anthropic", "openai", "gemini", "anthropic")))
         self.path.write_text(json.dumps({
             "version": 1,
             "agents": {

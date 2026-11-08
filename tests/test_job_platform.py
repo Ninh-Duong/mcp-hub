@@ -11,7 +11,7 @@ from unittest.mock import patch
 from mcp_hub.agents import providers
 from mcp_hub.agents.config import AGENT_ROLES, AgentConfig
 from mcp_hub.projects import ProjectConfig
-from mcp_hub.jobs.runner import JobRunner, _specialist_task, create_provider
+from mcp_hub.jobs.runner import JobRunner, _roles_for, _specialist_task, create_provider
 from mcp_hub.jobs.store import JobStore
 from mcp_hub.security import dpapi
 from mcp_hub.security.dpapi import WINDOWS_ONLY_MESSAGE, DPAPIProtector
@@ -140,6 +140,17 @@ class JobWindowTest(_RunnerCase):
         )
         self.assertTrue(res2.is_error)
         self.assertIn("strictly before", res2.content[0].text)
+
+    def test_roles_for_sql_detection(self) -> None:
+        roles_unaccented = _roles_for({"question": "loi du lieu bang orders"})
+        self.assertIn("sql", roles_unaccented)
+
+        # Accented form written with unicode escapes
+        roles_accented = _roles_for({"question": "l\u1ed7i d\u1eef li\u1ec7u b\u1ea3ng orders"})
+        self.assertIn("sql", roles_accented)
+
+        roles_login = _roles_for({"question": "loi login"})
+        self.assertNotIn("sql", roles_login)
 
 
 if __name__ == "__main__":

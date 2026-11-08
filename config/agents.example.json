@@ -5,6 +5,7 @@
     "logs": { "provider": "<SET_BY_USER>", "model": "<SET_BY_USER>", "api_key": "<SET_BY_USER>" },
     "source": { "provider": "<SET_BY_USER>", "model": "<SET_BY_USER>", "api_key": "<SET_BY_USER>" },
     "jira": { "provider": "<SET_BY_USER>", "model": "<SET_BY_USER>", "api_key": "<SET_BY_USER>" },
-    "pr": { "provider": "<SET_BY_USER>", "model": "<SET_BY_USER>", "api_key": "<SET_BY_USER>" }
+    "pr": { "provider": "<SET_BY_USER>", "model": "<SET_BY_USER>", "api_key": "<SET_BY_USER>" },
+    "sql": { "provider": "<SET_BY_USER>", "model": "<SET_BY_USER>", "api_key": "<SET_BY_USER>" }
   }
 }

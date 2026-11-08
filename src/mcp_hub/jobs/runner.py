@@ -18,7 +18,7 @@ from ..agents.specialists import (
     EvidenceRef, SpecialistExecutor, SpecialistResult, SpecialistError, ToolCallOutcome,
 )
 from ..audit import redact
-from ..plan_merge import parse_window
+from ..plan_merge import fold, parse_window
 from ..result_cache import cache_key
 from ..security.dpapi import WINDOWS_ONLY_MESSAGE
 from ..server import is_read_only_tool
@@ -44,6 +44,7 @@ _SECRET_ARGUMENT_RE = re.compile(
     r"(?i)(?:token|secret|password|passwd|pwd|passphrase|authorization|bearer|api[_-]?key|access[_-]?key"
     r"|private[_-]?key|credential|cookie|session[_-]?id)"
 )
+_SQL_RE = re.compile(r"\b(sql|database|db|table|query|stored procedure|bang|du lieu|co so du lieu)\b")
 _UNKNOWN_TOOL = object()
 _T = TypeVar("_T")
 
@@ -754,11 +755,13 @@ def _create_providers(
 
 def _roles_for(request: dict[str, Any]) -> list[str]:
     roles = ["logs", "source"]
-    question = request["question"].casefold()
+    folded_question = fold(request["question"])
     if request.get("issue_key"):
         roles.append("jira")
-    if request.get("issue_key") or "pull request" in question or re.search(r"\bpr\b|pr_url", question):
+    if request.get("issue_key") or "pull request" in folded_question or re.search(r"\bpr\b|pr_url", folded_question):
         roles.append("pr")
+    if _SQL_RE.search(folded_question):
+        roles.append("sql")
     return roles
 
 
