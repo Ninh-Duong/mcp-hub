@@ -8,7 +8,7 @@ import re
 from contextlib import AsyncExitStack
 from dataclasses import replace
 from pathlib import Path
-from time import perf_counter
+from time import monotonic, perf_counter
 from collections.abc import Mapping
 from typing import Any, NamedTuple
 
@@ -356,6 +356,7 @@ class HubRuntime:
             return self._policy_denied(name, request_id, violation)
         result = await self.call_child_tool(name, arguments, request_id=request_id, client_name=client_name)
         policy.record(plan, name, arguments, result_succeeded(result))
+        result = await self._maybe_condense(name, result, plan.task if plan else None, request_id)
         if violation is None:
             return result
         self._policy_audit("tool.call.policy_warned", name, request_id, violation)
@@ -401,6 +402,51 @@ class HubRuntime:
             return _error_result("Result expired or unknown; repeat the original call.")
         return CallToolResult(content=[TextContent(type="text", text=json.dumps(page))])
 
+    async def _maybe_condense(
+        self, name: str, result: CallToolResult, task: str | None, request_id: str,
+    ) -> CallToolResult:
+        """Condense a large read-only success result; any failure returns `result` unchanged."""
+        if self.condenser is None or self.full_results is None:
+            return result
+        if name not in self._read_only or result.is_error:
+            return result
+        total_len = sum(len(getattr(item, "text", "")) for item in result.content if isinstance(item, TextContent))
+        if total_len < self.settings.bitnet.condense_min_chars:
+            return result
+        text = await asyncio.to_thread(_join_text, result.content) if total_len > 100_000 else _join_text(result.content)
+        route = self.routes.get(name)
+        server = route.server_id if route else "unknown"
+        started = monotonic()
+        try:
+            condensed = await asyncio.wait_for(
+                self.condenser.condense(text, task),
+                self.settings.bitnet.condense_timeout_seconds,
+            )
+        except Exception:
+            condensed = None
+        duration_ms = max(0, int((monotonic() - started) * 1000))
+        if condensed is None:
+            self.audit.write(
+                "tool.result.condensed", request_id=request_id, server=server, tool=name,
+                kept_lines=0, total_lines=0, source="fallback", duration_ms=duration_ms,
+            )
+            return result
+        rid = self.full_results.put(text)
+        footer = (
+            f"\n\n[Condensed by mcp-hub: kept {condensed.kept_lines} of {condensed.total_lines} lines. "
+            f"Full result: {FULL_RESULT_TOOL} result_id=\"{rid}\".]"
+        )
+        self.audit.write(
+            "tool.result.condensed", request_id=request_id, server=server, tool=name,
+            kept_lines=condensed.kept_lines, total_lines=condensed.total_lines,
+            source=condensed.source, duration_ms=duration_ms,
+        )
+        return CallToolResult(
+            content=[TextContent(type="text", text=condensed.text + footer)],
+            structured_content=None,
+            is_error=False,
+        )
+
     async def _call_batch(self, arguments: dict[str, Any], request_id: str, client_name: str) -> CallToolResult:
         """Run independent read-only calls in parallel; each one is audited as `<request_id>.<i>`."""
         fields = {"request_id": request_id, "feature": "hub", "server": "mcp-hub", "tool": BATCH_TOOL}
@@ -422,7 +468,7 @@ class HubRuntime:
         async def call_child(tool: str, tool_arguments: dict[str, Any], item_id: str) -> CallToolResult:
             result = await self.call_child_tool(tool, tool_arguments, request_id=item_id, client_name=client_name)
             policy.record(plan, tool, tool_arguments, result_succeeded(result))
-            return result
+            return await self._maybe_condense(tool, result, plan.task if plan else None, item_id)
 
         items = await run_batch(calls, call_child, request_id, result_succeeded,
                                 timeout=self.settings.batch.timeout_seconds, per_child=self.settings.batch.max_per_child)
@@ -588,6 +634,10 @@ def _full_result_tool() -> Tool:
         },
         annotations={"readOnlyHint": True},
     )
+
+
+def _join_text(content: list[Any]) -> str:
+    return "".join(item.text for item in content if isinstance(item, TextContent) and item.text)
 
 
 def _hub_status_tool() -> Tool:
