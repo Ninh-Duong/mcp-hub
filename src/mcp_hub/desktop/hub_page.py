@@ -40,6 +40,7 @@ class HubPage(Page):
         on_stop: Callable[[], None],
         on_tracking: Callable[[bool], None],
         on_autostart: Callable[[str, bool], None],
+        on_bitnet: Callable[[bool], None] | None = None,
     ) -> None:
         super().__init__()
         self._build_control(on_start, on_restart, on_stop)
@@ -47,6 +48,12 @@ class HubPage(Page):
         self.tracking_label, self.tracking_buttons = self.segment_row(_ON_OFF, on_tracking)
         self.tracking_hint = label(role="caption", wrap=True)
         self.content.addWidget(self.tracking_hint)
+        self.content.addSpacing(theme.SPACE_XS)
+        self.bitnet_label, self.bitnet_buttons = self.segment_row(_ON_OFF, on_bitnet or (lambda _: None))
+        self.bitnet_hint = label(role="caption", wrap=True)
+        self.bitnet_status = label(role="caption", wrap=True)
+        self.content.addWidget(self.bitnet_hint)
+        self.content.addWidget(self.bitnet_status)
         self.content.addSpacing(theme.SPACE_XS)
         self.autostart_buttons: dict[str, dict[bool, QPushButton]] = {}
         self.autostart_labels = {}
@@ -59,6 +66,8 @@ class HubPage(Page):
         self.needs_hub = label(role="caption", wrap=True)
         self.content.addWidget(self.loading)
         self.content.addWidget(self.needs_hub)
+        self._bitnet_state: str | None = None
+        self._t: Translator | None = None
 
     def _build_control(self, on_start: Callable[[], None], on_restart: Callable[[], None], on_stop: Callable[[], None]) -> None:
         row = QHBoxLayout()
@@ -73,28 +82,49 @@ class HubPage(Page):
             row.addWidget(widget)
         self.content.addLayout(row)
 
+    def _update_bitnet_status_text(self) -> None:
+        if self._t is None:
+            return
+        state = self._bitnet_state or "off"
+        self.bitnet_status.setText(self._t(f"desktop.bitnet.state.{state}"))
+
     def retranslate(self, t: Translator) -> None:
+        self._t = t
         self.control_label.setText(t("desktop.settings.hub.control"))
         self.start_button.setText(t("desktop.settings.hub.start"))
         self.restart_button.set_texts(t("desktop.settings.hub.restart"), t("desktop.settings.confirm"))
         self.stop_button.set_texts(t("desktop.settings.hub.stop"), t("desktop.settings.confirm"))
         self.tracking_label.setText(t("desktop.settings.hub.tracking"))
         self.tracking_hint.setText(t("desktop.settings.hub.trackingHint"))
+        self.bitnet_label.setText(t("desktop.settings.hub.bitnet"))
+        self.bitnet_hint.setText(t("desktop.settings.hub.bitnetHint"))
+        self._update_bitnet_status_text()
         self.autostart_labels["hub"].setText(t("desktop.settings.hub.autostartHub"))
         self.autostart_labels["app"].setText(t("desktop.settings.hub.autostartApp"))
         self.app_hint.setText(t("desktop.settings.hub.autostartAppSource"))
         self.loading.setText(t("desktop.settings.loading"))
         self.needs_hub.setText(t("desktop.settings.needsHub"))
-        for buttons in (self.tracking_buttons, *self.autostart_buttons.values()):
+        for buttons in (self.tracking_buttons, self.bitnet_buttons, *self.autostart_buttons.values()):
             _on_off_texts(buttons, t)
 
-    def sync(self, hub: str | None, settings: HubSettings | None, autostart: dict[str, bool | None] | None) -> None:
+    def sync(
+        self,
+        hub: str | None,
+        settings: HubSettings | None,
+        autostart: dict[str, bool | None] | None,
+        bitnet_state: str | None = None,
+    ) -> None:
         """Enable what can run in this Hub state and show the saved choices (unknown ones stay disabled)."""
         self.start_button.setEnabled(hub == "stopped")
         self.restart_button.setEnabled(hub == "running")
         self.stop_button.setEnabled(hub == "running")
         tracking = settings.activity_ui if settings is not None else None
-        _sync_segment(self.tracking_buttons, tracking, bool(settings and settings.editable))
+        editable = bool(settings and settings.editable)
+        _sync_segment(self.tracking_buttons, tracking, editable)
+        bitnet = settings.bitnet if settings is not None else None
+        _sync_segment(self.bitnet_buttons, bitnet, editable)
+        self._bitnet_state = bitnet_state
+        self._update_bitnet_status_text()
         for target, buttons in self.autostart_buttons.items():
             _sync_segment(buttons, autostart.get(target) if autostart else None, True)
         running = hub == "running"

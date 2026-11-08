@@ -21,12 +21,14 @@ class AgentPermissionsTest(unittest.TestCase):
             _tool("source__search"),
             _tool("jira__jira_read_ticket"),
             _tool("pr__get_pr_context_pack"),
+            _tool("sql__lookup_rows"),
             _tool("hub__status"),
         ]
         self.assertEqual([tool.name for tool in tools_for_role("logs", tools)], ["logs__query_logs"])
         self.assertEqual([tool.name for tool in tools_for_role("source", tools)], ["source__search"])
         self.assertEqual([tool.name for tool in tools_for_role("jira", tools)], ["jira__jira_read_ticket"])
         self.assertEqual([tool.name for tool in tools_for_role("pr", tools)], ["pr__get_pr_context_pack"])
+        self.assertEqual([tool.name for tool in tools_for_role("sql", tools)], ["sql__lookup_rows"])
         self.assertEqual(tools_for_role("coordinator", tools), [])
 
     def test_unknown_role_has_no_tool_access(self) -> None:

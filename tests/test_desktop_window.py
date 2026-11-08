@@ -44,6 +44,7 @@ class FakeStore:
 
     def __init__(self) -> None:
         self.activity_ui, self.editable, self.fail = False, True, False
+        self.bitnet = False
         self.reads = 0
         self.enabled = {"mcp-server-logs": True, "mcp-jira-sync": False}
 
@@ -53,10 +54,13 @@ class FakeStore:
             raise OSError("locked")
         servers = tuple(ServerSwitch(server_id, enabled, "credentials required" if server_id == "mcp-server-logs" else None)
                         for server_id, enabled in self.enabled.items())
-        return HubSettings(self.activity_ui, servers, self.editable)
+        return HubSettings(self.activity_ui, servers, self.editable, bitnet=self.bitnet)
 
     def set_activity_ui(self, enabled: bool) -> None:
         self.activity_ui = enabled
+
+    def set_bitnet(self, enabled: bool) -> None:
+        self.bitnet = enabled
 
     def set_server_enabled(self, server_id: str, enabled: bool) -> None:
         self.enabled[server_id] = enabled
@@ -382,6 +386,7 @@ class StatusWindowTest(unittest.TestCase):
         self.assertTrue(self.window.appearance_page.isHidden())
         self.assertFalse(page.isHidden())
         self.assertTrue(page.tracking_buttons[False].isChecked())
+        self.assertTrue(page.bitnet_buttons[False].isChecked())
         self.assertTrue(page.autostart_buttons["app"][True].isChecked())
         self.assertTrue(page.loading.isHidden())
         self.assertFalse(page.start_button.isEnabled())
@@ -407,6 +412,26 @@ class StatusWindowTest(unittest.TestCase):
         self.assertTrue(self.window.settings.pending.isHidden())
         self.window.set_tracking(True)  # unchanged: nothing written
         self.assertEqual(self.launched, [["restart"]])
+
+    def test_bitnet_is_saved_and_status_caption_mapped(self) -> None:
+        self.window.apply(running())
+        self.window.show_tab("hub")
+        self.window.process_results()
+        page = self.window.hub_page
+        self.assertTrue(page.bitnet_buttons[False].isChecked())
+        page.bitnet_buttons[True].click()
+        self.window.process_results()
+        self.assertTrue(self.store.bitnet)
+        self.assertTrue(page.bitnet_buttons[True].isChecked())
+        self.assertTrue(self.window.restart_needed)
+
+        # Status caption mapping
+        self.window.apply(HubSnapshot(hub="running", bitnet_state="ready"))
+        self.assertEqual(page.bitnet_status.text(), "Ready")
+        self.window.apply(HubSnapshot(hub="running", bitnet_state="installing"))
+        self.assertEqual(page.bitnet_status.text(), "Installing\u2026")
+        self.window.apply(HubSnapshot(hub="running", bitnet_state="unavailable"))
+        self.assertEqual(page.bitnet_status.text(), "Unavailable")
 
     def test_a_stopped_hub_shows_no_settings_until_it_runs(self) -> None:
         self.window.apply(HubSnapshot(hub="stopped"))
@@ -477,6 +502,7 @@ class StatusWindowTest(unittest.TestCase):
         self.assertFalse(self.window.mcps_page.switches["mcp-server-logs"][0][True].isEnabled())
         self.assertIn("MCP_HUB_CONFIG", self.window.mcps_page.note.text())
         self.assertFalse(self.window.hub_page.tracking_buttons[True].isEnabled())
+        self.assertFalse(self.window.hub_page.bitnet_buttons[True].isEnabled())
 
     def test_settings_errors_are_reported_in_the_footer(self) -> None:
         self.store.fail = True

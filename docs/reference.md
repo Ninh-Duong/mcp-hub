@@ -41,9 +41,17 @@ The shared service listens on `127.0.0.1` and `settings.http.port` (default 8765
 | POST | `/dashboard/api/service/shutdown` | admin token, session | Graceful stop; `hubctl stop` uses it |
 | GET | `/dashboard/api/settings` | admin token only | Children on/off, tracking, and whether the config is editable: booleans and IDs only |
 | POST | `/dashboard/api/settings/tracking` | admin token only | `{"enabled": bool}`: the activity UI at the next start |
+| POST | `/dashboard/api/settings/bitnet` | admin token only | `{"enabled": bool}`: the BitNet extension at the next start |
 | POST | `/dashboard/api/settings/servers/{server_id}` | admin token only | `{"enabled": bool}` for one child (404 unknown, 409 with `MCP_HUB_CONFIG`) |
 | GET, POST | `/dashboard/api/settings/autostart` | admin token only | The Hub's sign-in task, `{"hub": bool}` (503 when `hubctl` fails) |
 | GET | `/dashboard/api/activity` | admin token, session | Activity UI only: one day's calls (`date`, `limit`, `offset`, filters) |
 | GET | `/dashboard/api/activity/stream` | admin token, session | Activity UI only: live call events (server-sent events, keep-alive every 15 s) |
 
 The client token gets `403` on every `/dashboard` route. The admin token gets `403` on the three approval routes; see [security-and-logging.md](security-and-logging.md).
+
+
+## MCP tools
+
+| Tool | Who | What |
+|---|---|---|
+| `hub__get_full_result` | client token | Retrieve a page of an original, un-condensed result by its `result_id` (`offset`, `limit` up to 50000). Exists only with the `bitnet` extension. |

@@ -215,6 +215,65 @@ class PathRefreshTest(unittest.TestCase):
         self.assertEqual(env["PATH"], "a")
 
 
+class BitnetPreflightTest(unittest.TestCase):
+    def test_extension_off_returns_none(self) -> None:
+        result = preflight.check_bitnet(install=True, saved=lambda: frozenset())
+        self.assertIsNone(result)
+
+    def test_install_ok(self) -> None:
+        def fake_runner(cmd, **kwargs):
+            return subprocess.CompletedProcess(cmd, 0, stdout="bitnet: ready\n", stderr="")
+
+        result = preflight.check_bitnet(
+            install=True, runner=fake_runner, saved=lambda: frozenset({"bitnet"}),
+        )
+        self.assertIsNotNone(result)
+        self.assertTrue(result.ok)
+        self.assertEqual(result.server_id, "bitnet")
+        self.assertEqual(result.detail, "bitnet: ready")
+
+    def test_install_exit_2_not_ok_exit_code_unchanged(self) -> None:
+        def fake_runner(cmd, **kwargs):
+            return subprocess.CompletedProcess(cmd, 2, stdout="bitnet: unavailable (build: failed)\n", stderr="")
+
+        result = preflight.check_bitnet(
+            install=True, runner=fake_runner, saved=lambda: frozenset({"bitnet"}),
+        )
+        self.assertIsNotNone(result)
+        self.assertFalse(result.ok)
+        self.assertEqual(result.detail, "bitnet: unavailable (build: failed)")
+
+        audit = MagicMock()
+        with (
+            patch.object(preflight, "load_config"),
+            patch.object(preflight, "refresh_windows_path"),
+            patch.object(preflight, "run_preflight", return_value=[result]),
+            patch.object(preflight, "AuditLog", return_value=audit),
+            redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(preflight.main(["--install"]), 0)
+
+    def test_no_install_reports_only(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            res1 = preflight.check_bitnet(
+                install=False, root=root, saved=lambda: frozenset({"bitnet"}),
+            )
+            self.assertIsNotNone(res1)
+            self.assertFalse(res1.ok)
+            self.assertIn("not installed", res1.detail)
+
+            install_json = root / "vendor" / "bitnet" / "install.json"
+            install_json.parent.mkdir(parents=True)
+            install_json.write_text("{}", encoding="utf-8")
+            res2 = preflight.check_bitnet(
+                install=False, root=root, saved=lambda: frozenset({"bitnet"}),
+            )
+            self.assertIsNotNone(res2)
+            self.assertTrue(res2.ok)
+            self.assertEqual(res2.detail, "ready")
+
+
 class MainTest(unittest.TestCase):
     def test_exit_code_and_report_reflect_results(self) -> None:
         failed = [preflight.CheckResult("child", "node", False, "missing")]

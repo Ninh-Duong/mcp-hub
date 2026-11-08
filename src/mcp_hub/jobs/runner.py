@@ -3,13 +3,14 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import uuid
 from datetime import datetime, timedelta
 from typing import Any, Callable, TypeVar
 
 from mcp.types import CallToolResult, TextContent, Tool
 
 from ..agents.config import AGENT_ROLES, AgentConfig
-from ..agents.coordinator import synthesize
+from ..agents.coordinator import _findings_payload, synthesize
 from ..agents.providers import (
     PACKAGE_MISSING_MESSAGE, PROVIDER_PACKAGES, AnthropicProvider, GeminiProvider, ModelProvider, OpenAIProvider,
     provider_package_installed,
@@ -18,6 +19,8 @@ from ..agents.specialists import (
     EvidenceRef, SpecialistExecutor, SpecialistResult, SpecialistError, ToolCallOutcome,
 )
 from ..audit import redact
+from ..extensions import DraftSummarizer, PlanAssistant, PlanContext, ResultCondenser
+from ..plan_merge import fold, parse_window, roles_for_servers
 from ..result_cache import cache_key
 from ..security.dpapi import WINDOWS_ONLY_MESSAGE
 from ..server import is_read_only_tool
@@ -43,8 +46,43 @@ _SECRET_ARGUMENT_RE = re.compile(
     r"(?i)(?:token|secret|password|passwd|pwd|passphrase|authorization|bearer|api[_-]?key|access[_-]?key"
     r"|private[_-]?key|credential|cookie|session[_-]?id)"
 )
+_SQL_RE = re.compile(r"\b(sql|database|db|table|query|stored procedure|bang|du lieu|co so du lieu)\b")
 _UNKNOWN_TOOL = object()
 _T = TypeVar("_T")
+
+_DETERMINISTIC_TOOLS: dict[str, tuple[str, ...]] = {
+    "logs": ("logs__get_openobserve_service_logs", "logs__search_openobserve_logs"),
+    "sql": ("sql__search_context",),
+}
+
+
+def _build_deterministic_args(
+    role: str, props: dict[str, Any], project: Any, request: dict[str, Any],
+) -> dict[str, Any] | None:
+    args: dict[str, Any] = {}
+    if role == "logs":
+        env = request.get("env", "")
+        target = project.logs.get(env) if project and project.logs else None
+        if target is None:
+            return None
+        if "organization" in props:
+            args["organization"] = target.organization
+        if "stream" in props:
+            args["stream"] = target.stream
+        if "env" in props:
+            args["env"] = env
+        if "start_time" in props and request.get("since"):
+            args["start_time"] = request["since"]
+        if "end_time" in props and request.get("until"):
+            args["end_time"] = request["until"]
+        if "query" in props:
+            args["query"] = request.get("question", "")
+    elif role == "sql":
+        if "query" in props:
+            args["query"] = request.get("question", "")
+        if "env" in props:
+            args["env"] = request.get("env", "")
+    return args
 
 
 _ENV = {"type": "string", "enum": ["dev", "stg", "prod"]}
@@ -56,7 +94,9 @@ _JOB_TOOLS: tuple[tuple[str, str, dict[str, Any], tuple[str, ...], bool], ...] =
     ("hub__submit_issue", "Start an asynchronous issue investigation using configured logs, source, Jira, and PR "
      "agents. At most {max_queued} jobs can wait in the queue.",
      {"project": {"type": "string"}, "question": {"type": "string"}, "env": _ENV,
-      "issue_key": {"type": "string"}, "rcid": {"type": "string"}},
+      "issue_key": {"type": "string"}, "rcid": {"type": "string"},
+      "since": {"type": "string", "format": "date-time"},
+      "until": {"type": "string", "format": "date-time"}},
      ("project", "question"), False),
     ("hub__get_job", "Get investigation state, summary, evidence references, and metadata timeline.",
      _JOB_ID, ("job_id",), True),
@@ -136,9 +176,21 @@ class JobRunner:
         provider_factory: Callable[[AgentConfig], ModelProvider] = create_provider,
         policy: SideEffectPolicy | None = None,
         limits: JobSettings = JobSettings(),
+        plan_assistant: PlanAssistant | None = None,
+        condenser: ResultCondenser | None = None,
+        summarizer: DraftSummarizer | None = None,
+        plan_timeout_seconds: float = 3.0,
+        condense_min_chars: int = 6000,
+        condense_timeout_seconds: float = 8.0,
     ) -> None:
         self.store = store
         self.limits = limits
+        self.plan_assistant = plan_assistant
+        self.condenser = condenser
+        self.summarizer = summarizer
+        self.plan_timeout_seconds = plan_timeout_seconds
+        self.condense_min_chars = condense_min_chars
+        self.condense_timeout_seconds = condense_timeout_seconds
         self._job_window = timedelta(seconds=limits.max_job_seconds)
         self.runtime = runtime
         self.projects = projects
@@ -215,6 +267,8 @@ class JobRunner:
         env: str | None = None,
         issue_key: str | None = None,
         rcid: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
     ) -> dict[str, str]:
         self._require_encryption()
         project_config = self.projects.get(project)
@@ -227,6 +281,9 @@ class JobRunner:
         for label, value in (("issue_key", issue_key), ("rcid", rcid)):
             if value is not None and (not isinstance(value, str) or len(value) > 256):
                 raise ValueError(f"{label} must be at most 256 characters")
+        window = parse_window(since, until, self.limits.max_window_hours)
+        since_iso = window[0].isoformat() if window else None
+        until_iso = window[1].isoformat() if window else None
         state = "queued" if selected_env else "awaiting_input"
         async with self._submit_lock:
             if state == "queued":
@@ -234,6 +291,7 @@ class JobRunner:
             job_id = await _db(
                 self.store.create_job,
                 project=project, question=question, env=selected_env, issue_key=issue_key, rcid=rcid, state=state,
+                since=since_iso, until=until_iso,
             )
         if state == "queued":
             self._schedule(job_id)
@@ -514,10 +572,59 @@ class JobRunner:
         if self.store.get_job(job_id)["state"] == "running":
             self.store.transition_job(job_id, "failed", event="job.failed")
 
+    async def _plan_job(self, job_id: str, request: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
+        if self.plan_assistant is None:
+            await _db(self.store.append_event, job_id, "job.planned", agent=None, tool="off")
+            return _roles_for(request), request
+
+        hints = None
+        source = "fallback"
+        try:
+            project = self.projects.get(request.get("project"))
+            envs = tuple(project.allowed_envs) if project else ()
+            routes = getattr(self.runtime, "routes", {})
+            servers = tuple(sorted({getattr(r, "server_id", "") for r in routes.values()} - {""}))
+            context = PlanContext(
+                task=request.get("question", ""),
+                playbooks={},
+                servers=servers,
+                envs=envs,
+                now=self.store.clock(),
+            )
+            call_fn = getattr(self.plan_assistant, "hints", None) or getattr(self.plan_assistant, "assist_plan", None)
+            hints = await asyncio.wait_for(
+                call_fn(context),
+                timeout=self.plan_timeout_seconds,
+            )
+            if hints and hints.source:
+                source = hints.source
+        except Exception:
+            hints = None
+            source = "fallback"
+
+        await _db(self.store.append_event, job_id, "job.planned", agent=None, tool=source)
+        if hints is None:
+            return _roles_for(request), request
+
+        hinted_roles = roles_for_servers(hints.servers, getattr(self.runtime, "routes", {}))
+        allowed_roles = set(AGENT_ROLES) - {"coordinator"}
+        roles: list[str] = []
+        for role in [*_roles_for(request), *hinted_roles]:
+            if role in allowed_roles and role not in roles:
+                roles.append(role)
+
+        req = dict(request)
+        if req.get("since") is None and req.get("until") is None and hints.since is not None and hints.until is not None:
+            req["since"] = hints.since.isoformat()
+            req["until"] = hints.until.isoformat()
+            await _db(self.store.update_request, job_id, since=req["since"], until=req["until"])
+        return roles, req
+
     async def _execute_job(self, job_id: str) -> None:
         self._tool_counts[job_id] = 0
         request = await _db(self.store.get_request, job_id)
-        findings, incomplete, timed_out = await self._investigate(job_id, request)
+        roles, request = await self._plan_job(job_id, request)
+        findings, incomplete, timed_out = await self._investigate(job_id, request, roles=roles)
         summary, synthesized = await self._summarize(request, findings, timed_out)
         final_state = "partial" if incomplete or timed_out or not synthesized else "completed"
         await _db(self._finish_job, job_id, redact(summary, limit=4000), final_state)
@@ -546,6 +653,11 @@ class JobRunner:
         notes = [_TIME_LIMIT_NOTE.format(limit=_limit_text(self.limits.max_job_seconds))] if timed_out else []
         coordinator = self.providers.get("coordinator")
         if coordinator is None:
+            if self.summarizer is not None:
+                payload = _findings_payload(findings)
+                draft = await self.summarizer.summarize(request["question"], payload)
+                if draft is not None:
+                    return "\n\n".join([draft, *notes]), False
             return _fallback_summary(findings, *notes, "Coordinator agent is not configured."), False
         audit = getattr(self.runtime, "audit", None)
         redactor = (lambda text: audit.redact_content(text, limit=12000)) if audit is not None else None
@@ -564,15 +676,18 @@ class JobRunner:
             return _fallback_summary(findings, *notes, f"Coordinator failed ({type(exc).__name__})."), False
         return "\n\n".join([summary, *notes]), True
 
-    async def _investigate(self, job_id: str, request: dict[str, Any]) -> tuple[list[SpecialistResult], bool, bool]:
+    async def _investigate(
+        self, job_id: str, request: dict[str, Any], roles: list[str] | None = None,
+    ) -> tuple[list[SpecialistResult], bool, bool]:
         """Run the specialists for at most the job window; return findings, incomplete, and timed out.
 
         A specialist still running at the limit is cancelled; it and any failed specialist keep
         the evidence they already stored.
         """
+        specialist_roles = roles if roles is not None else _roles_for(request)
         tasks = {
             role: asyncio.create_task(self._run_specialist(job_id, role, request), name=f"mcp-hub-{role}-{job_id}")
-            for role in _roles_for(request)
+            for role in specialist_roles
         }
         try:
             _done, pending = await asyncio.wait(tasks.values(), timeout=self.limits.max_job_seconds)
@@ -584,9 +699,57 @@ class JobRunner:
         findings, incomplete = await _db(self._record_findings, job_id, outcomes)
         return findings, incomplete, bool(pending)
 
+    async def _run_deterministic_specialist(
+        self, job_id: str, role: str, request: dict[str, Any],
+    ) -> SpecialistResult:
+        candidates = _DETERMINISTIC_TOOLS.get(role, ())
+        tool_name = next((name for name in candidates if name in self.runtime.public_tools), None)
+        if tool_name is None:
+            await _db(self.store.append_event, job_id, "agent.unavailable", agent=role)
+            return SpecialistResult(role, "", (), "Agent is not configured.")
+
+        tool = self.runtime.public_tools[tool_name]
+        schema = (
+            getattr(tool, "input_schema", None)
+            or getattr(tool, "inputSchema", None)
+            or (tool.get("input_schema") or tool.get("inputSchema") if isinstance(tool, dict) else {})
+            or {}
+        )
+        props = schema.get("properties", {}) if isinstance(schema, dict) else {}
+        project = self.projects.get(request.get("project", ""))
+        args = _build_deterministic_args(role, props, project, request)
+        if args is None:
+            await _db(self.store.append_event, job_id, "agent.unavailable", agent=role)
+            return SpecialistResult(role, "", (), "No log targets configured for project.")
+
+        await _db(self.store.append_event, job_id, "agent.started", agent=role)
+        source_id = f"{role}-{uuid.uuid4().hex[:8]}"
+        try:
+            outcome = await self._call_child_tool(job_id, role, tool_name, args, tool, source_id)
+            if isinstance(outcome, CallToolResult):
+                outcome = ToolCallOutcome(outcome, source_id)
+            if not outcome.reused:
+                payload = outcome.result.model_dump(mode="json")
+                await asyncio.to_thread(self.store.save_encrypted_result, job_id, outcome.source_id, payload)
+            if not outcome.result.is_error and self.condenser is not None:
+                raw_text = "\n".join(b.text for b in (outcome.result.content or []) if isinstance(b, TextContent))
+                if len(raw_text) >= self.condense_min_chars:
+                    try:
+                        await asyncio.wait_for(
+                            self.condenser.condense(raw_text, request.get("question")),
+                            timeout=self.condense_timeout_seconds,
+                        )
+                    except Exception:
+                        pass
+            return SpecialistResult(role, "", (EvidenceRef(outcome.source_id, tool_name, role),), None)
+        except Exception as exc:
+            return SpecialistResult(role, "", (), f"Specialist failed ({type(exc).__name__}).")
+
     async def _run_specialist(self, job_id: str, role: str, request: dict[str, Any]) -> SpecialistResult:
         provider = self.providers.get(role)
         if provider is None:
+            if self.summarizer is not None:
+                return await self._run_deterministic_specialist(job_id, role, request)
             await _db(self.store.append_event, job_id, "agent.unavailable", agent=role)
             return SpecialistResult(role, "", (), "Agent is not configured.")
         executor = SpecialistExecutor(
@@ -595,6 +758,9 @@ class JobRunner:
             save_result=self.store.save_encrypted_result,
             call_tool=self._call_child_tool,
             tool_filter=self.policy.offers_tool,
+            condenser=self.condenser,
+            condense_min_chars=self.condense_min_chars,
+            condense_timeout_seconds=self.condense_timeout_seconds,
         )
         await _db(self.store.append_event, job_id, "agent.started", agent=role)
         return await executor.run(job_id, role, _specialist_task(request))
@@ -745,20 +911,25 @@ def _create_providers(
 
 def _roles_for(request: dict[str, Any]) -> list[str]:
     roles = ["logs", "source"]
-    question = request["question"].casefold()
+    folded_question = fold(request["question"])
     if request.get("issue_key"):
         roles.append("jira")
-    if request.get("issue_key") or "pull request" in question or re.search(r"\bpr\b|pr_url", question):
+    if request.get("issue_key") or "pull request" in folded_question or re.search(r"\bpr\b|pr_url", folded_question):
         roles.append("pr")
+    if _SQL_RE.search(folded_question):
+        roles.append("sql")
     return roles
 
 
 def _specialist_task(request: dict[str, Any]) -> str:
-    return json.dumps({
+    payload: dict[str, Any] = {
         "project": request["project"], "question": request["question"],
         "environment": request["env"], "issue_key": request.get("issue_key"),
         "rcid": request.get("rcid"),
-    }, ensure_ascii=False)
+    }
+    if request.get("since") is not None and request.get("until") is not None:
+        payload["window"] = {"since": request["since"], "until": request["until"]}
+    return json.dumps(payload, ensure_ascii=False)
 
 
 async def _cancel_all(tasks: Any) -> None:

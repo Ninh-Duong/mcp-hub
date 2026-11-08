@@ -12,11 +12,12 @@ from mcp.types import CallToolResult, TextContent
 
 from ..audit import SENSITIVE_FIELD_RE, redact
 from ..config import HUB_ROOT
+from ..extensions import ResultCondenser
 from ..server import is_read_only_tool
 from .providers import ModelProvider, ModelToolCall, ModelTurn
 
 
-ROLE_PREFIXES = {"logs": "logs__", "source": "source__", "jira": "jira__", "pr": "pr__"}
+ROLE_PREFIXES = {"logs": "logs__", "source": "source__", "jira": "jira__", "pr": "pr__", "sql": "sql__"}
 MAX_TOOL_RESULT_CHARS = 6000
 _EMAIL = re.compile(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b")
 
@@ -53,7 +54,10 @@ _REUSED_NOTE = (
     "Do not repeat identical calls."
 )
 _ERROR_NOTE = "Error: {error}. No result was produced; adjust the call or answer with the evidence you have."
-_DEFAULT_PROMPT = "Use only your provided read-only tools and cite evidence."
+_DEFAULT_PROMPT = (
+    "Use only your provided read-only tools and cite evidence. "
+    "When the task has a `window`, use exactly that UTC window for every log and SQL time filter."
+)
 
 
 def tools_for_role(role: str, tools: list[Any], allow: Callable[[Any], bool] = is_read_only_tool) -> list[Any]:
@@ -151,6 +155,9 @@ class SpecialistExecutor:
         call_tool: Callable[[str, str, str, dict[str, Any], Any, str], Awaitable[CallToolResult | ToolCallOutcome]],
         tool_filter: Callable[[Any], bool] = is_read_only_tool,
         max_rounds: int = 8,
+        condenser: ResultCondenser | None = None,
+        condense_min_chars: int = 6000,
+        condense_timeout_seconds: float = 8.0,
     ) -> None:
         self.runtime = runtime
         self.provider = provider
@@ -158,6 +165,9 @@ class SpecialistExecutor:
         self.call_tool = call_tool
         self.tool_filter = tool_filter
         self.max_rounds = max_rounds
+        self.condenser = condenser
+        self.condense_min_chars = condense_min_chars
+        self.condense_timeout_seconds = condense_timeout_seconds
 
     async def run(self, job_id: str, role: str, task: str) -> SpecialistResult:
         tools = tools_for_role(role, self.runtime.public_tools, self.tool_filter)
@@ -221,10 +231,24 @@ class SpecialistExecutor:
         else:
             payload = outcome.result.model_dump(mode="json")
             await asyncio.to_thread(self.save_result, job_id, outcome.source_id, payload)
-            content = minimize_model_content(
-                outcome.result,
-                redactor=lambda text: self.runtime.audit.redact_content(text, limit=MAX_TOOL_RESULT_CHARS),
-            )
+            target: Any = outcome.result
+            if not outcome.result.is_error and self.condenser is not None:
+                raw_text = "\n".join(b.text for b in (outcome.result.content or []) if isinstance(b, TextContent))
+                if len(raw_text) >= self.condense_min_chars:
+                    try:
+                        condensed = await asyncio.wait_for(
+                            self.condenser.condense(raw_text, call.name),
+                            timeout=self.condense_timeout_seconds,
+                        )
+                        target = (
+                            f"{condensed.text}\n"
+                            f"[Condensed: kept {condensed.kept_lines} of {condensed.total_lines} lines; full evidence {outcome.source_id}.]"
+                        )
+                    except Exception:
+                        target = outcome.result
+            audit = getattr(self.runtime, "audit", None)
+            redactor = (lambda t: audit.redact_content(t, limit=MAX_TOOL_RESULT_CHARS)) if audit is not None else None
+            content = minimize_model_content(target, redactor=redactor)
             if outcome.result.is_error:
                 content = f"The tool returned an error result [{outcome.source_id}]:\n{content}"
         messages.append(_tool_message(call, content))
