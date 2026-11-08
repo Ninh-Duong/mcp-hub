@@ -47,6 +47,7 @@ This repo is maintained entirely by AI agents. These rules are mandatory. Text r
 | `config/private/jobs.sqlite3` | Generated job store with encrypted blobs. Never open or copy it; inspect jobs through `hub__get_job` or the dashboard. |
 | `logs/children/*` | Nothing. Child stderr (`<server-id>.log`, rotated to `.log.1`); the user inspects it. Agents never open or print it because it may contain child secrets. |
 | `logs/mcp-hub-service.err` | Nothing. Unredacted stderr of the background service (Python tracebacks, SDK warnings), rotated to `.err.1`; the user inspects it. Report failures from `logs/mcp-hub.jsonl` instead. |
+| `vendor/` | Nothing. Third-party sources, builds and models downloaded by preflight (for example vendor/bitnet/); never read, edit, or commit (only vendor/README.md is tracked). |
 | `.local/`, `.env`, `.env.*` | Nothing. Never read. |
 
 - Account values in a child's section (`openobserve`/`seq`, `jira`, `bitbucket`, `mssql`) are written as empty strings: the child then falls back to its own local files ([Configuration sources](docs/child-mcp-compatibility.md#configuration-sources)). Only the user fills in real values. Never ask the user to paste a secret into the chat.
