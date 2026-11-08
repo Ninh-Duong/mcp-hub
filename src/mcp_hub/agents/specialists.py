@@ -16,7 +16,7 @@ from ..server import is_read_only_tool
 from .providers import ModelProvider, ModelToolCall, ModelTurn
 
 
-ROLE_PREFIXES = {"logs": "logs__", "source": "source__", "jira": "jira__", "pr": "pr__"}
+ROLE_PREFIXES = {"logs": "logs__", "source": "source__", "jira": "jira__", "pr": "pr__", "sql": "sql__"}
 MAX_TOOL_RESULT_CHARS = 6000
 _EMAIL = re.compile(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b")
 

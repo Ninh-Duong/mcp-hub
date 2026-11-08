@@ -7,7 +7,7 @@ from pathlib import Path
 from ..config import PRIVATE_ROOT, SECRET_PLACEHOLDER
 
 
-AGENT_ROLES = ("coordinator", "logs", "source", "jira", "pr")
+AGENT_ROLES = ("coordinator", "logs", "source", "jira", "pr", "sql")
 PROVIDERS = frozenset({"openai", "gemini", "anthropic"})
 
 
