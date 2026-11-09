@@ -115,7 +115,20 @@ def dll_dependencies(binary: Path) -> list[str]:
 
 
 def parse_dependents(output: str) -> list[str]:
-    return [line.strip() for line in output.splitlines() if line.strip().lower().endswith(".dll")]
+    """The names listed under "...the following dependencies:" (delay-loaded ones too), up to the Summary.
+
+    The `Dump of file <path>` header also ends with `.dll` when a DLL is dumped, so only the lists count.
+    """
+    names, listing = [], False
+    for raw in output.splitlines():
+        line = raw.strip()
+        if "following dependencies" in line or "following delay load dependencies" in line:
+            listing = True
+        elif line.startswith("Summary"):
+            break
+        elif listing and line.lower().endswith(".dll") and " " not in line:
+            names.append(line)
+    return names
 
 
 def find_dumpbin() -> str:

@@ -36,8 +36,14 @@ class BuildBitnetRuntimeTest(unittest.TestCase):
 
     def test_dumpbin_output_is_read_as_dll_names(self) -> None:
         output = ("Dump of file llama-server.exe\n\n  Image has the following dependencies:\n\n"
-                  "    llama.dll\n    KERNEL32.dll\n    VCRUNTIME140.dll\n\n  Summary\n")
-        self.assertEqual(build.parse_dependents(output), ["llama.dll", "KERNEL32.dll", "VCRUNTIME140.dll"])
+                  "    llama.dll\n    KERNEL32.dll\n    VCRUNTIME140.dll\n\n"
+                  "  Image has the following delay load dependencies:\n\n    WS2_32.dll\n\n  Summary\n    x.dll\n")
+        self.assertEqual(build.parse_dependents(output), ["llama.dll", "KERNEL32.dll", "VCRUNTIME140.dll", "WS2_32.dll"])
+
+    def test_the_header_of_a_dumped_dll_is_not_a_dependency(self) -> None:
+        output = ("Dump of file C:\\Windows\\System32\\VCRUNTIME140_1.dll\n\nFile Type: DLL\n\n"
+                  "  Image has the following dependencies:\n\n    KERNEL32.dll\n\n  Summary\n")
+        self.assertEqual(build.parse_dependents(output), ["KERNEL32.dll"])
 
     def test_only_dlls_windows_lacks_are_shipped(self) -> None:
         beside, system = self.root / "build", self.root / "System32"
