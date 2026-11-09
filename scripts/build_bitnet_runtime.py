@@ -83,16 +83,31 @@ def download_model(model_dir: Path) -> Path:
 
 
 def build_server(source: Path, model_dir: Path) -> Path:
-    """setup_env.py generates the BitNet kernels and builds llama.cpp with ClangCL; the model is already there."""
+    """setup_env.py generates the BitNet kernels and builds llama.cpp with ClangCL; the model is already there.
+
+    Its requirements.txt (torch, transformers) only converts models, which the prebuilt GGUF makes unnecessary;
+    setup_env.py needs pip itself (it installs gguf-py), so the venv is seeded with pip.
+    """
     venv = source / ".venv"
-    run(["uv", "venv", str(venv), "--python", "3.11"])
+    run(["uv", "venv", "--seed", str(venv), "--python", "3.11"])
     python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-    run(["uv", "pip", "install", "--python", str(python), "-r", str(source / "requirements.txt")])
-    run([str(python), "setup_env.py", "-md", str(model_dir), "-q", "i2_s"], cwd=source)
+    try:
+        run([str(python), "setup_env.py", "-md", str(model_dir.resolve()), "-q", "i2_s"], cwd=source)
+    except subprocess.CalledProcessError:
+        print_setup_logs(source / "logs")
+        raise
     servers = sorted((source / "build").rglob(SERVER_EXE))
     if not servers:
         raise SystemExit(f"{SERVER_EXE} was not built.")
     return servers[0]
+
+
+def print_setup_logs(folder: Path, tail: int = 80) -> None:
+    """setup_env.py writes each step's output to logs/<step>.log; show their ends in the CI log."""
+    for log in sorted(folder.glob("*.log")):
+        lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
+        print(f"----- {log.name} (last {tail} lines) -----", flush=True)
+        print("\n".join(lines[-tail:]), flush=True)
 
 
 def dll_dependencies(binary: Path) -> list[str]:
