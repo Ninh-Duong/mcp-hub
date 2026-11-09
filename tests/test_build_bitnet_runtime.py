@@ -114,6 +114,7 @@ class BuildBitnetRuntimeTest(unittest.TestCase):
         self.assertIn("utils/codegen_tl2.py", commands[0])
         self.assertIn("-DBUILD_SHARED_LIBS=OFF", commands[1])
         self.assertIn("-DLLAMA_OPENSSL=OFF", commands[1])
+        self.assertIn("-DLLAMA_BUILD_TOOLS=ON", commands[1])  # the server target exists only with the tools
         self.assertEqual(commands[2][commands[2].index("--target") + 1], "llama-server")
 
     def test_main_refuses_other_platforms(self) -> None:
