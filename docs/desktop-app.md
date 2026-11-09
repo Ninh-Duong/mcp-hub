@@ -24,7 +24,7 @@ A small frosted-glass window (Qt), installed on its own with `mcp-hub-status-set
 
 | Action | How |
 |---|---|
-| Get the installer | Download `mcp-hub-status-setup-<version>.exe` and its `.sha256` from the repository's latest GitHub Release, or run `.\scripts\hubctl.ps1 app -Install`, which downloads both, refuses a file that does not match its SHA-256, and runs the setup. `hubctl install` and `hubctl app` point to the release while the app is not installed. A private repository's release needs a signed-in download. |
+| Get the installer | Download `mcp-hub-status-setup-<version>.exe` and its `.sha256` from the repository's latest GitHub Release, or run `.\scripts\hubctl.ps1 app -Install`, which downloads both, refuses a file that does not match its SHA-256, and runs the setup. `hubctl install` and `hubctl app` point to the release while the app is not installed. `app -Install` installs the release first; a build left in `dist/` (which may be older) is run only when no release can be downloaded, and it prints its path. A private repository's release needs a signed-in download. |
 | Install the app | Run `mcp-hub-status-setup-<version>.exe` (per user, no admin). Choose a desktop icon and **Open at sign-in**. |
 | Open the app | Start Menu or desktop → **mcp-hub Status**, or `.\scripts\hubctl.ps1 app` |
 | Run it from source (development) | `uv run python -m mcp_hub.desktop` |
