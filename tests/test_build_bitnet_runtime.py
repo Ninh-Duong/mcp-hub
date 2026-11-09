@@ -41,7 +41,7 @@ class BuildBitnetRuntimeTest(unittest.TestCase):
         self.assertEqual(build.parse_dependents(output), ["llama.dll", "KERNEL32.dll", "VCRUNTIME140.dll", "WS2_32.dll"])
 
     def test_the_header_of_a_dumped_dll_is_not_a_dependency(self) -> None:
-        output = ("Dump of file C:\\Windows\\System32\\VCRUNTIME140_1.dll\n\nFile Type: DLL\n\n"
+        output = ("Dump of file System32\\VCRUNTIME140_1.dll\n\nFile Type: DLL\n\n"
                   "  Image has the following dependencies:\n\n    KERNEL32.dll\n\n  Summary\n")
         self.assertEqual(build.parse_dependents(output), ["KERNEL32.dll"])
 
