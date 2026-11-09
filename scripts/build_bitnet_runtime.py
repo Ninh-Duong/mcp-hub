@@ -204,7 +204,8 @@ def smoke_test(runtime_zip: Path, model: Path) -> None:
         with zipfile.ZipFile(runtime_zip) as archive:
             archive.extractall(folder)
         port = free_port()
-        process = subprocess.Popen([str(Path(folder) / SERVER_EXE), "-m", str(model), "--host", "127.0.0.1",
+        # The server runs in the empty folder, so the model path must not be relative.
+        process = subprocess.Popen([str(Path(folder) / SERVER_EXE), "-m", str(model.resolve()), "--host", "127.0.0.1",
                                     "--port", str(port), "-c", "512"], cwd=folder)
         try:
             deadline = time.monotonic() + HEALTH_TIMEOUT_SECONDS
