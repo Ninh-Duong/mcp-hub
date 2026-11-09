@@ -31,7 +31,7 @@ from .i18n import LANGUAGES, Translator, system_language
 from .mini import MiniBar
 from .settings import AppearancePage, SettingsPanel
 from .update_card import DOWNLOADING, FAILED, INSTALLING, READY, UpdateCard
-from .widgets import Card, Row, UsageRow, button, dot_icon, label, set_props, show_elided
+from .widgets import Card, Row, Spinner, UsageRow, button, dot_icon, label, set_props, show_elided
 
 # Never equal to a section key, so every section draws once after a theme switch or at start.
 _NOT_DRAWN = object()
@@ -141,6 +141,7 @@ class StatusWindow(QWidget):
         # Who uses each child, from the activity stream (only while the Hub tracks AI clients).
         self.usage_board = usage.UsageBoard()
         self.child_rows: dict[str, UsageRow] = {}
+        self.bitnet_row: Row | None = None
         # Compact mode: the pinned mini bar, and where the full window and the bar were last placed.
         self.compact = False
         self._full_pos: Any = None
@@ -195,7 +196,7 @@ class StatusWindow(QWidget):
         self.hub_page = HubPage(
             on_start=self.start_hub, on_restart=self.restart_hub, on_stop=self.stop_hub,
             on_tracking=self.set_tracking, on_autostart=self.set_autostart,
-            on_bitnet=self.set_bitnet,
+            on_bitnet=self.set_bitnet, on_install_bitnet=self.install_bitnet,
         )
         self.mcps_page = ChildrenPage(on_toggle=self.set_child)
         pages = {"appearance": self.appearance_page, "hub": self.hub_page, "mcps": self.mcps_page}
@@ -341,7 +342,8 @@ class StatusWindow(QWidget):
         return (
             ("texts", language, self._render_texts),
             ("hub", (language, hub, activity_ui), self._render_hub),
-            ("children", (language, hub, snapshot.children if snapshot else ()), self._render_children),
+            ("children", (language, hub, snapshot.children if snapshot else (), snapshot.bitnet if snapshot else None),
+             self._render_children),
             ("usage", (language, activity_ui, self._usage_lines(activity_ui)), self._render_usage),
             ("clients", (language, hub, activity_ui, snapshot.clients if snapshot else (),
                          snapshot.recent if snapshot else ()), self._render_clients),
@@ -350,7 +352,9 @@ class StatusWindow(QWidget):
              self._render_update),
             ("actions", hub, self._render_actions),
             ("mini", (language, self._mini_state(activity_ui)), self._render_mini),
-            ("settings", (language, hub, self.hub_settings, self._autostart_key(), self.restart_needed, snapshot.bitnet_state if snapshot else None), self._render_settings),
+            ("settings", (language, hub, self.hub_settings, self._autostart_key(), self.restart_needed,
+                          snapshot.bitnet_state if snapshot else None, snapshot.bitnet if snapshot else None),
+             self._render_settings),
             ("icon", snapshot.tone if snapshot else "wait", self._render_icon),
         )
 
@@ -393,6 +397,7 @@ class StatusWindow(QWidget):
     def _render_children(self, hub: str | None) -> None:
         self.clear_rows(self.children_list)
         self.child_rows = {}
+        self.bitnet_row = None
         # New rows have empty usage lines: draw them again in this render.
         self._keys.pop("usage", None)
         self.children_count.setText("")
@@ -402,8 +407,8 @@ class StatusWindow(QWidget):
         children = self.snapshot.children
         if not children:
             self._note(self.children_list, self.t("desktop.children.empty"))
-            return
-        self.children_count.setText(f"{sum(child.tone == 'ok' for child in children)}/{len(children)}")
+        else:
+            self.children_count.setText(f"{sum(child.tone == 'ok' for child in children)}/{len(children)}")
         for child in children:
             item = UsageRow()
             # A connected child needs no word: its green dot and the count say it. Other states keep theirs.
@@ -411,6 +416,27 @@ class StatusWindow(QWidget):
             item.row.show_state(child.tone, child.server_id, detail)
             self.children_list.addWidget(item)
             self.child_rows[child.server_id] = item
+        self._render_bitnet_row(self.snapshot.bitnet)
+
+    def _render_bitnet_row(self, info: status.BitnetInfo | None) -> None:
+        """BitNet under the children, not counted with them: green only when llama-server really answers."""
+        if info is None:  # a Hub too old to report BitNet
+            return
+        row = Row()
+        detail = "" if info.tone == "ok" else self._bitnet_detail(info)
+        row.show_state(info.tone, self.t("desktop.bitnet.name"), detail)
+        self.children_list.addWidget(row)
+        self.bitnet_row = row
+        if info.installing:
+            Spinner(row.glyph).start()
+
+    def _bitnet_detail(self, info: status.BitnetInfo) -> str:
+        if info.installing:
+            return f"{info.progress}%" if info.step in ("runtime", "model") and info.progress is not None \
+                else self.t("desktop.bitnet.state.installing")
+        if info.installed and not info.enabled:
+            return self.t("desktop.bitnet.state.off")
+        return self.t(f"desktop.bitnet.state.{info.state}")
 
     def _usage_lines(self, activity_ui: bool) -> tuple[tuple[str, usage.ChildUsage | None], ...]:
         if not activity_ui:
@@ -493,7 +519,8 @@ class StatusWindow(QWidget):
         # Settings live in the Hub, so they can be read and changed only while it runs.
         settings = self.hub_settings if hub == "running" else None
         bitnet_state = self.snapshot.bitnet_state if self.snapshot else None
-        self.hub_page.sync(hub, settings, self.autostart, bitnet_state)
+        bitnet_info = self.snapshot.bitnet if self.snapshot else None
+        self.hub_page.sync(hub, settings, self.autostart, bitnet_state, bitnet_info)
         self.mcps_page.sync(settings, hub == "running")
         self.settings.show_pending(self.restart_needed and hub == "running")
 
@@ -563,6 +590,8 @@ class StatusWindow(QWidget):
                 self._update_changed(kind, value)
             elif kind == "usage":
                 self._apply_usage(*value)
+            elif kind == "bitnet_install":
+                self.refresh()
             else:
                 self.message_key = value
                 self._render_footer()
@@ -581,9 +610,21 @@ class StatusWindow(QWidget):
         kept = self.message_key if self.message_key in STICKY_ERROR_KEYS and snapshot.hub == "stopped" else None
         self.snapshot, self.message_key = snapshot, START_TIMEOUT_KEY if timed_out else kept
         self._sync_usage_stream()
+        self._pace_polling(snapshot)
         self.render()
         if snapshot.hub == "running" and not was_running and not self.settings.isHidden():
             self.load_tab(self.settings.tab)  # the Hub can answer now
+
+    def _pace_polling(self, snapshot: status.HubSnapshot) -> None:
+        """Read the Hub every second while BitNet installs or starts, so the percent and the dot move."""
+        busy = snapshot.bitnet is not None and snapshot.bitnet.tone == "wait"
+        interval = theme.BUSY_POLL_INTERVAL_MS if busy else theme.POLL_INTERVAL_MS
+        if self.poll_timer.interval() != interval:
+            self.poll_timer.setInterval(interval)
+
+    def install_bitnet(self) -> None:
+        """Ask the Hub to install BitNet; the progress shows with the next status reads."""
+        self._run("bitnet_install", self.hub_store.install_bitnet, error_key="desktop.bitnet.error.request")
 
     # Updates of the app itself
 

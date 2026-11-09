@@ -24,6 +24,8 @@ TONES = ("ok", "wait", "off", "error")
 # Hub states the app can show; `starting` is set by the app itself after Start Hub.
 HUB_TONES = {"running": "ok", "starting": "wait", "stopped": "error", "not_installed": "off", "unauthorized": "error"}
 _CHILD_TONES = {"connected": "ok", "connecting": "wait", "reconnecting": "wait", "disabled": "off"}
+# BitNet's dot: green only when llama-server answers; anything still in progress waits.
+_BITNET_TONES = {"ready": "ok", "installing": "wait", "starting": "wait", "restarting": "wait", "unavailable": "error"}
 
 
 def loopback_opener() -> urllib.request.OpenerDirector:
@@ -52,6 +54,48 @@ class ChildRow:
 
 
 @dataclass(frozen=True)
+class BitnetInfo:
+    """The Hub's `bitnet` status block: installed or not, the sidecar's state, and a running install."""
+
+    installed: bool = False
+    enabled: bool = False
+    state: str = "not_installed"
+    restart_needed: bool = False
+    installing: bool = False
+    step: str | None = None
+    progress: int | None = None
+    error: str | None = None
+
+    @property
+    def tone(self) -> str:
+        return bitnet_tone(self.state)
+
+
+def bitnet_tone(state: str) -> str:
+    """`ready` is ok; installing, starting, and restarting wait; `unavailable` is an error; anything else off."""
+    return _BITNET_TONES.get(state, "off")
+
+
+def bitnet_from_status(value: Any) -> BitnetInfo | None:
+    """None for a Hub too old to report BitNet; unexpected values fall back to their defaults."""
+    if not isinstance(value, dict) or not value.get("state"):
+        return None
+    install = value.get("install") if isinstance(value.get("install"), dict) else {}
+    progress = install.get("progress")
+    step, error = install.get("step"), install.get("error")
+    return BitnetInfo(
+        installed=value.get("installed") is True,
+        enabled=value.get("enabled") is True,
+        state=str(value["state"]),
+        restart_needed=value.get("restart_needed") is True,
+        installing=install.get("running") is True,
+        step=step if isinstance(step, str) else None,
+        progress=progress if isinstance(progress, int) and not isinstance(progress, bool) else None,
+        error=error if isinstance(error, str) else None,
+    )
+
+
+@dataclass(frozen=True)
 class HubSnapshot:
     hub: str
     activity_ui: bool = False
@@ -63,6 +107,7 @@ class HubSnapshot:
     recent: tuple[str, ...] = ()
     checked_at: datetime = field(default_factory=datetime.now)
     bitnet_state: str | None = None
+    bitnet: BitnetInfo | None = None
 
     @property
     def tone(self) -> str:
@@ -119,6 +164,7 @@ def snapshot_from_status(status: dict[str, Any]) -> HubSnapshot:
         client_names=live_client_names(clients),
         recent=recent_clients(clients),
         bitnet_state=bitnet_state,
+        bitnet=bitnet_from_status(bitnet),
     )
 
 

@@ -12,6 +12,7 @@ from mcp_hub.activity_ui import ActivityUi
 from mcp_hub.bitnet import BitnetExtension
 from mcp_hub.bitnet.condense import BitnetCondenser
 from mcp_hub.bitnet.planner import BitnetPlanAssistant
+from mcp_hub.bitnet.setup import SETUP_EXTENSION, BitnetSetup
 from mcp_hub.bitnet.summarize import BitnetDraftSummarizer
 from mcp_hub.extensions import ACTIVITY_UI, BITNET
 from mcp_hub.full_results import FullResultStore
@@ -71,7 +72,10 @@ class ServiceExtensionWiringTest(unittest.IsolatedAsyncioTestCase):
             root=self.root,
             audit=self.audit,
         )
-        self.assertEqual(installed, {})
+        # Only BitNet's install state and route, so the desktop app can offer the install; no tool-call hooks.
+        self.assertEqual(list(installed), [SETUP_EXTENSION])
+        self.assertIsInstance(installed[SETUP_EXTENSION], BitnetSetup)
+        self.assertIsNone(installed[SETUP_EXTENSION].sidecar)
         self.assertIsNone(self.runtime.plan_assistant)
         self.assertIsNone(self.runtime.condenser)
         self.assertIsNone(self.runtime.full_results)

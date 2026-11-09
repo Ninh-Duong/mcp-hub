@@ -114,6 +114,19 @@ class TestBitnetSidecar(unittest.IsolatedAsyncioTestCase):
                 "bitnet.sidecar.state", state="unavailable", restarts=0, error_type="NotInstalled",
             )
 
+    async def test_restart_after_an_install_runs_again_from_the_start(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            self.sidecar = Sidecar(Path(td), BitnetSettings(), MagicMock())
+            await self.sidecar.start()
+            await wait_for_state(self.sidecar, {"unavailable"})
+            self.sidecar._restarts = 2
+            await self.sidecar._task
+            await self.sidecar.restart()
+            self.assertEqual(self.sidecar._restarts, 0)
+            await wait_for_state(self.sidecar, {"unavailable"})  # still nothing installed here
+            await self.sidecar.restart()  # a second call while it runs is ignored
+            self.assertFalse(self.sidecar._stopped)
+
     async def test_healthy_reaches_ready(self) -> None:
         audit = MagicMock()
         client = FakeClient([True])

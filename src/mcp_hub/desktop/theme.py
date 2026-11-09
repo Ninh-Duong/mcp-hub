@@ -69,6 +69,9 @@ EXPAND_GLYPH = "⤢"
 # Leads the line under a child that says which AI client uses it.
 USAGE_GLYPH = "↳"
 REFRESH_GLYPH = "⟳"
+# The loading indicator: the `wait` glyph turning a quarter each frame (desktop/widgets.py Spinner).
+SPINNER_GLYPHS = ("◐", "◓", "◑", "◒")
+SPINNER_MS = 150
 
 # Spacing scale and sizes, in device-independent pixels.
 SPACE_XS, SPACE_S, SPACE_M, SPACE_L = 4, 8, 12, 16
@@ -84,6 +87,8 @@ SYMBOL_FONT = "Segoe UI Symbol" if sys.platform == "win32" else ""
 FONT_POINTS = {"headline": 11, "section": 8, "body": 10, "caption": 9}
 
 POLL_INTERVAL_MS = 5000
+# While BitNet installs, the Hub is read this often so the percent moves.
+BUSY_POLL_INTERVAL_MS = 1000
 QUEUE_CHECK_MS = 200
 # After Start Hub, show `starting` instead of `stopped` for this long while the service boots.
 START_GRACE_SECONDS = 120

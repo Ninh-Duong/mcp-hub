@@ -55,6 +55,9 @@ The values an operator may want to change live in one optional `settings` object
 | `bitnet` | `condenseMinChars` | `6000` | Minimum tool result text length to condense. |
 | `bitnet` | `fullResultTtlSeconds` | `1800` | Lifetime in seconds of a stored original result. |
 | `bitnet` | `fullResultMaxEntries` | `50` | Maximum number of original results kept in memory (LRU). |
+| `bitnet` | `releaseRepository` | `"Ninh-Duong/mcp-hub"` | GitHub repository (`owner/name`) whose Release carries the prebuilt BitNet runtime and model manifest that the desktop app installs. |
+| `bitnet` | `downloadTimeoutSeconds` | `60` | Seconds without data before a BitNet download fails. |
+| `bitnet` | `minFreeBytes` | `3221225472` | Free disk space in bytes needed under `vendor/` before a BitNet install starts (3 GiB). |
 
 ## What stays in code
 

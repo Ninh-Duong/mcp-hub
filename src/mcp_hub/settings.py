@@ -97,6 +97,11 @@ class BitnetSettings:
     condense_min_chars: int = 6000
     full_result_ttl_seconds: float = 1800.0
     full_result_max_entries: int = 50
+    # Install from the desktop app: the GitHub repository whose Release carries the prebuilt runtime and the
+    # model manifest, the time without data before a download fails, and the free space needed before it starts.
+    release_repository: str = "Ninh-Duong/mcp-hub"
+    download_timeout_seconds: float = 60.0
+    min_free_bytes: int = 3 * 1024 * 1024 * 1024
 
 
 @dataclass(frozen=True)

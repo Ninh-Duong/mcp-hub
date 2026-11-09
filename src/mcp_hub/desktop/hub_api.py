@@ -68,6 +68,10 @@ class HubClient:
     def set_bitnet(self, enabled: bool) -> None:
         self._call("/dashboard/api/settings/bitnet", {"enabled": enabled})
 
+    def install_bitnet(self) -> None:
+        """Start the BitNet install in the Hub; its progress comes with the next status reads."""
+        self._call("/dashboard/api/bitnet/install", {})
+
     def set_server_enabled(self, server_id: str, enabled: bool) -> None:
         self._call(f"/dashboard/api/settings/servers/{quote(server_id, safe='')}", {"enabled": enabled})
 

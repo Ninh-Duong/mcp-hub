@@ -114,11 +114,15 @@ class PrepareTest(unittest.TestCase):
         good = server(self.cwd, PrepareSpec(command=("npm", "ci")), "second")
         config = HubConfig(self.cwd / "hub.json", {"first": bad, "second": good}, ())
         runner = FakeRunner(["v18.0.0"])
-        results = preflight.run_preflight(config, install=False, runner=runner, which=which_all, platform="linux")
+        # No saved extensions: the test never reads the checkout's own Hub config.
+        none = lambda: frozenset()  # noqa: E731
+        results = preflight.run_preflight(config, install=False, runner=runner, which=which_all, platform="linux",
+                                          saved=none)
         self.assertEqual([(r.server_id, r.step, r.ok) for r in results], [("first", "node", False)])
 
         runner = FakeRunner(["v18.0.0"], winget_code=1)
-        results = preflight.run_preflight(config, install=True, runner=runner, which=which_all, platform="win32")
+        results = preflight.run_preflight(config, install=True, runner=runner, which=which_all, platform="win32",
+                                          saved=none)
         self.assertEqual([(r.server_id, r.step, r.ok) for r in results], [
             ("first", "node", False), ("second", "prepare", True),
         ])
@@ -220,28 +224,24 @@ class BitnetPreflightTest(unittest.TestCase):
         result = preflight.check_bitnet(install=True, saved=lambda: frozenset())
         self.assertIsNone(result)
 
-    def test_install_ok(self) -> None:
-        def fake_runner(cmd, **kwargs):
-            return subprocess.CompletedProcess(cmd, 0, stdout="bitnet: ready\n", stderr="")
-
-        result = preflight.check_bitnet(
-            install=True, runner=fake_runner, saved=lambda: frozenset({"bitnet"}),
-        )
-        self.assertIsNotNone(result)
-        self.assertTrue(result.ok)
-        self.assertEqual(result.server_id, "bitnet")
-        self.assertEqual(result.detail, "bitnet: ready")
-
-    def test_install_exit_2_not_ok_exit_code_unchanged(self) -> None:
-        def fake_runner(cmd, **kwargs):
-            return subprocess.CompletedProcess(cmd, 2, stdout="bitnet: unavailable (build: failed)\n", stderr="")
-
-        result = preflight.check_bitnet(
-            install=True, runner=fake_runner, saved=lambda: frozenset({"bitnet"}),
-        )
+    def test_install_never_downloads_or_builds(self) -> None:
+        """The desktop app installs BitNet; a start (preflight --install) only reports, so it is never held up."""
+        runner = MagicMock()
+        with tempfile.TemporaryDirectory() as td:
+            result = preflight.check_bitnet(
+                install=True, runner=runner, root=Path(td), saved=lambda: frozenset({"bitnet"}),
+            )
+        runner.assert_not_called()
         self.assertIsNotNone(result)
         self.assertFalse(result.ok)
-        self.assertEqual(result.detail, "bitnet: unavailable (build: failed)")
+        self.assertEqual(result.server_id, "bitnet")
+        self.assertIn("desktop app", result.detail)
+
+    def test_missing_bitnet_keeps_the_exit_code(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            result = preflight.check_bitnet(install=True, root=Path(td), saved=lambda: frozenset({"bitnet"}))
+        self.assertIsNotNone(result)
+        self.assertFalse(result.ok)
 
         audit = MagicMock()
         with (

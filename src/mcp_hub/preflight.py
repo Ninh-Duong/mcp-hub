@@ -228,23 +228,15 @@ def check_bitnet(
 ) -> CheckResult | None:
     if BITNET not in saved():
         return None
+    """Report only: the desktop app installs BitNet (Settings → Hub), with progress, while the Hub runs.
+
+    A start never downloads the runtime and model (about 1.2 GB) on its own, so it is never held up.
+    """
     hub_root = root or HUB_ROOT
-    if not install:
-        install_json = hub_root / "vendor" / "bitnet" / "install.json"
-        if install_json.is_file():
-            return CheckResult("bitnet", "runtime", True, "ready")
-        return CheckResult("bitnet", "runtime", False, "not installed (run preflight --install)")
-    script = hub_root / "scripts" / "install_bitnet.ps1"
-    cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), "-Model", model]
-    try:
-        proc = runner(cmd, timeout=3600.0)
-    except subprocess.TimeoutExpired:
-        return CheckResult("bitnet", "runtime", False, "timed out after 3600s")
-    except OSError as exc:
-        return CheckResult("bitnet", "runtime", False, f"could not start ({type(exc).__name__})")
-    lines = [line.strip() for line in (proc.stdout or "").splitlines() if line.strip()]
-    detail = lines[-1] if lines else f"exit {proc.returncode}"
-    return CheckResult("bitnet", "runtime", proc.returncode == 0, detail)
+    install_json = hub_root / "vendor" / "bitnet" / "install.json"
+    if install_json.is_file():
+        return CheckResult("bitnet", "runtime", True, "ready")
+    return CheckResult("bitnet", "runtime", False, "not installed (install it in the desktop app: Settings > Hub)")
 
 
 def run_preflight(

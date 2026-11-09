@@ -126,6 +126,20 @@ class StatusSnapshotTest(unittest.TestCase):
         self.assertEqual(status.recent_clients([{"client": "a", "live": True}, {"client": "a"}, {"client": "b"}, {"client": "b"}, 3]),
                          ("b",))
 
+    def test_the_bitnet_block_is_read_and_mapped_to_a_tone(self) -> None:
+        snapshot = status.snapshot_from_status({"children": {}, "bitnet": {
+            "installed": False, "enabled": False, "state": "installing", "restart_needed": False,
+            "install": {"running": True, "step": "model", "progress": 42, "error": None},
+        }})
+        self.assertEqual(snapshot.bitnet, status.BitnetInfo(state="installing", installing=True, step="model", progress=42))
+        self.assertEqual(snapshot.bitnet.tone, "wait")
+        self.assertIsNone(status.snapshot_from_status({"children": {}}).bitnet)  # a Hub too old to report it
+        odd = status.bitnet_from_status({"state": "ready", "installed": "yes", "install": {"progress": True, "step": 3}})
+        self.assertEqual((odd.installed, odd.progress, odd.step), (False, None, None))
+        states = ["ready", "installing", "starting", "restarting", "unavailable", "off", "not_installed", "stopped"]
+        self.assertEqual([status.bitnet_tone(state) for state in states],
+                         ["ok", "wait", "wait", "wait", "error", "off", "off", "off"])
+
     def test_child_tone_uses_only_the_four_documented_tones(self) -> None:
         states = ["connected", "connecting", "reconnecting", "disabled", "credentials required", "unavailable", "", "x"]
         self.assertEqual([status.child_tone(state) for state in states],

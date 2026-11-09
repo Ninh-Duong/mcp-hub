@@ -113,11 +113,17 @@ def install_extensions(
         from .activity_ui import install as install_activity_ui
 
         installed[ACTIVITY_UI] = install_activity_ui(runtime, store=store, audit=audit)
+    hub_root = root or getattr(getattr(runtime, "config", None), "root", None) or HUB_ROOT
     if BITNET in requested:
         from .bitnet import install as install_bitnet
 
-        hub_root = root or getattr(getattr(runtime, "config", None), "root", None) or HUB_ROOT
         installed[BITNET] = install_bitnet(runtime, job_runner, root=hub_root, audit=audit)
+    else:
+        # Only BitNet's install state and route, so the desktop app can offer the install; no tool-call hooks.
+        from .bitnet import install_setup
+        from .bitnet.setup import SETUP_EXTENSION
+
+        installed[SETUP_EXTENSION] = install_setup(runtime, root=hub_root, audit=audit)
     return installed
 
 
