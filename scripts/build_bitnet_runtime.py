@@ -11,7 +11,7 @@ and waits for `GET /health` to answer 200, so a runtime that cannot start is nev
 
     uv run python scripts/build_bitnet_runtime.py --out dist
 
-Needs git, CMake, uv, and Visual Studio 2022 with its Clang (ClangCL) tools: the windows-latest runner has them.
+Needs git, CMake, and Visual Studio 2022 with its Clang (ClangCL) tools: the windows-latest runner has them.
 """
 from __future__ import annotations
 
@@ -82,32 +82,27 @@ def download_model(model_dir: Path) -> Path:
     return target
 
 
-def build_server(source: Path, model_dir: Path) -> Path:
-    """setup_env.py generates the BitNet kernels and builds llama.cpp with ClangCL; the model is already there.
+# What setup_env.py runs for BitNet-b1.58-2B-4T on x86_64 (its gen_code and compile steps), with two changes:
+# static libraries, because ggml-base.dll cannot link the i2_s kernels that live in ggml-cpu on Windows, and no
+# OpenSSL or curl, because llama-server only listens on loopback. Only the llama-server target is built.
+CODEGEN = ["utils/codegen_tl2.py", "--model", "bitnet_b1_58-3B", "--BM", "160,320,320", "--BK", "96,96,96",
+           "--bm", "32,32,32"]
+CMAKE_CONFIGURE = [
+    "-DBITNET_X86_TL2=OFF", "-T", "ClangCL", "-DCMAKE_C_COMPILER=clang", "-DCMAKE_CXX_COMPILER=clang++",
+    "-DBUILD_SHARED_LIBS=OFF", "-DLLAMA_BUILD_SERVER=ON", "-DLLAMA_BUILD_TESTS=OFF", "-DLLAMA_OPENSSL=OFF",
+    "-DLLAMA_CURL=OFF",
+]
 
-    Its requirements.txt (torch, transformers) only converts models, which the prebuilt GGUF makes unnecessary;
-    setup_env.py needs pip itself (it installs gguf-py), so the venv is seeded with pip.
-    """
-    venv = source / ".venv"
-    run(["uv", "venv", "--seed", str(venv), "--python", "3.11"])
-    python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-    try:
-        run([str(python), "setup_env.py", "-md", str(model_dir.resolve()), "-q", "i2_s"], cwd=source)
-    except subprocess.CalledProcessError:
-        print_setup_logs(source / "logs")
-        raise
+
+def build_server(source: Path) -> Path:
+    """Generate the BitNet kernels and build llama-server with ClangCL; the model needs no conversion."""
+    run([sys.executable, *CODEGEN], cwd=source)
+    run(["cmake", "-B", "build", *CMAKE_CONFIGURE], cwd=source)
+    run(["cmake", "--build", "build", "--config", "Release", "--target", "llama-server", "--parallel"], cwd=source)
     servers = sorted((source / "build").rglob(SERVER_EXE))
     if not servers:
         raise SystemExit(f"{SERVER_EXE} was not built.")
     return servers[0]
-
-
-def print_setup_logs(folder: Path, tail: int = 80) -> None:
-    """setup_env.py writes each step's output to logs/<step>.log; show their ends in the CI log."""
-    for log in sorted(folder.glob("*.log")):
-        lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
-        print(f"----- {log.name} (last {tail} lines) -----", flush=True)
-        print("\n".join(lines[-tail:]), flush=True)
 
 
 def dll_dependencies(binary: Path) -> list[str]:
@@ -238,7 +233,7 @@ def main(argv: list[str] | None = None) -> int:
     source = fetch_source(args.work)
     model_dir = source / "models" / "BitNet-b1.58-2B-4T"
     model = download_model(model_dir)
-    server = build_server(source, model_dir)
+    server = build_server(source)
     files = collect_runtime(server, args.work / "stage")
     runtime_zip = write_zip(files, args.out / RUNTIME_ZIP)
     smoke_test(runtime_zip, model)

@@ -102,15 +102,19 @@ class BuildBitnetRuntimeTest(unittest.TestCase):
         self.assertEqual((plan.model.name, plan.model.size), (build.MODEL_FILE, build.MODEL_SIZE))
         self.assertEqual(plan.runtime.url, "https://example.com/r.zip")
 
-    def test_setup_logs_are_printed_on_failure(self) -> None:
-        logs = self.root / "logs"
-        logs.mkdir()
-        (logs / "compile.log").write_text("line\n" * 100 + "error: boom\n", encoding="utf-8")
-        with patch("builtins.print") as printed:
-            build.print_setup_logs(logs, tail=3)
-        shown = "\n".join(str(call.args[0]) for call in printed.call_args_list)
-        self.assertIn("compile.log", shown)
-        self.assertIn("error: boom", shown)
+    def test_llama_server_is_built_static_without_tls(self) -> None:
+        """ggml-base.dll cannot link BitNet's i2_s kernels on Windows, so the libraries are static."""
+        source = self.root / "BitNet"
+        (source / "build" / "bin" / "Release").mkdir(parents=True)
+        (source / "build" / "bin" / "Release" / build.SERVER_EXE).write_bytes(b"x")
+        with patch.object(build, "run") as ran:
+            server = build.build_server(source)
+        self.assertEqual(server.name, build.SERVER_EXE)
+        commands = [call.args[0] for call in ran.call_args_list]
+        self.assertIn("utils/codegen_tl2.py", commands[0])
+        self.assertIn("-DBUILD_SHARED_LIBS=OFF", commands[1])
+        self.assertIn("-DLLAMA_OPENSSL=OFF", commands[1])
+        self.assertEqual(commands[2][commands[2].index("--target") + 1], "llama-server")
 
     def test_main_refuses_other_platforms(self) -> None:
         with patch.object(build.sys, "platform", "linux"), self.assertRaises(SystemExit):

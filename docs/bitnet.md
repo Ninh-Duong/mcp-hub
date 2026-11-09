@@ -58,7 +58,7 @@ The runtime and model live under `vendor/bitnet/` (untracked, excluded by `.giti
 `.github/workflows/desktop-release.yml` runs `scripts/build_bitnet_runtime.py` in the same job that builds the desktop installer:
 
 - It checks out `microsoft/BitNet` at a pinned commit and downloads the model at a pinned Hugging Face revision, checking its SHA-256 (`BITNET_COMMIT`, `MODEL_REVISION`, `MODEL_SHA256`).
-- It builds llama-server with that repository's `setup_env.py -q i2_s` (ClangCL on the Windows runner).
+- It runs the same kernel generation as that repository's `setup_env.py -q i2_s` and builds only llama-server with CMake and ClangCL, with static libraries (`ggml-base.dll` cannot link BitNet's `i2_s` kernels on Windows) and without OpenSSL or curl (the server listens only on loopback).
 - It zips llama-server with every DLL it imports that Windows does not provide (read with `dumpbin /dependents`; the Visual C++ runtime is always shipped).
 - It unpacks the zip into an empty folder, starts llama-server there with the model, and requires `/health` to answer 200 before it writes `bitnet-manifest.json` and the zip's `.sha256`.
 
