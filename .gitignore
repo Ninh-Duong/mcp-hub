@@ -32,3 +32,6 @@ config/**/*.local.yaml
 # Runtime logs
 logs/
 *.log
+
+# Local agent plans (never committed; see docs/agent-plans.md)
+agent-plans/

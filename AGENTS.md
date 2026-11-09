@@ -16,11 +16,11 @@ This repo is maintained entirely by AI agents. These rules are mandatory. Text r
 | Build the desktop app's installer | Run `uv run --isolated --group build python scripts/build_desktop.py` (see [docs/desktop-app.md → Build the installer](docs/desktop-app.md#build-the-installer)). Never commit `build/` or `dist/`. |
 | Turn client tracking, a child MCP, or a sign-in task on or off | The user does it in the desktop app (⚙ Settings → Hub / MCPs). From the command line, use `hubctl autostart -Target hub -State on\|off` for the Hub's sign-in task; the app's own sign-in entry is in its Settings. |
 | Change the Hub's code or docs | Read the rest of this file first. |
-| Plan a feature, or implement one planned earlier | Follow [agent-plans/README.md](agent-plans/README.md): write the agreed plan there, or carry out the named plan as written without re-discussing its Decisions. |
+| Plan a feature, or implement one planned earlier | Follow [docs/agent-plans.md](docs/agent-plans.md): write the agreed plan in the local `agent-plans/` folder (untracked), or carry out the named plan as written without re-discussing its Decisions. |
 
 ## Before you change anything
 
-- Check `agent-plans/` for an `approved` or `in-progress` plan that covers the task; if one exists, follow it.
+- Check the local `agent-plans/` folder (untracked, see [docs/agent-plans.md](docs/agent-plans.md)) for an `approved` or `in-progress` plan that covers the task; if one exists, follow it.
 - Read `README.md` and, for a child MCP, its contract `docs/mcps/<server-id>.md`.
 - When changing child code for Hub compatibility, also follow [docs/child-mcp-compatibility.md](docs/child-mcp-compatibility.md) and the child repository's own agent rules.
 - To add or reconfigure a child MCP, follow `docs/adding-a-child-mcp.md` step by step.
