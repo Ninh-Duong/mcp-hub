@@ -39,18 +39,18 @@ When no uv is found, the launchers download the installer of one pinned uv relea
 `uv run --isolated --group build python scripts/build_desktop.py` builds `dist/mcp-hub-status-setup-<version>.exe` with PyInstaller and Inno Setup 6 (`winget install JRSoftware.InnoSetup` once). It is not part of `package_qc.py`; `tests/test_bootstrap_scripts.py` checks the spec, the installer script, and the build commands offline.
 
 **Releases.** `.github/workflows/desktop-release.yml` publishes the installer:
-- **When it runs:** pushing a tag `v<project version>` (for example `v0.1.1`, matching `pyproject.toml`).
-- **What it does, on `windows-latest`:**
-  1. checks that the tag names the project version;
-  2. runs `package_qc.py`;
-  3. installs Inno Setup;
-  4. builds with `build_desktop.py`, including its bundle self-check;
-  5. writes the installer's SHA-256;
-  6. creates a GitHub Release with both files (`gh release create --verify-tag`).
+- **When it runs:** a push to `master` (a `plan` job on Linux reads `pyproject.toml` and checks that no Release `v<project version>` exists yet), a push of a tag `v<project version>` (the manual fallback, for example `v0.1.1`), or by hand. Nothing is built when the release already exists.
+- **What it does, on `windows-latest`, when it builds:**
+  1. runs `package_qc.py`;
+  2. installs Inno Setup;
+  3. builds with `build_desktop.py`, including its bundle self-check;
+  4. writes the installer's SHA-256;
+  5. publishes a GitHub Release with both files (`gh release create`): for a push to `master` it creates the tag at the built commit (`--target`), for a tag push it verifies the tag (`--verify-tag`).
 - **Run by hand:** it builds and checks without publishing.
-- **Permissions:** only that job gets `contents: write`.
+- **Permissions:** only the build job gets `contents: write`; the `plan` job only reads.
+- **One at a time:** a `concurrency` group queues runs, so two pushes in a row cannot publish the same version twice.
 
-Numbering, the release steps, and how each part is upgraded are in [versioning.md](versioning.md). The build also runs the bundled exe with `--version` and fails when it differs from `pyproject.toml` (the installed app reads its version from the bundled package metadata, which the update check compares with the latest Release). Raise the version in `pyproject.toml` before tagging. The installer never installs over the same version, so users update only to a higher one. `build/` and `dist/` are ignored and never committed. Details: [desktop-app.md → Build the installer](desktop-app.md#build-the-installer).
+Numbering, the release steps, and how each part is upgraded are in [versioning.md](versioning.md). The build also runs the bundled exe with `--version` and fails when it differs from `pyproject.toml` (the installed app reads its version from the bundled package metadata, which the update check compares with the latest Release). Raise the version in `pyproject.toml` before merging to `master` (the release is made then). The installer never installs over the same version, so users update only to a higher one. `build/` and `dist/` are ignored and never committed. Details: [desktop-app.md → Build the installer](desktop-app.md#build-the-installer).
 
 ## Offline package QC
 

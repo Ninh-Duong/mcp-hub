@@ -22,13 +22,26 @@ The installer installs only over an **older** version (see [desktop-app.md](desk
 
 ## Make a release
 
-1. Raise `version` in `pyproject.toml` and the `mcp-hub` entry of `uv.lock` (`uv lock` rewrites it).
+A release is made by merging a version change into `master`. Nobody pushes a tag by hand.
+
+1. Raise `version` in `pyproject.toml` and the `mcp-hub` entry of `uv.lock` (`uv lock` rewrites it). Only after the user agrees, see [After a finished change](#after-a-finished-change-ask-about-the-version).
 2. Run `uv run python scripts/package_qc.py` and `uv run python scripts/smoke.py`. Both must pass; a `WARN` from a child whose account is not filled in is allowed.
-3. Commit and push to `master`.
-4. **The user** pushes the tag: `git tag v<version>` then `git push origin v<version>`. Agents never push a tag.
-5. `.github/workflows/desktop-release.yml` checks that the tag equals the project version, runs package QC, builds the installer, writes its SHA-256, and creates the GitHub Release with both files and generated notes. The notes are what the app's **What's new** link shows.
+3. Commit and merge to `master`.
+4. `.github/workflows/desktop-release.yml` runs on the push to `master`. It reads the version and, when no Release `v<version>` exists yet, runs package QC, builds the installer, writes its SHA-256, creates the tag `v<version>` at the built commit, and publishes the GitHub Release with both files and generated notes. The notes are what the app's **What's new** link shows. A push to `master` that does not raise the version publishes nothing.
+5. Manual fallback: `git tag v<version>` then `git push origin v<version>` runs the same workflow for that tag, and the tag must equal the project version. Agents never push a tag.
+6. Run the workflow by hand (`workflow_dispatch`) to build and check the installer without publishing.
 
 Details of the build and the workflow: [packaging-and-qc.md](packaging-and-qc.md#desktop-installer).
+
+## After a finished change: ask about the version
+
+Agents in this repository ask the user, once per finished change, whether to raise the version. They do not raise it on their own.
+
+- **When to ask:** when a change the user will notice is finished and `package_qc.py` passes (a feature, a changed behavior, a setting, a command, a route, a fix). Do not ask for a change that touches only docs, tests, or the untracked `agent-plans/` folder; say in the final message why no question was asked.
+- **What to ask:** one question in the chat. Give the current version, the suggested bump (MINOR or PATCH under [Numbering](#numbering)) with a short reason, and the option to keep the version.
+- **Do not** ask again for each commit of the same change, and do not raise the version before the user agrees.
+- **If the user agrees:** raise `version` (and `uv.lock`), run `package_qc.py` and `smoke.py`, and commit. Remind the user that merging to `master` is the release.
+- **If the user declines:** change nothing and state "version not raised" in the final message.
 
 ## Upgrade each part
 
