@@ -76,6 +76,8 @@ jobs:
           python-version: "3.12"
           enable-cache: true
       - name: Run package QC
+        # QC takes about 2 minutes; a stuck test fails here instead of holding the job to its limit.
+        timeout-minutes: 20
         shell: pwsh
         run: |
           uv sync --locked --python 3.12
