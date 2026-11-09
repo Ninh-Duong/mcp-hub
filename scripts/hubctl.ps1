@@ -393,39 +393,46 @@ function Find-LocalInstaller {
     return $null
 }
 
+function Install-ReleasedStatusApp {
+    param([string]$Releases)
+    $setup, $sum = Get-LatestInstaller -Releases $Releases
+    $folder = Join-Path $env:TEMP "mcp-hub-status-setup"
+    New-Item -ItemType Directory -Force -Path $folder | Out-Null
+    $path = Join-Path $folder $setup.name
+    Invoke-WebRequest -Uri $setup.browser_download_url -OutFile $path -UseBasicParsing
+    Invoke-WebRequest -Uri $sum.browser_download_url -OutFile "$path.sha256" -UseBasicParsing
+    $expected = ((Get-Content -LiteralPath "$path.sha256" -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+    $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actual -ne $expected) {
+        Remove-Item -LiteralPath $path -Force
+        throw "The downloaded installer does not match its SHA-256; it was deleted and not run."
+    }
+    Write-Output "Running $($setup.name), checked against its SHA-256."
+    Start-Process -FilePath $path -Wait
+}
+
 function Install-StatusApp {
-    # Prefer a local installer in dist/, otherwise download from GitHub Release or fall back to source.
+    # The published Release comes first: it is the installer for the version in pyproject.toml. A build left in
+    # dist/ is used only when no Release can be installed (no GitHub remote, or the download failed).
+    $releases = Get-ReleasesUrl
+    if ($releases) {
+        try {
+            Install-ReleasedStatusApp -Releases $releases
+            return
+        } catch {
+            Write-Warning "Could not install desktop app from GitHub release: $($_.Exception.Message)."
+        }
+    } else {
+        Write-Warning "This checkout has no GitHub remote."
+    }
     $localInstaller = Find-LocalInstaller
     if ($localInstaller) {
-        Write-Output "Running local installer: $localInstaller"
+        Write-Warning "Running the build in dist/, which may be older than the release: $localInstaller"
         Start-Process -FilePath $localInstaller -Wait
         return
     }
-    $releases = Get-ReleasesUrl
-    if (-not $releases) {
-        Write-Warning "This checkout has no GitHub remote. Falling back to running the app from source."
-        Start-SourceStatusApp
-        return
-    }
-    try {
-        $setup, $sum = Get-LatestInstaller -Releases $releases
-        $folder = Join-Path $env:TEMP "mcp-hub-status-setup"
-        New-Item -ItemType Directory -Force -Path $folder | Out-Null
-        $path = Join-Path $folder $setup.name
-        Invoke-WebRequest -Uri $setup.browser_download_url -OutFile $path -UseBasicParsing
-        Invoke-WebRequest -Uri $sum.browser_download_url -OutFile "$path.sha256" -UseBasicParsing
-        $expected = ((Get-Content -LiteralPath "$path.sha256" -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
-        $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ($actual -ne $expected) {
-            Remove-Item -LiteralPath $path -Force
-            throw "The downloaded installer does not match its SHA-256; it was deleted and not run."
-        }
-        Write-Output "Running $($setup.name), checked against its SHA-256."
-        Start-Process -FilePath $path -Wait
-    } catch {
-        Write-Warning "Could not install desktop app from GitHub release: $($_.Exception.Message). Starting from source."
-        Start-SourceStatusApp
-    }
+    Write-Warning "Falling back to running the app from source."
+    Start-SourceStatusApp
 }
 
 function Write-ConnectedClients {

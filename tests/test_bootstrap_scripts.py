@@ -372,11 +372,14 @@ class DesktopPackagingTest(unittest.TestCase):
 
     def test_hubctl_points_to_the_release_and_installs_only_a_checked_one(self) -> None:
         script = (HUB_ROOT / "scripts" / "hubctl.ps1").read_text(encoding="utf-8")
-        install = script[script.index("function Install-StatusApp"):script.index("function Write-ConnectedClients")]
+        install = script[script.index("function Install-ReleasedStatusApp"):script.index("function Write-ConnectedClients")]
         # The SHA-256 is compared before anything runs, and the setup is interactive (never /SILENT).
         self.assertLess(install.index("if ($actual -ne $expected)"), install.index("Start-Process -FilePath $path"))
         self.assertIn("Remove-Item -LiteralPath $path -Force", install)
         self.assertNotIn("/SILENT", install)
+        # The published Release is tried before a build left in dist/, which may be older.
+        status = script[script.index("function Install-StatusApp"):script.index("function Write-ConnectedClients")]
+        self.assertLess(status.index("Install-ReleasedStatusApp"), status.index("Find-LocalInstaller"))
         latest = script[script.index("function Get-LatestInstaller"):script.index("function Install-StatusApp")]
         self.assertIn(r"'^mcp-hub-status-setup-\d+\.\d+\.\d+\.exe$'", latest)
         self.assertIn('"$($setup.name).sha256"', latest)
