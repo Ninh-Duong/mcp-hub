@@ -1,19 +1,70 @@
 name: Desktop release
 
-# Push a tag `v<project version>` (for example v0.2.0) to build the desktop app's installer from that commit and
-# publish it, with its SHA-256, as a GitHub Release. Running it by hand builds and checks the installer without
-# publishing. The installer is never committed (build/ and dist/ are ignored).
+# Builds the desktop app's installer and publishes it, with its SHA-256, as a GitHub Release. It runs:
+# - on a push to master when no Release `v<project version>` exists yet: raising the version in pyproject.toml
+#   and merging is the release, and this workflow creates the tag itself;
+# - on a push of a tag `v<project version>`: the manual fallback;
+# - by hand (workflow_dispatch): builds and checks the installer without publishing.
+# The installer is never committed (build/ and dist/ are ignored).
 on:
   push:
+    branches: [master]
     tags: ["v*"]
   workflow_dispatch:
+
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
+  plan:
+    name: Decide whether to release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      build: ${{ steps.decide.outputs.build }}
+      publish: ${{ steps.decide.outputs.publish }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Read the project version
+        id: version
+        run: |
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+      - name: Decide whether to build and publish
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          build=false
+          publish=false
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            build=true
+          elif [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            if [ "$GITHUB_REF_NAME" != "$TAG" ]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match the project version $TAG."
+              exit 1
+            fi
+            build=true
+            publish=true
+          elif gh release view "$TAG" > /dev/null 2>&1; then
+            echo "Release $TAG already exists: nothing to publish."
+          else
+            build=true
+            publish=true
+          fi
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+
   installer:
     name: Build the installer
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
     runs-on: windows-latest
     timeout-minutes: 40
     permissions:
@@ -24,12 +75,6 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-      - name: Check that the tag names the project version
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: pwsh
-        run: |
-          $version = uv run --locked --python 3.12 python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])"
-          if ("v$version" -ne $env:GITHUB_REF_NAME) { throw "Tag $env:GITHUB_REF_NAME does not match the project version $version." }
       - name: Run package QC
         shell: pwsh
         run: |
@@ -48,10 +93,13 @@ jobs:
               Set-Content -LiteralPath "$($installer.FullName).sha256" -Value "$hash  $($installer.Name)" -Encoding ascii -NoNewline
           }
       - name: Publish the release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: needs.plan.outputs.publish == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
         run: |
+          # A tag push names an existing tag; a push to master creates it at the commit that was built.
+          $target = if ($env:GITHUB_REF_TYPE -eq 'tag') { @('--verify-tag') } else { @('--target', $env:GITHUB_SHA) }
           $files = @(Get-ChildItem dist -Filter "mcp-hub-status-setup-*" | ForEach-Object FullName)
-          gh release create $env:GITHUB_REF_NAME @files --verify-tag --generate-notes --title "mcp-hub Status $env:GITHUB_REF_NAME"
+          gh release create $env:TAG @files @target --generate-notes --title "mcp-hub Status $env:TAG"

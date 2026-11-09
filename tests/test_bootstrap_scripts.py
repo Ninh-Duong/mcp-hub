@@ -346,22 +346,29 @@ class DesktopPackagingTest(unittest.TestCase):
             self.assertIn(line, iss)
         self.assertNotIn("{commonpf}", iss)
 
-    def test_releases_are_built_by_ci_from_a_version_tag(self) -> None:
+    def test_releases_are_built_by_ci_from_master_or_a_version_tag(self) -> None:
         workflow = (HUB_ROOT / ".github" / "workflows" / "desktop-release.yml").read_text(encoding="utf-8")
         qc = (HUB_ROOT / ".github" / "workflows" / "qc.yml").read_text(encoding="utf-8")
+        self.assertIn("branches: [master]", workflow)
         self.assertIn('tags: ["v*"]', workflow)
         # Write access only for the job that publishes; actions pinned to the same commits as QC.
         self.assertIn("permissions:\n  contents: read", workflow)
         self.assertIn("contents: write", workflow)
         for action in re.findall(r"uses: (\S+@[0-9a-f]{40})", workflow):
             self.assertIn(action, qc)
+        # The decision runs first; the Windows build and the publish come after QC, in order.
         order = [workflow.index(step) for step in (
             "does not match the project version", "scripts/package_qc.py", "scripts/build_desktop.py",
             "Get-FileHash", "gh release create",
         )]
         self.assertEqual(order, sorted(order))
+        self.assertIn("needs.plan.outputs.build == 'true'", workflow)
+        self.assertIn("needs.plan.outputs.publish == 'true'", workflow)
+        # A push to master creates the tag at the built commit; a tag push verifies the existing tag.
+        self.assertIn("--target", workflow)
         self.assertIn("--verify-tag", workflow)
-        self.assertIn("if: startsWith(github.ref, 'refs/tags/')", workflow)
+        self.assertIn("gh release view", workflow)
+        self.assertIn("group: desktop-release", workflow)
 
     def test_hubctl_points_to_the_release_and_installs_only_a_checked_one(self) -> None:
         script = (HUB_ROOT / "scripts" / "hubctl.ps1").read_text(encoding="utf-8")

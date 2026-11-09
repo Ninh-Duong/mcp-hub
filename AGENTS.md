@@ -12,7 +12,7 @@ This repo is maintained entirely by AI agents. These rules are mandatory. Text r
 | Add, remove, or reconfigure a child MCP | Follow [docs/adding-a-child-mcp.md](docs/adding-a-child-mcp.md). A default child also needs its `repository` address in `config/hub.example.json` (what Setup clones). |
 | Check that the Hub reaches its children | Run `uv run python scripts/smoke.py` (see [docs/manual-setup.md → Check connections](docs/manual-setup.md#check-connections)). |
 | Change the desktop status app (`src/mcp_hub/desktop/`, `packaging/desktop/`) | Follow [docs/desktop-app.md](docs/desktop-app.md), including its design keywords, plus the rest of this file. The app imports nothing from `mcp_hub` outside `desktop` and reaches the Hub only over HTTP; its one other connection is the update check and download from this repository's GitHub Releases ([docs/versioning.md](docs/versioning.md)). |
-| Release the desktop app | Follow [docs/versioning.md](docs/versioning.md): raise `version` in `pyproject.toml` (and `uv.lock`), then the user pushes a tag `v<version>`: `.github/workflows/desktop-release.yml` builds the installer and publishes it with its SHA-256 (see [docs/packaging-and-qc.md](docs/packaging-and-qc.md)). Never commit the installer. |
+| Release the desktop app | Follow [docs/versioning.md](docs/versioning.md): ask the user before raising `version` in `pyproject.toml` (and `uv.lock`); merging to `master` then releases it, because `.github/workflows/desktop-release.yml` builds the installer, creates the tag `v<version>`, and publishes it with its SHA-256 (see [docs/packaging-and-qc.md](docs/packaging-and-qc.md)). Never push a tag by hand and never commit the installer. |
 | Build the desktop app's installer | Run `uv run --isolated --group build python scripts/build_desktop.py` (see [docs/desktop-app.md → Build the installer](docs/desktop-app.md#build-the-installer)). Never commit `build/` or `dist/`. |
 | Turn client tracking, a child MCP, or a sign-in task on or off | The user does it in the desktop app (⚙ Settings → Hub / MCPs). From the command line, use `hubctl autostart -Target hub -State on\|off` for the Hub's sign-in task; the app's own sign-in entry is in its Settings. |
 | Turn the local BitNet AI on or off, or change it | The user switches it in the desktop app; see [docs/bitnet.md](docs/bitnet.md). |
@@ -76,6 +76,8 @@ uv run python scripts/smoke.py
 ```
 
 While the shared service runs it locks `.venv/Scripts/mcp-hub-service.exe`; then use `uv run --no-sync ...` instead of stopping it.
+
+After a finished change that the user will notice, once `package_qc.py` passes, ask the user whether to raise the version, as [docs/versioning.md](docs/versioning.md#after-a-finished-change-ask-about-the-version) describes. Never raise it without their answer.
 
 Both must pass. `package_qc.py` is what CI runs (with `MCP_HUB_E2E=1`), in this order: `ruff check` (`E9`, `F`), the unit tests under `coverage`, `coverage report --fail-under=85` (`COVERAGE_FAIL_UNDER` in `package_qc.py`), `check_leaks.py`, `check_code_standards.py`, `check_docs.py`, and `compileall`. Fix lint findings instead of suppressing them, and do not lower the coverage gate. `check_leaks.py` scans tracked files and untracked files not ignored (including `uv.lock`) for drive/home paths, non-`example.com` emails, and private path components (`config/private/`, `.local/`, `logs/`, `.env`, `.env.*`). It skips only its own source because that file contains the patterns being checked. It reports file and line, never the matched text.
 
