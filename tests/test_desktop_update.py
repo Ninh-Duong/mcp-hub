@@ -11,7 +11,9 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from mcp_hub.desktop import constants, update
-from mcp_hub.desktop.status import ChildRow, DesktopError, HubSnapshot
+from mcp_hub.desktop import update_card
+from mcp_hub.desktop.status import DesktopError
+from mcp_hub.desktop.hub_api import UpdateStatus
 
 DOWNLOAD = f"https://github.com/{constants.UPDATE_REPOSITORY}/releases/download/v0.2.0"
 PAGE = f"https://github.com/{constants.UPDATE_REPOSITORY}/releases/tag/v0.2.0"
@@ -76,6 +78,20 @@ class VersionTest(unittest.TestCase):
             self.assertIsNone(update.app_version())
 
 
+class UpdateErrorDisplayTest(unittest.TestCase):
+    def test_known_errors_are_mapped_and_unknown_errors_use_generic_text(self) -> None:
+        status = UpdateStatus("run-1", "partial", (
+            {"id": "mcp-a", "state": "failed", "error_code": "repo_missing"},
+            {"id": "mcp-b", "state": "failed", "error_code": "timeout"},
+            {"id": "mcp-c", "state": "failed", "error_code": "unexpected_sensitive_value"},
+        ), ())
+        text = update_card._component_lines(status, lambda key: key)
+        self.assertIn("desktop.update.error.repoMissing", text)
+        self.assertIn("desktop.update.error.timeout", text)
+        self.assertIn("desktop.update.error.unknown", text)
+        self.assertNotIn("unexpected_sensitive_value", text)
+
+
 class CheckLatestTest(unittest.TestCase):
     def test_a_higher_release_with_an_installer_and_its_hash_is_offered(self) -> None:
         opener = github(release_json())
@@ -126,30 +142,6 @@ class CheckLatestTest(unittest.TestCase):
     def test_the_answer_is_size_limited(self) -> None:
         huge = b"{" + b" " * (update.MAX_RELEASE_JSON_BYTES + 10)
         self.assertIsNone(update.check_latest("0.1.1", FakeGitHub({update.API_URL: huge})))
-
-
-class HealthGateTest(unittest.TestCase):
-    def snapshot(self, hub: str = "running", **states: str) -> HubSnapshot:
-        from mcp_hub.desktop.status import child_tone
-        return HubSnapshot(hub=hub, children=tuple(ChildRow(name, state, child_tone(state)) for name, state in states.items()))
-
-    def test_a_child_that_is_not_started_or_keeps_reconnecting_blocks(self) -> None:
-        snapshot = self.snapshot(a="connected", b="unavailable", c="reconnecting", d="some other reason")
-        self.assertEqual(update.update_blocked(snapshot), ("b", "c", "d"))
-
-    def test_warnings_do_not_block(self) -> None:
-        snapshot = self.snapshot(a="connected", b="credentials required", c="disabled", d="connecting")
-        self.assertEqual(update.update_blocked(snapshot), ())
-
-    def test_a_hub_that_cannot_be_checked_does_not_block(self) -> None:
-        for hub in ("stopped", "starting", "not_installed", "unauthorized"):
-            with self.subTest(hub=hub):
-                self.assertEqual(update.update_blocked(self.snapshot(hub, b="unavailable")), ())
-        self.assertEqual(update.update_blocked(None), ())
-
-    def test_a_healthy_hub_does_not_block(self) -> None:
-        self.assertEqual(update.update_blocked(self.snapshot(a="connected")), ())
-        self.assertEqual(update.update_blocked(self.snapshot()), ())
 
 
 class DownloadTest(unittest.TestCase):

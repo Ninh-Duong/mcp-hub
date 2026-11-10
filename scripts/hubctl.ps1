@@ -1,6 +1,6 @@
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("install", "status", "start", "stop", "restart", "open", "preflight", "app", "autostart")]
+    [ValidateSet("install", "status", "start", "stop", "restart", "open", "preflight", "app", "autostart", "update")]
     [string]$Command = "status",
     # start, restart, open, install: run the activity UI (barn, daily activity, connected clients) for this start,
     # even when the saved mode (desktop app: Settings > Hub > Track AI clients) is fast.
@@ -12,7 +12,11 @@ param(
     [ValidateSet("on", "off")]
     [string]$State,
     # app: download the desktop app's latest release, check it against its SHA-256, and run its setup.
-    [switch]$Install
+    [switch]$Install,
+    # update: run an unattended check, full update, or retry these validated component IDs.
+    [switch]$Check,
+    [string]$RetryIds,
+    [string]$RunId
 )
 
 $ErrorActionPreference = "Stop"
@@ -97,6 +101,16 @@ function Invoke-Preflight {
     $result = Invoke-Hidden -FilePath $venvPython -Arguments $arguments
     if ($result.Output) { Write-Host $result.Output.TrimEnd() }
     return $result.ExitCode
+}
+
+function Start-Update {
+    if (-not (Test-Path -LiteralPath $venvPython -PathType Leaf)) { throw "The Hub environment is missing." }
+    $arguments = @("-m", "mcp_hub.update_runner")
+    if ($Check) { $arguments += "--check" }
+    if ($RetryIds) { $arguments += @("--retry", $RetryIds) }
+    if ($RunId -match '^[A-Fa-f0-9-]{36}$') { $arguments += @("--run-id", $RunId) }
+    Start-Process -FilePath $venvPython -ArgumentList $arguments -WorkingDirectory $repoRoot -WindowStyle Hidden
+    Write-Output "Update process started."
 }
 
 function Stop-StatusApp {
@@ -487,6 +501,7 @@ switch ($Command) {
         if (-not (Test-HubHealth)) { exit 1 }
     }
     "preflight" { exit (Invoke-Preflight) }
+    "update" { Start-Update }
     "start" {
         Start-HubTask -Ui:$Ui
         Write-HubStatus
