@@ -46,11 +46,10 @@ SAMPLES = {
     "stopped": HubSnapshot(hub="stopped", checked_at=_SAMPLE_TIME),
     "not_installed": HubSnapshot(hub="not_installed", checked_at=_SAMPLE_TIME),
     "unauthorized": HubSnapshot(hub="unauthorized", checked_at=_SAMPLE_TIME),
-    # A newer app version is available: with a healthy Hub, and with a child that fails the health gate.
+    # A newer desktop app version is available.
     "update": HubSnapshot(hub="running", children=_HEALTHY_CHILDREN, checked_at=_SAMPLE_TIME),
-    "update-blocked": HubSnapshot(hub="running", children=_SAMPLE_CHILDREN, checked_at=_SAMPLE_TIME),
 }
-UPDATE_STATES = ("update", "update-blocked")
+UPDATE_STATES = ("update",)
 # The settings states show the running sample with one Settings tab open.
 SETTINGS_TABS = {"settings": "appearance", "settings-hub": "hub", "settings-mcps": "mcps"}
 # `compact` shows the `ui` sample as the pinned mini bar.

@@ -19,7 +19,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 _SESSION_ONLY_PATH = re.compile(r"^/dashboard/api/jobs/[^/]+/(?:approve|approval-code|pending-call)/?$")
 # Hub settings change the Hub's own files and run hubctl (even on GET): only the admin token, never a cookie,
 # so a page on another local port cannot make the browser call them.
-_ADMIN_ONLY_PATH = re.compile(r"^/dashboard/api/settings(?:/|$)")
+_ADMIN_ONLY_PATH = re.compile(r"^/dashboard/api/(?:settings|update)(?:/|$)")
 
 
 class LocalBearerMiddleware:

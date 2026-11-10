@@ -13,6 +13,7 @@ from ..control import launch_hubctl
 from ..extensions import DashboardExtension, status_flags
 from .sessions import DashboardSessions
 from .settings_api import SettingsHandlers
+from .update_api import UpdateHandlers
 
 
 DASHBOARD_ROOT = Path(__file__).parent
@@ -47,6 +48,7 @@ class DashboardHandlers:
         shutdown_callback: Callable[[], None] | None = None,
         extensions: Sequence[DashboardExtension] = (),
         settings: SettingsHandlers | None = None,
+        updates: UpdateHandlers | None = None,
     ) -> None:
         self.runtime = runtime
         self.job_runner = job_runner
@@ -55,6 +57,7 @@ class DashboardHandlers:
         self.shutdown_callback = shutdown_callback
         self.extensions = tuple(extensions)
         self.settings = settings or SettingsHandlers()
+        self.updates = updates or UpdateHandlers(control_launcher or launch_hubctl)
 
     def routes(self) -> list[Route]:
         extension_routes = [route for extension in self.extensions for route in extension.routes]
@@ -74,6 +77,7 @@ class DashboardHandlers:
             Route("/dashboard/api/control/{command:str}", self.service_control, methods=["POST"]),
             Route("/dashboard/api/service/shutdown", self.request_shutdown, methods=["POST"]),
             *self.settings.routes(),
+            *self.updates.routes(),
             # Keep last: it matches any remaining GET path below /dashboard/.
             Route("/dashboard/{asset:path}", self.static_asset, methods=["GET"]),
         ]
@@ -214,11 +218,13 @@ def create_dashboard_routes(
     shutdown_callback: Callable[[], None] | None = None,
     extensions: Sequence[DashboardExtension] = (),
     settings: SettingsHandlers | None = None,
+    updates: UpdateHandlers | None = None,
 ) -> list[Route]:
     handlers = DashboardHandlers(
         runtime, job_runner, sessions,
         control_launcher=control_launcher, shutdown_callback=shutdown_callback, extensions=extensions,
         settings=settings,
+        updates=updates,
     )
     return handlers.routes()
 

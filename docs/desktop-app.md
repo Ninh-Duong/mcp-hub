@@ -1,6 +1,6 @@
 # Desktop status app
 
-A small frosted-glass window (Qt), installed on its own with `mcp-hub-status-setup-<version>.exe`. It is a **viewer**: it reads the Hub over the Hub's HTTP API and never opens a file of the Hub or of a child MCP. It shows whether the shared Hub is running, whether each child MCP is connected, and, when the Hub tracks AI clients (the activity UI), which AI clients use it. Its Settings card holds the Hub's everyday options. When it starts it also checks GitHub once for a newer version of itself and offers an **Update** button ([Updates](#updates), [versioning.md](versioning.md)). This file is the reference for the app. Any change to the app follows it, and a change to the app's behavior or design updates it.
+A small frosted-glass window (Qt), installed on its own with `mcp-hub-status-setup-<version>.exe`. It reads Hub state over HTTP and reads its own preferences and the sanitized update state file under user app data. It shows whether the Hub and child MCPs are working, and, when enabled, which AI clients use them. Its Settings card holds the Hub's everyday options. It checks for updates on launch and every 24 hours and offers **Check updates** and **Update** actions ([Updates](#updates), [versioning.md](versioning.md)). This file is the reference for the app. Any change to the app follows it, and a change to the app's behavior or design updates it.
 
 ## Purpose and scope
 
@@ -17,7 +17,7 @@ A small frosted-glass window (Qt), installed on its own with `mcp-hub-status-set
   - **MCPs:** each child MCP on or off.
 
   The Hub keeps these settings, so the Hub and MCPs tabs show them only while it runs (otherwise `desktop.settings.needsHub`). A change to the tracking mode or a child is saved by the Hub to `config/private/hub.json` and applies at the next Hub start; the card then shows **Restart Hub**.
-- **Update card.** When a newer version of the app is available, a card above the actions says which version, which one is in use, and offers **Update** and **What's new**. It appears only in the installed app, only after the check at start, and only in the full window (see [Updates](#updates)).
+- **Update card.** The card reports updates for the Hub and enabled child MCPs, per-component progress, skipped repositories, and failed steps. It offers **Retry** for failed components and updates the app installer last when a newer release exists (see [Updates](#updates)).
 - **Not in scope.** Jobs, write approvals, logs, tool allowlists, cache times, and every secret stay in the dashboard, `hubctl`, and the private files. That covers child credentials and `agents.json`. The app never shows tool arguments, results, tokens, or file paths.
 
 ## Install, run, disable
@@ -30,7 +30,7 @@ A small frosted-glass window (Qt), installed on its own with `mcp-hub-status-set
 | Run it from source (development) | `uv run python -m mcp_hub.desktop` |
 | Turn opening at sign-in off / on | Settings → Hub → **Open this app at sign-in** (installed app only) |
 | Turn the Hub's start at sign-in off / on | Settings → Hub → **Start Hub at sign-in**, or `.\scripts\hubctl.ps1 autostart -Target hub -State off` / `on` |
-| Update | The installed app checks once at start and shows an **Update** button when a newer version is released (see [Updates](#updates)). Or run the setup of a newer version: it asks **Update** or **Close** and keeps the folder and the remembered look. A `/SILENT` run updates without asking. How versions and upgrades work: [versioning.md](versioning.md). |
+| Update | Use **Check updates** or **Update** in the installed app. It updates enabled child MCPs, the Hub, and the app release when available. How versions and upgrades work: [versioning.md](versioning.md). |
 | Run the setup again (same or older version) | It never installs again: it says the app is already installed and offers **Uninstall** or **Close**. A `/SILENT` run exits with code 1. |
 | Uninstall | Run the setup again and choose **Uninstall**, or Windows Settings → Apps → **mcp-hub Status**. It removes the app, its shortcuts, its sign-in entry, and its remembered look; the Hub and its MCPs are not touched. |
 | Save review screenshots of every state | `uv run python -m mcp_hub.desktop --screenshot <folder>` (see [Screenshot review](#screenshot-review)) |
@@ -67,10 +67,10 @@ The installer is not code-signed, so Windows SmartScreen may show "Unknown publi
 
 How releases, numbering, and upgrades of the other parts work is in [versioning.md](versioning.md); this section is what the app does.
 
-- **Check.** Once, on a worker thread, when the installed app starts: one `GET` for the latest Release of `UPDATE_REPOSITORY` (`constants.py`). It sends no token and nothing from the Hub. There is no switch, and a failed check shows nothing. An app run from source never checks.
+- **Check.** On a worker thread at app launch and every 24 hours while open; the user can check manually. It checks the latest Release and asks the local Hub to check its checkout and enabled installed child repositories. An app run from source never offers installation.
 - **Version.** The app reports the `mcp-hub` version it was built from (`importlib.metadata`; the spec bundles the metadata, and `build_desktop.py` checks `--version` against `pyproject.toml`). `python -m mcp_hub.desktop --version` prints it.
-- **Health gate.** The Hub's live state stands in for `scripts/smoke.py`, which the installed app cannot run: a child that is `unavailable` or `reconnecting` blocks Update (a `FAIL`); `credentials required`, `disabled`, and `connecting` do not (a `WARN`); a Hub that is not running cannot be checked and does not block.
-- **Install.** The worker downloads the installer and its `.sha256`, compares the SHA-256, and only then starts the hidden update script and closes the window. The script waits for the app to exit, runs the setup with `/SILENT /SUPPRESSMSGBOXES /NORESTART`, and opens the app again. Setup updates over an older version in place and keeps the folder, the sign-in entry, and the remembered look.
+- **Install.** The updater starts the Hub's scheduled task when needed. It stops the Hub, updates enabled child checkouts concurrently, updates the Hub, prepares dependencies, restarts and smoke-checks. Local edits, local-only commits, diverged branches, and branches without an upstream are skipped safely. The app installer runs last after SHA-256 verification.
+- **Progress and retry.** A bounded sanitized status file under `%LOCALAPPDATA%\mcp-hub-status\update.json` lets the app show progress while the Hub restarts and after app restart. It contains component IDs, phases, timestamps, and error categories, never raw process output or credentials. Retry reruns failed components and dependent preparation/checks.
 - **Trust.** The SHA-256 comes from the same Release, so it catches damage, not a changed Release; the installer is not code-signed (see [versioning.md](versioning.md#what-update-does)).
 
 ## Hub settings

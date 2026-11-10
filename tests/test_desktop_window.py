@@ -24,7 +24,7 @@ except ImportError as exc:  # Qt's system libraries are missing (for example a b
     QT_MISSING = f"Qt is unavailable: {exc}"
 
 from mcp_hub.desktop import i18n, prefs, status, theme, update
-from mcp_hub.desktop.hub_api import HubSettings, ServerSwitch
+from mcp_hub.desktop.hub_api import HubSettings, ServerSwitch, UpdateStatus
 from mcp_hub.desktop.status import ChildRow, HubSnapshot
 
 
@@ -47,6 +47,26 @@ class FakeStore:
         self.bitnet = False
         self.reads = 0
         self.enabled = {"mcp-server-logs": True, "mcp-jira-sync": False}
+        self.update = UpdateStatus("", "idle", (), ())
+        self.retries: list[tuple[str, ...]] = []
+
+    def check_updates(self):
+        return self.update
+
+    def read_update(self):
+        return self.update
+
+    def read_saved_update(self):
+        return self.update
+
+    def start_update(self):
+        self.update = UpdateStatus("run-1", "complete", (), ())
+        return self.update
+
+    def retry_update(self, components):
+        self.retries.append(components)
+        self.update = UpdateStatus("run-1", "complete", (), ())
+        return self.update
 
     def read_settings(self) -> HubSettings:
         self.reads += 1
@@ -780,7 +800,7 @@ class SettingsPanelTest(unittest.TestCase):
 
 @unittest.skipIf(QT_MISSING, QT_MISSING or "")
 class UpdateWindowTest(unittest.TestCase):
-    """The update card: offered once at start, gated by the Hub's health, installed on one click."""
+    """The update card discovers system updates and installs the app after Hub work."""
 
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -792,10 +812,11 @@ class UpdateWindowTest(unittest.TestCase):
         self.window = self.make_window(update.Updater("0.1.1", self.check, self.install, self.opened.append))
 
     def make_window(self, updater: update.Updater | None):
+        self.store = FakeStore()
         return app.StatusWindow(
             i18n.Translator("en"), fetch=lambda: HubSnapshot(hub="stopped"), open_dashboard=lambda: None,
             launch=lambda _arguments: None, style=lambda *_a, **_k: False, prefs_path=Path(self.tmp.name) / "desktop.json",
-            hub_store=FakeStore(), read_autostart=lambda: {"hub": True, "app": True},
+            hub_store=self.store, read_autostart=lambda: {"hub": True, "app": True},
             write_autostart=lambda _target, _enabled: {"hub": True, "app": True}, run_worker=lambda job: job(),
             stream=lambda _put, _stop: None, updater=updater,
         )
@@ -811,6 +832,8 @@ class UpdateWindowTest(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.window.poll_timer.stop()
+        self.window.update_timer.stop()
+        self.window.update_check_timer.stop()
         self.window.drain_timer.stop()
         self.window.close()
         self.window.deleteLater()
@@ -819,18 +842,18 @@ class UpdateWindowTest(unittest.TestCase):
     def offer(self, snapshot: HubSnapshot | None = None) -> None:
         if snapshot is not None:
             self.window.apply(snapshot)
-        self.window._check_for_update()
+        self.window.check_updates()
         self.window.process_results()
 
     def card(self):
         return self.window.update_card
 
-    def test_without_an_updater_nothing_is_checked_or_shown(self) -> None:
+    def test_without_an_app_updater_the_card_still_checks_hub_updates(self) -> None:
         window = self.make_window(None)
         self.addCleanup(window.close)
-        window._check_for_update()
+        window.check_updates()
         window.process_results()
-        self.assertTrue(window.update_card.isHidden())
+        self.assertFalse(window.update_card.isHidden())
         self.assertEqual(self.checks, 0)
 
     def test_the_check_runs_once_when_the_window_starts_and_not_at_every_poll(self) -> None:
@@ -842,7 +865,7 @@ class UpdateWindowTest(unittest.TestCase):
         self.assertEqual(self.checks, 1)
 
     def test_a_newer_release_shows_the_card_with_what_the_user_has(self) -> None:
-        self.assertTrue(self.card().isHidden())
+        self.assertFalse(self.card().isHidden())
         self.offer(running(ChildRow("mcp-jira-sync", "connected", "ok")))
         self.assertFalse(self.card().isHidden())
         self.assertEqual(self.card().title.text(), "Version 0.2.0 is available")
@@ -852,10 +875,10 @@ class UpdateWindowTest(unittest.TestCase):
         self.assertIsInstance(self.card(), update_card.UpdateCard)
         self.assertNotIn(self.card(), self.window.cards)  # the full window shows it; the mini bar never does
 
-    def test_no_newer_release_or_a_failed_check_shows_nothing(self) -> None:
+    def test_no_newer_release_still_shows_manual_check(self) -> None:
         self.found = None
         self.offer(running(ChildRow("a", "connected", "ok")))
-        self.assertTrue(self.card().isHidden())
+        self.assertFalse(self.card().isHidden())
         self.assertEqual(self.window.footer.text(), "Updated 10:42:05")  # no error either
 
     def test_the_card_is_in_the_chosen_language(self) -> None:
@@ -868,22 +891,33 @@ class UpdateWindowTest(unittest.TestCase):
         self.window.set_language("en")
         self.assertEqual(self.card().update_button.text(), "Update")
 
-    def test_a_stopped_hub_does_not_block_but_says_it_was_not_checked(self) -> None:
+    def test_a_stopped_hub_can_be_started_for_the_update(self) -> None:
         self.offer(HubSnapshot(hub="stopped"))
         self.assertTrue(self.card().update_button.isEnabled())
-        self.assertEqual(self.card().note.text(), "You have 0.1.1. The Hub is not running, so its health was not checked.")
+        self.assertEqual(self.card().note.text(), "You have 0.1.1. The Hub is not running; Update will start it.")
 
-    def test_a_failing_child_blocks_the_update_until_it_is_fixed(self) -> None:
+    def test_a_failing_child_does_not_block_the_system_update(self) -> None:
         self.offer(running(ChildRow("mcp-jira-sync", "connected", "ok"), ChildRow("mcp-read-source", "unavailable", "error"),
                            ChildRow("mcp-pr-companion", "reconnecting", "wait")))
-        self.assertFalse(self.card().update_button.isEnabled())
-        self.assertEqual(self.card().note.text(), "Fix these MCPs first: mcp-read-source, mcp-pr-companion")
-        self.card().update_button.click()  # a disabled button does nothing, and the method refuses too
-        self.window.install_update()
-        self.assertEqual(self.installed, [])
-        self.window.apply(running(ChildRow("mcp-jira-sync", "connected", "ok"), ChildRow("mcp-read-source", "connected", "ok")))
         self.assertTrue(self.card().update_button.isEnabled())
-        self.assertEqual(self.card().note.text(), "You have 0.1.1.")
+        self.window.install_update()
+        self.window.process_results()
+        self.assertEqual(self.installed, [self.release])
+
+    def test_partial_system_update_still_installs_app_and_keeps_failed_retry_state(self) -> None:
+        self.offer(running(ChildRow("mcp-jira-sync", "connected", "ok")))
+        failed = UpdateStatus("run-1", "partial", (
+            {"id": "mcp-jira-sync", "kind": "child", "state": "failed", "phase": "pull",
+             "error_code": "worktree_dirty"},
+        ), ({"component": "mcp-jira-sync", "phase": "pull"},))
+        self.window.update_status = failed
+        self.window._update_changed("update_status", failed)
+        self.assertEqual(self.installed, [self.release])
+        self.assertEqual(self.window.update_status, failed)
+        self.assertIn("mcp-jira-sync", self.card().components.text())
+        self.assertIn("Local changes need attention", self.card().components.text())
+        self.assertIn("Downloading code", self.card().events.text())
+        self.assertFalse(self.card().retry_button.isHidden())
 
     def test_accounts_still_to_fill_in_and_disabled_children_do_not_block(self) -> None:
         self.offer(running(ChildRow("a", "credentials required", "error"), ChildRow("b", "disabled", "off"),
@@ -893,11 +927,11 @@ class UpdateWindowTest(unittest.TestCase):
     def test_update_downloads_then_installs_and_closes_the_window(self) -> None:
         self.offer(running(ChildRow("a", "connected", "ok")))
         self.card().update_button.click()
-        self.assertEqual(self.installed, [self.release])
-        self.assertEqual(self.card().note.text(), "Downloading the update...")
+        self.assertEqual(self.card().note.text(), "Updating mcp-hub and its enabled MCPs…")
         self.assertFalse(self.card().update_button.isEnabled())
         with patch.object(self.window, "close") as close:
             self.window.process_results()
+        self.assertEqual(self.installed, [self.release])
         self.assertEqual(self.card().note.text(), "Installing. The app closes and opens again by itself.")
         self.assertFalse(self.card().update_button.isEnabled())
         close.assert_called_once_with()
@@ -906,6 +940,7 @@ class UpdateWindowTest(unittest.TestCase):
         self.offer(running(ChildRow("a", "connected", "ok")))
         self.window.install_update()
         self.window.install_update()
+        self.window.process_results()
         self.assertEqual(len(self.installed), 1)
 
     def test_a_failed_update_shows_one_fixed_sentence_and_can_be_tried_again(self) -> None:
@@ -953,13 +988,14 @@ class UpdateWindowTest(unittest.TestCase):
         draw.assert_not_called()
         with patch.object(self.window, "_render_update") as draw:
             self.window.apply(running(ChildRow("a", "unavailable", "error")))
-        draw.assert_called_once()
+        draw.assert_not_called()
 
     def test_the_preview_shows_and_hides_the_card_for_screenshots(self) -> None:
         self.window.preview_update(self.release)
         self.assertFalse(self.card().isHidden())
         self.window.preview_update(None)
-        self.assertTrue(self.card().isHidden())
+        self.assertFalse(self.card().isHidden())
+        self.assertEqual(self.card().title.text(), "Updates")
 
 
 @unittest.skipIf(QT_MISSING, QT_MISSING or "")
@@ -1020,7 +1056,7 @@ class ScreenshotTest(unittest.TestCase):
         self.assertEqual(window.releases, [None] * 4)  # and only the update samples show the update card
         self.assertFalse(window.compact)
 
-    def test_the_update_samples_show_the_card_with_and_without_a_failing_child(self) -> None:
+    def test_the_update_sample_shows_the_card(self) -> None:
         window = type("W", (), {})()
         window.t, window.shown, window.releases = i18n.Translator("en"), [], []
         for name, value in (("show_for_capture", None), ("set_theme", None), ("set_language", None), ("show_settings", None),
@@ -1030,11 +1066,9 @@ class ScreenshotTest(unittest.TestCase):
         window.apply = lambda snapshot: window.shown.append(snapshot)
         window.preview_update = window.releases.append
         with tempfile.TemporaryDirectory() as tmp:
-            screenshot.capture_all(window, Path(tmp), ["update", "update-blocked"], ["en"], ["light"],
+            screenshot.capture_all(window, Path(tmp), ["update"], ["en"], ["light"],
                                    capture=lambda _w, path: path.write_bytes(b"png"), settle=lambda _w: None)
-        self.assertEqual(window.releases, [screenshot.SAMPLE_RELEASE] * 2)
-        self.assertEqual(update.update_blocked(window.shown[0]), ())
-        self.assertEqual(update.update_blocked(window.shown[1]), ("mcp-pr-companion",))
+        self.assertEqual(window.releases, [screenshot.SAMPLE_RELEASE])
 
     def test_samples_cover_every_hub_state(self) -> None:
         self.assertEqual({sample.hub for sample in screenshot.SAMPLES.values()}, set(status.HUB_TONES))
