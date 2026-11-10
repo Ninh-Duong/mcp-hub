@@ -87,6 +87,22 @@ class SetupStepsTest(unittest.TestCase):
     def steps(self, body: str) -> str:
         return run_steps(self.prelude + body)
 
+    def test_status_app_is_refreshed_even_when_registry_entry_exists(self) -> None:
+        output = self.steps(
+            "function Get-ItemProperty { [pscustomobject]@{ InstallPath = 'unused' } }; "
+            "function Invoke-Hubctl { param($Arguments) 'CALL=' + ($Arguments -join ' ') | Write-Host; $true }; "
+            "Install-StatusApp"
+        )
+        self.assertIn("CALL=app -Install", output)
+
+    def test_status_app_failure_warns_and_setup_can_continue(self) -> None:
+        output = self.steps(
+            "function Get-ItemProperty { $null }; function Invoke-Hubctl { $false }; "
+            "Install-StatusApp; 'CONTINUED'"
+        )
+        self.assertIn("WARNING:", output)
+        self.assertIn("CONTINUED", output)
+
     def clone_calls(self, body: str = "") -> list[str]:
         output = self.steps(f"{body} $failed = @(Get-ChildRepositories); $script:gitCalls | ForEach-Object {{ \"CALL $_\" }}")
         return [line[5:] for line in output.splitlines() if line.startswith("CALL ")]

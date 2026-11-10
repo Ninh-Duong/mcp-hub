@@ -1,6 +1,6 @@
 # Manual setup and details
 
-`Setup.cmd` does all of this for you (see the [README](../README.md#install-windows) and [Parent-child architecture](parent-child-architecture.md)). This page is for running the Hub by hand, on macOS or Linux, or understanding what each part does.
+`Setup.cmd` does all of this for you on Windows (see the [README](../README.md#install-windows) and [Parent-child architecture](parent-child-architecture.md)). When rerun, it also installs or refreshes the desktop Status app from the latest stable Release after checking its SHA-256. Use **Update** in the app to update the Hub and enabled child MCPs. This page is for running the Hub by hand, on macOS or Linux, or understanding what each part does.
 
 ## Run
 
@@ -31,7 +31,7 @@ After preparing this repository and the desired child MCPs, follow [the shared A
 .\scripts\hubctl.ps1 open
 .\scripts\hubctl.ps1 open -Ui  # same, with the live activity UI (barn, daily activity, clients)
 .\scripts\hubctl.ps1 app       # open the desktop status app (the installed one, else from source)
-.\scripts\hubctl.ps1 app -Install # download the app's latest release, check its SHA-256, run its setup
+.\scripts\hubctl.ps1 app -Install # install or refresh the app from the latest stable release after checking its SHA-256
 .\scripts\hubctl.ps1 autostart # show or change the Hub's sign-in task: -Target hub -State on|off
 ```
 

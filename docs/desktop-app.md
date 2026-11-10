@@ -1,6 +1,6 @@
 # Desktop status app
 
-A small frosted-glass window (Qt), installed on its own with `mcp-hub-status-setup-<version>.exe`. It reads Hub state over HTTP and reads its own preferences and the sanitized update state file under user app data. It shows whether the Hub and child MCPs are working, and, when enabled, which AI clients use them. Its Settings card holds the Hub's everyday options. It checks for updates on launch and every 24 hours and offers **Check updates** and **Update** actions ([Updates](#updates), [versioning.md](versioning.md)). This file is the reference for the app. Any change to the app follows it, and a change to the app's behavior or design updates it.
+A small frosted-glass window (Qt), installed on its own with `mcp-hub-status-setup-<version>.exe`. It reads Hub state over HTTP and reads its own preferences and the sanitized update state file under user app data. It shows whether the Hub and child MCPs are working, and, when enabled, which AI clients use them. Its Settings card holds the Hub's everyday options. It checks for updates on launch and every hour and offers **Check updates** and **Update** actions ([Updates](#updates), [versioning.md](versioning.md)). This file is the reference for the app. Any change to the app follows it, and a change to the app's behavior or design updates it.
 
 ## Purpose and scope
 
@@ -24,14 +24,14 @@ A small frosted-glass window (Qt), installed on its own with `mcp-hub-status-set
 
 | Action | How |
 |---|---|
-| Get the installer | Download `mcp-hub-status-setup-<version>.exe` and its `.sha256` from the repository's latest GitHub Release, or run `.\scripts\hubctl.ps1 app -Install`, which downloads both, refuses a file that does not match its SHA-256, and runs the setup. `hubctl install` and `hubctl app` point to the release while the app is not installed. `app -Install` installs the release first; a build left in `dist/` (which may be older) is run only when no release can be downloaded, and it prints its path. A private repository's release needs a signed-in download. |
+| Get or refresh the app | Double-click `Setup.cmd` in the mcp-hub checkout, or run `.\scripts\hubctl.ps1 app -Install`. Both use the latest stable GitHub Release and verify the installer SHA-256. Setup installs the app if missing and refreshes it when the Release is newer; if it is open, Setup closes and reopens it while preserving its sign-in choice. An existing app is kept if the check, download, checksum, or installer fails. For a first install only, `hubctl app -Install` may fall back to a build in `dist/` (which may be older), then to running from source. A private repository's release needs a signed-in download. |
 | Install the app | Run `mcp-hub-status-setup-<version>.exe` (per user, no admin). Choose a desktop icon and **Open at sign-in**. |
 | Open the app | Start Menu or desktop → **mcp-hub Status**, or `.\scripts\hubctl.ps1 app` |
 | Run it from source (development) | `uv run python -m mcp_hub.desktop` |
 | Turn opening at sign-in off / on | Settings → Hub → **Open this app at sign-in** (installed app only) |
 | Turn the Hub's start at sign-in off / on | Settings → Hub → **Start Hub at sign-in**, or `.\scripts\hubctl.ps1 autostart -Target hub -State off` / `on` |
 | Update | Use **Check updates** or **Update** in the installed app. It updates enabled child MCPs, the Hub, and the app release when available. How versions and upgrades work: [versioning.md](versioning.md). |
-| Run the setup again (same or older version) | It never installs again: it says the app is already installed and offers **Uninstall** or **Close**. A `/SILENT` run exits with code 1. |
+| Run the downloaded installer again (same or older version) | It does not downgrade or reinstall the app; use `Setup.cmd` to refresh to a newer stable Release. |
 | Uninstall | Run the setup again and choose **Uninstall**, or Windows Settings → Apps → **mcp-hub Status**. It removes the app, its shortcuts, its sign-in entry, and its remembered look; the Hub and its MCPs are not touched. |
 | Save review screenshots of every state | `uv run python -m mcp_hub.desktop --screenshot <folder>` (see [Screenshot review](#screenshot-review)) |
 
@@ -50,11 +50,11 @@ winget install JRSoftware.InnoSetup                  # once per build machine
 uv run --isolated --group build python scripts/build_desktop.py # -> dist\mcp-hub-status-setup-<version>.exe
 ```
 
-`scripts/build_desktop.py` draws the icon with Qt, bundles the app with PyInstaller (`packaging/desktop/mcp-hub-status.spec`, one folder, no console), checks that the bundle carries the Microsoft Visual C++ runtime (`BUNDLED_RUNTIME`), starts the bundled exe once in `--screenshot` mode as a self-check (a failure that happens only in the frozen app stops the build), and compiles `packaging/desktop/installer.iss` with Inno Setup. `--isolated` builds in a temporary environment, so it never syncs the shared `.venv`, whose entry-point exes the running Hub and AI-client bridges keep locked. The version is the one in `pyproject.toml`. Everything goes to `build/` and `dist/`, which git ignores; never commit them. The `build` dependency group holds PyInstaller and is synced only on request.
+`scripts/build_desktop.py` draws the icon with Qt, bundles the app with PyInstaller (`packaging/desktop/mcp-hub-status.spec`, one folder, no console), checks that the bundle carries the Microsoft Visual C++ runtime (`BUNDLED_RUNTIME`) and package metadata version, starts the bundled exe once in `--screenshot` mode as a self-check (a failure that happens only in the frozen app stops the build), and compiles `packaging/desktop/installer.iss` with Inno Setup. `--isolated` builds in a temporary environment, so it never syncs the shared `.venv`, whose entry-point exes the running Hub and AI-client bridges keep locked. The version is the one in `pyproject.toml`. Everything goes to `build/` and `dist/`, which git ignores; never commit them. The `build` dependency group holds PyInstaller and is synced only on request.
 
 Before anything is installed, the setup:
 
-- **Looks for an installed copy.** The same or a newer version stops setup (offering Uninstall); an older version is updated in place.
+- **Looks for an installed copy.** Setup uses the latest stable Release, installs it if missing, and updates an older app in place after verifying the SHA-256. The app's folder and preferences are preserved.
 - **Shows a System check page.**
   - **Windows:** 10 version 1809 or later, 64-bit (`MinVersion`), which ships the Universal C runtime.
   - **Libraries:** Python, Qt and the Visual C++ runtime ship inside the app, so nothing else is installed.
@@ -67,8 +67,8 @@ The installer is not code-signed, so Windows SmartScreen may show "Unknown publi
 
 How releases, numbering, and upgrades of the other parts work is in [versioning.md](versioning.md); this section is what the app does.
 
-- **Check.** On a worker thread at app launch and every 24 hours while open; the user can check manually. It checks the latest Release and asks the local Hub to check its checkout and enabled installed child repositories. An app run from source never offers installation.
-- **Version.** The app reports the `mcp-hub` version it was built from (`importlib.metadata`; the spec bundles the metadata, and `build_desktop.py` checks `--version` against `pyproject.toml`). `python -m mcp_hub.desktop --version` prints it.
+- **Check.** On a worker thread at app launch and every hour while open; the user can check manually. It checks the latest stable Release and asks the local Hub to check its checkout and enabled installed child repositories. An app run from source never offers installation.
+- **Version.** The app reports the `mcp-hub` version it was built from (`importlib.metadata`; the spec bundles the metadata, and `build_desktop.py` checks the bundled metadata against `pyproject.toml`). `python -m mcp_hub.desktop --version` prints it.
 - **Install.** The updater starts the Hub's scheduled task when needed. It stops the Hub, updates enabled child checkouts concurrently, updates the Hub, prepares dependencies, restarts and smoke-checks. Local edits, local-only commits, diverged branches, and branches without an upstream are skipped safely. The app installer runs last after SHA-256 verification.
 - **Progress and retry.** A bounded sanitized status file under `%LOCALAPPDATA%\mcp-hub-status\update.json` lets the app show progress while the Hub restarts and after app restart. It contains component IDs, phases, timestamps, and error categories, never raw process output or credentials. Retry reruns failed components and dependent preparation/checks.
 - **Trust.** The SHA-256 comes from the same Release, so it catches damage, not a changed Release; the installer is not code-signed (see [versioning.md](versioning.md#what-update-does)).

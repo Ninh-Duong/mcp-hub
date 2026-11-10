@@ -9,7 +9,7 @@ This page owns how mcp-hub is versioned, how a release is made, how each part is
 | **mcp-hub** (the Hub and the desktop status app) | `version` in `pyproject.toml`, the only source. A release is the Git tag `v<version>`. | The Hub is a Git checkout. The status app is an installer attached to the GitHub Release of that tag. |
 | **Child MCPs** (`mcp-jira-sync`, `mcp-pr-companion`, `mcp-server-logs`, `mcp-read-source`, `mcp-sqlserver`) | Each child's own repository. The Hub follows the child's default branch; there is no pinned child version. | A Git checkout next to the Hub, cloned by `Setup.cmd` from the address in `config/hub.example.json`. |
 
-The desktop app never has a version of its own: it reports the `mcp-hub` version it was built from (the package metadata inside the bundle). `scripts/build_desktop.py` fails the build when the bundled exe's `--version` differs from `pyproject.toml`.
+The desktop app never has a version of its own: it reports the `mcp-hub` version it was built from (the package metadata inside the bundle). `scripts/build_desktop.py` fails the build when the bundled package metadata differs from `pyproject.toml`.
 
 ## Numbering
 
@@ -49,15 +49,15 @@ On Windows, press **Update** in mcp-hub Status. It checks enabled child reposito
 
 | Part | How |
 |---|---|
-| **Desktop status app** | Press **Update** in the app. It keeps its folder, sign-in entry, and remembered look. |
+| **Desktop status app** | Rerun `Setup.cmd` to install or refresh from the latest stable Release, or press **Update** in the app. It keeps its folder, sign-in entry, and remembered look. |
 | **Hub and enabled child MCPs** | Press **Update** in the app. Enabled child repos update concurrently before the Hub; Hub environment sync, child preparation, restart, and health check follow. |
-| **Check or retry** | The app checks at startup and every 24 hours while open; **Check updates** runs a check immediately. Failed components are listed with a **Retry** action. |
+| **Check or retry** | The app checks at startup and every hour while open; **Check updates** runs a check immediately. Failed components are listed with a **Retry** action. |
 
 Repositories with local edits, local-only commits, diverged history, or no upstream tracking branch are skipped and reported. The updater does not overwrite those changes. Nothing here reads or changes private files under `config/private/`.
 
 ## How the app finds a new version
 
-The installed status app checks for updates when it starts and every 24 hours while open. The user can also check manually. There is no switch to turn checks off.
+The installed status app checks for updates when it starts and every hour while open. The user can also check manually. There is no switch to turn checks off. Rerunning `Setup.cmd` checks for a newer stable desktop Release and refreshes the app in place after SHA-256 verification; it does not run the Hub and child update coordinator.
 
 - **The request.** The app checks the latest desktop Release and asks the local Hub to check its checkout and enabled child repositories. GitHub requests send no Hub token or user data. A failed check is shown in the app with a retry action.
 - **When a card appears.** The latest Release is neither a draft nor a pre-release, its tag is a version higher than the one the app runs, and it carries `mcp-hub-status-setup-<version>.exe` and its `.sha256` from this repository's Releases. The card says which version is available, shows the version in use, and has **Update** and **What's new** (the Release page).

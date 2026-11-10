@@ -17,7 +17,8 @@ MCP"), keeps it connected, shows the AI only the allowed tools, and logs every c
 2. **Double-click `Setup.cmd`** in the `mcp-hub` folder. It asks nothing. It downloads the default tools that are missing
    next to `mcp-hub`, installs everything they need and the **mcp-hub Status** app, checks each tool in turn and then
    the Hub itself, looks for the AI clients on your PC, and copies a message for them. A tool that fails does not stop
-   the others; the summary at the end names it.
+   the others; the summary at the end names it. Setup installs the Status app from the latest stable Release and
+   checks its SHA-256. Running Setup again refreshes that app when a newer stable version is available.
 3. **Fill in each tool's account yourself**, in that tool's own folder (the end of Setup lists where). Setup never asks
    for, reads, or stores accounts, and you should never type them into an AI chat. Until then that tool shows `WARN`,
    which is normal.
@@ -43,7 +44,9 @@ Ask your AI client, naming the tool:
 - **mcp-hub Status** (Start Menu) shows whether the Hub and each tool are working. It starts, restarts, or stops the
   Hub, turns tools on or off (⚙ Settings), and checks for updates. Press **Update** there to update enabled child MCPs,
   the Hub, and the desktop app when a new release exists ([versions and upgrades](docs/versioning.md)).
-- To repair the install or download a missing tool, run `Setup.cmd` again. Accounts are changed in each tool's own folder.
+- To repair the install or download a missing tool, run `Setup.cmd` again. It also refreshes the Status app when a newer
+  stable Release is available. Use **Update** in the app to update the Hub and enabled child MCPs; accounts are changed
+  in each tool's own folder.
 
 ## If something does not work
 

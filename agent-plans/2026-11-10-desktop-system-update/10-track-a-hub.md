@@ -21,6 +21,7 @@ Implement the detached Hub-side update coordinator and its admin API using the o
 - [X] A004: Reuse existing Hub environment sync, preflight, restart, and smoke-check flow; test success and failures with mocked subprocesses (files: `scripts/hubctl.ps1`, `src/mcp_hub/update_runner.py`, `tests/test_update_runner.py`).
 - [X] A005: Add admin-authenticated check/start/retry routes and launch orchestration off the event loop; reject concurrent runs and validate retry IDs (files: `src/mcp_hub/dashboard/update_api.py`, `src/mcp_hub/dashboard/api.py`, `src/mcp_hub/http.py`, `tests/test_update_api.py`).
 - [X] A006: Wire the routes to the persistent status contract and document every new route/event/error (files: `src/mcp_hub/dashboard/api.py`, `docs/reference.md`, `docs/security-and-logging.md`).
+- [X] A007: Make Setup reruns install a missing desktop app or refresh an older app from the latest stable Release only; reuse the existing installer and SHA-256 validation, skip current/newer installs, preserve the installed app on failures, and leave Hub/child updates to the desktop app (files: `scripts/setup.ps1`, `scripts/hubctl.ps1`, `tests/test_setup_script.py`, `tests/test_bootstrap_scripts.py`). Write failure-path tests before implementation.
 
 ## Verification
 

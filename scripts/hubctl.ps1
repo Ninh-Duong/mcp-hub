@@ -357,6 +357,69 @@ function Start-SourceStatusApp {
     Start-Process -FilePath $pythonw -ArgumentList "-m mcp_hub.desktop" -WorkingDirectory $repoRoot
 }
 
+function Get-StatusAppVersion {
+    # Inno Setup registers this per-user version; the windowed app has no stdout.
+    $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{10E2C381-6C43-42AD-B74C-5A98EC2AA2E8}_is1"
+    $version = [string](Get-ItemProperty -Path $uninstallKey -Name DisplayVersion -ErrorAction SilentlyContinue).DisplayVersion
+    if ($version -notmatch '^\d+\.\d+\.\d+$') {
+        throw "The installed app has no valid installer version metadata."
+    }
+    return [version]$version
+}
+
+function Get-StatusAppAutostart {
+    $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+    $name = "mcp-hub-status"
+    $entry = (Get-ItemProperty -Path $runKey -Name $name -ErrorAction SilentlyContinue).$name
+    return [pscustomobject]@{ Present = $null -ne $entry; Value = [string]$entry }
+}
+
+function Restore-StatusAppAutostart {
+    param([pscustomobject]$State)
+
+    $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+    if ($State.Present) {
+        Set-ItemProperty -Path $runKey -Name "mcp-hub-status" -Value $State.Value | Out-Null
+    } else {
+        Remove-ItemProperty -Path $runKey -Name "mcp-hub-status" -ErrorAction SilentlyContinue | Out-Null
+    }
+}
+
+function Stop-InstalledStatusApp {
+    param([string]$Executable)
+
+    $processes = @(Get-CimInstance -ClassName Win32_Process -Filter "Name='mcp-hub-status.exe'" |
+        Where-Object { $_.ExecutablePath -eq $Executable })
+    $closed = $false
+    foreach ($process in $processes) {
+        $app = Get-Process -Id $process.ProcessId -ErrorAction SilentlyContinue
+        if (-not $app) { continue }
+        if (-not $app.CloseMainWindow() -or -not $app.WaitForExit(30000)) {
+            throw "Close the Status app and run Setup again."
+        }
+        $closed = $true
+    }
+    return $closed
+}
+
+function Update-InstalledStatusApp {
+    param([string]$Installer, [string]$Executable)
+
+    $autostart = Get-StatusAppAutostart
+    $wasRunning = Stop-InstalledStatusApp -Executable $Executable
+    try {
+        $process = Start-Process -FilePath $Installer -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS" -Wait -PassThru
+        if ($process.ExitCode -ne 0) { throw "The Status app installer failed (exit code $($process.ExitCode))." }
+    } finally {
+        try { Restore-StatusAppAutostart -State $autostart }
+        catch { Write-Warning "Could not restore the Status app sign-in setting; check it in app Settings." }
+        if ($wasRunning -and (Test-Path -LiteralPath $Executable -PathType Leaf)) {
+            try { Start-Process -FilePath $Executable }
+            catch { Write-Warning "The Status app was updated but could not be reopened; start it from the Start Menu." }
+        }
+    }
+}
+
 function Open-StatusApp {
     # The app keeps a single instance, so opening it again while it runs opens nothing new.
     $exe = Get-InstalledStatusApp
@@ -391,6 +454,7 @@ function Get-LatestInstaller {
     } catch {
         throw "Could not read the latest release (a private repository needs a manual download): $Releases"
     }
+    if ($release.draft -or $release.prerelease) { throw "The latest release is not stable: $Releases" }
     # The name is checked before it becomes a file name.
     $setup = @($release.assets | Where-Object { $_.name -match '^mcp-hub-status-setup-\d+\.\d+\.\d+\.exe$' })[0]
     $sum = if ($setup) { @($release.assets | Where-Object { $_.name -eq "$($setup.name).sha256" })[0] } else { $null }
@@ -408,8 +472,16 @@ function Find-LocalInstaller {
 }
 
 function Install-ReleasedStatusApp {
-    param([string]$Releases)
+    param([string]$Releases, [string]$InstalledExe)
     $setup, $sum = Get-LatestInstaller -Releases $Releases
+    if ($InstalledExe) {
+        $installed = Get-StatusAppVersion
+        $available = [version]($setup.name -replace '^mcp-hub-status-setup-|\.exe$', '')
+        if ($installed -ge $available) {
+            Write-Output "The installed Status app is current or newer than the latest stable release."
+            return
+        }
+    }
     $folder = Join-Path $env:TEMP "mcp-hub-status-setup"
     New-Item -ItemType Directory -Force -Path $folder | Out-Null
     $path = Join-Path $folder $setup.name
@@ -422,22 +494,30 @@ function Install-ReleasedStatusApp {
         throw "The downloaded installer does not match its SHA-256; it was deleted and not run."
     }
     Write-Output "Running $($setup.name), checked against its SHA-256."
-    Start-Process -FilePath $path -Wait
+    if ($InstalledExe) {
+        Update-InstalledStatusApp -Installer $path -Executable $InstalledExe
+    } else {
+        Start-Process -FilePath $path -Wait
+    }
 }
 
 function Install-StatusApp {
-    # The published Release comes first: it is the installer for the version in pyproject.toml. A build left in
-    # dist/ is used only when no Release can be installed (no GitHub remote, or the download failed).
+    # Refresh an existing executable from the stable Release only; first install keeps its fallback policy.
+    $installedExe = Get-InstalledStatusApp
     $releases = Get-ReleasesUrl
     if ($releases) {
         try {
-            Install-ReleasedStatusApp -Releases $releases
+            Install-ReleasedStatusApp -Releases $releases -InstalledExe $installedExe
             return
         } catch {
             Write-Warning "Could not install desktop app from GitHub release: $($_.Exception.Message)."
         }
     } else {
         Write-Warning "This checkout has no GitHub remote."
+    }
+    if ($installedExe) {
+        Write-Warning "The installed Status app was kept. Setup can continue; try the release update again later."
+        return
     }
     $localInstaller = Find-LocalInstaller
     if ($localInstaller) {

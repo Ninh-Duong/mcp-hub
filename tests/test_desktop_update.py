@@ -15,6 +15,12 @@ from mcp_hub.desktop import update_card
 from mcp_hub.desktop.status import DesktopError
 from mcp_hub.desktop.hub_api import UpdateStatus
 
+try:
+    from mcp_hub.desktop import app, i18n
+    QT_MISSING = None
+except ImportError as exc:
+    QT_MISSING = f"Qt is unavailable: {exc}"
+
 DOWNLOAD = f"https://github.com/{constants.UPDATE_REPOSITORY}/releases/download/v0.2.0"
 PAGE = f"https://github.com/{constants.UPDATE_REPOSITORY}/releases/tag/v0.2.0"
 SETUP = "mcp-hub-status-setup-0.2.0.exe"
@@ -76,6 +82,54 @@ class VersionTest(unittest.TestCase):
         version.assert_called_once_with("mcp-hub")
         with patch.object(update.metadata, "version", side_effect=update.metadata.PackageNotFoundError):
             self.assertIsNone(update.app_version())
+
+
+@unittest.skipIf(QT_MISSING, QT_MISSING or "")
+class ReleaseCheckScheduleTest(unittest.TestCase):
+    def setUp(self) -> None:
+        app.application()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.checks = 0
+        self.hub_store = MagicMock()
+        self.hub_store.check_updates.return_value = None
+        self.hub_store.read_saved_update.return_value = None
+        with patch.object(app.hub_api.HubClient, "read_saved_update", return_value=None):
+            self.window = app.StatusWindow(
+                i18n.Translator("en"), prefs_path=Path(self.tmp.name) / "desktop.json",
+                fetch=lambda: None, open_dashboard=lambda: None, launch=lambda _args: None,
+                style=lambda *_args, **_kwargs: False, hub_store=self.hub_store,
+                read_autostart=lambda: {"hub": True, "app": True},
+                write_autostart=lambda _target, _enabled: {"hub": True, "app": True},
+                run_worker=lambda job: job(), stream=lambda _put, _stop: None,
+                updater=update.Updater("0.1.1", self.check_release, lambda _release: None, lambda _url: None),
+            )
+
+    def check_release(self):
+        self.checks += 1
+        return None
+
+    def tearDown(self) -> None:
+        self.window.poll_timer.stop()
+        self.window.update_timer.stop()
+        self.window.update_check_timer.stop()
+        self.window.drain_timer.stop()
+        self.window.close()
+        self.window.deleteLater()
+        self.tmp.cleanup()
+
+    def test_release_discovery_repeats_hourly_and_startup_and_manual_checks_are_immediate(self) -> None:
+        self.assertEqual(self.window.update_check_timer.interval(), 60 * 60 * 1000)
+        with patch.object(self.window, "refresh"):
+            self.window.start()
+        self.assertTrue(self.window.update_check_timer.isActive())
+        self.assertEqual(self.checks, 1)
+        self.window.process_results()
+        self.window.check_updates()
+        self.assertEqual(self.checks, 2)
+        self.window.process_results()
+        self.window.update_check_timer.timeout.emit()
+        self.assertEqual(self.checks, 3)
+        self.assertEqual(self.hub_store.check_updates.call_count, 3)
 
 
 class UpdateErrorDisplayTest(unittest.TestCase):
