@@ -72,10 +72,17 @@ class ServerFullResultToolTest(unittest.IsolatedAsyncioTestCase):
         params = CallToolRequestParams(name=FULL_RESULT_TOOL, arguments={"result_id": rid, "offset": 10, "limit": 20})
         res = await self.runtime.call_tool(self.ctx, params)
         self.assertFalse(res.is_error)
-        data = json.loads(res.content[0].text)
-        self.assertEqual(data["result_id"], rid)
-        self.assertEqual(data["offset"], 10)
-        self.assertEqual(data["limit"], 20)
+        header, body = res.content[0].text.split("\n", 1)
+        self.assertIn(f"result_id={rid}", header)
+        self.assertIn("next_offset=30", header)
+        self.assertEqual(body, "01234567890123456789")
+
+        # Legacy JSON format remains available when requested explicitly
+        json_res = await self.runtime.call_tool(
+            self.ctx,
+            CallToolRequestParams(name=FULL_RESULT_TOOL, arguments={"result_id": rid, "offset": 10, "limit": 20, "format": "json"}),
+        )
+        data = json.loads(json_res.content[0].text)
         self.assertEqual(data["text"], "01234567890123456789")
         self.assertEqual(data["next_offset"], 30)
 
@@ -84,6 +91,23 @@ class ServerFullResultToolTest(unittest.IsolatedAsyncioTestCase):
         events = [json.loads(line)["event"] for line in lines]
         self.assertIn("tool.call.started", events)
         self.assertIn("tool.call.succeeded", events)
+
+    async def test_calling_get_full_result_with_multi_ids_and_filter(self) -> None:
+        store = FullResultStore(max_entries=10, ttl_seconds=60.0)
+        self.runtime.full_results = store
+        r1 = store.put(json.dumps({"rows": [{"id": 1, "tag": "skip"}, {"id": 2, "tag": "hit-976"}]}))
+        r2 = store.put("line one\nhit-976 error line\nline three")
+
+        multi = await self.runtime.call_tool(
+            self.ctx,
+            CallToolRequestParams(name=FULL_RESULT_TOOL, arguments={"result_ids": [r1, r2], "contains": "hit-976"}),
+        )
+        self.assertFalse(multi.is_error)
+        out = multi.content[0].text
+        self.assertIn(f"result_id={r1}", out)
+        self.assertIn(f"result_id={r2}", out)
+        self.assertIn("hit-976", out)
+        self.assertNotIn('"tag":"skip"', out)
 
     async def test_calling_get_full_result_with_unknown_id_returns_error(self) -> None:
         self.runtime.full_results = FullResultStore(max_entries=10, ttl_seconds=60.0)
@@ -130,7 +154,7 @@ class ServerCondenseHookTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(res, large)
 
     async def test_large_read_only_result_is_condensed(self) -> None:
-        large_text = "log line with information\n" * 400  # > 6000 chars
+        large_text = "log line with information\n" * 400  # > 9000 chars
         large = CallToolResult(content=[TextContent(type="text", text=large_text)])
         res = await self.runtime._maybe_condense("logs__query", large, "find errors", "req-1")
         self.assertFalse(res.is_error)
@@ -194,6 +218,34 @@ class ServerCondenseHookTest(unittest.IsolatedAsyncioTestCase):
         output = "\n".join(b.text for b in res.content if hasattr(b, "text"))
         self.assertIn("short text", output)
         self.assertIn("[Condensed by mcp-hub:", output)
+
+    async def test_batch_packs_combined_medium_json_items_under_pack_chars(self) -> None:
+        lossless_rows = json.dumps({
+            "rows": [{"first_column_name": i, "second_column_name": f"v{i}", "third_column_name": "ok"} for i in range(60)]
+        }, separators=(",", ":"))
+        self.assertGreater(len(lossless_rows), 4000)
+        self.assertLess(len(lossless_rows), 9000)
+
+        async def fake_call_child(name: str, args: dict, **kwargs) -> CallToolResult:
+            return CallToolResult(content=[TextContent(type="text", text=lossless_rows)])
+
+        self.runtime.call_child_tool = fake_call_child  # type: ignore[assignment]
+        self.runtime.settings = Settings(policy=self.runtime.settings.policy.__class__(mode="off"))
+        batch_args = {"calls": [{"tool": "logs__query", "arguments": {"n": i}} for i in range(3)]}
+        res = await self.runtime._call_batch(batch_args, "req-pack", "client")
+        self.assertFalse(res.is_error)
+        combined = "\n".join(b.text for b in res.content if hasattr(b, "text"))
+        self.assertLess(len(combined), 9500)
+        self.assertIn("[Compacted losslessly by mcp-hub.]", combined)
+
+    def test_runtime_contract_strips_setup_sections_when_tools_heading_present(self) -> None:
+        from mcp_hub.server import runtime_contract
+
+        contract = runtime_contract("mcp-sqlserver")
+        self.assertIn("## Tools", contract)
+        self.assertIn("## Care", contract)
+        self.assertNotIn("## Diagnostics", contract)
+        self.assertNotIn("Start with `sql__check_connection`", contract)
 
 
 

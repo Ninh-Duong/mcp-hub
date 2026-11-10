@@ -64,7 +64,7 @@ class ServiceExtensionWiringTest(unittest.IsolatedAsyncioTestCase):
         self.assertIs(self.job_runner.condenser, self.runtime.condenser)
         self.assertIsInstance(self.job_runner.summarizer, BitnetDraftSummarizer)
 
-    def test_no_bitnet_leaves_hooks_none(self) -> None:
+    def test_no_bitnet_wires_core_condenser_and_leaves_llm_hooks_none(self) -> None:
         installed = service.install_extensions(
             frozenset(),
             self.runtime,
@@ -72,15 +72,16 @@ class ServiceExtensionWiringTest(unittest.IsolatedAsyncioTestCase):
             root=self.root,
             audit=self.audit,
         )
-        # Only BitNet's install state and route, so the desktop app can offer the install; no tool-call hooks.
+        from mcp_hub.condense import RuleCondenser
+        # Only BitNet's install state and route, plus deterministic core condensing; no LLM hooks.
         self.assertEqual(list(installed), [SETUP_EXTENSION])
         self.assertIsInstance(installed[SETUP_EXTENSION], BitnetSetup)
         self.assertIsNone(installed[SETUP_EXTENSION].sidecar)
         self.assertIsNone(self.runtime.plan_assistant)
-        self.assertIsNone(self.runtime.condenser)
-        self.assertIsNone(self.runtime.full_results)
+        self.assertIsInstance(self.runtime.condenser, RuleCondenser)
+        self.assertIsInstance(self.runtime.full_results, FullResultStore)
         self.assertIsNone(self.job_runner.plan_assistant)
-        self.assertIsNone(self.job_runner.condenser)
+        self.assertIs(self.job_runner.condenser, self.runtime.condenser)
         self.assertIsNone(self.job_runner.summarizer)
 
     def test_activity_ui_and_bitnet_together_both_install(self) -> None:

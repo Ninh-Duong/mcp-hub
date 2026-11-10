@@ -71,6 +71,30 @@ class FullResultsTest(unittest.TestCase):
         store = FullResultStore(max_entries=5, ttl_seconds=60.0)
         self.assertIsNone(store.page("r-nonexistent"))
 
+    def test_search_json_records_and_fields_projection(self) -> None:
+        store = FullResultStore(max_entries=5, ttl_seconds=60.0)
+        payload = '{"rows":[{"Id":1,"TenantId":967,"Extra":"aaa"},{"Id":2,"TenantId":976,"Extra":"bbb"}]}'
+        rid = store.put(payload)
+
+        found = store.search(rid, contains="976", fields=["Id", "TenantId"])
+        self.assertIsNotNone(found)
+        self.assertIn('"rows_matched": "1/2"'.replace(": ", ":"), found["text"])
+        self.assertIn('"TenantId":976', found["text"])
+        self.assertNotIn("Extra", found["text"])
+
+        with self.assertRaises(ValueError):
+            store.search(rid, regex="[unclosed")
+
+    def test_search_plain_text_lines_and_single_line_snippets(self) -> None:
+        store = FullResultStore(max_entries=5, ttl_seconds=60.0)
+        rid_lines = store.put("ok 1\nFAIL needle here\nok 3")
+        res = store.search(rid_lines, regex=r"needle\s+here")
+        self.assertIn("L2: FAIL needle here", res["text"])
+
+        rid_blob = store.put(("a" * 300) + "Target976Token" + ("b" * 300))
+        res_blob = store.search(rid_blob, contains="976token")
+        self.assertIn("Target976Token", res_blob["text"])
+
 
 if __name__ == "__main__":
     unittest.main()

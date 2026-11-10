@@ -73,7 +73,7 @@ def batch_tool(max_calls: int = _DEFAULTS.max_calls) -> Tool:
 
 def parse_calls(
     arguments: Mapping[str, Any], servers: Mapping[str, str], read_only: frozenset[str],
-    max_calls: int = _DEFAULTS.max_calls,
+    max_calls: int = _DEFAULTS.max_calls, *, builtin_tools: frozenset[str] = frozenset(),
 ) -> list[BatchCall]:
     """Validate the whole batch before anything runs. `servers` maps each enabled tool to its child."""
     calls = arguments.get("calls") if isinstance(arguments, Mapping) else None
@@ -86,6 +86,9 @@ def parse_calls(
         tool, call_arguments = call["tool"], call.get("arguments", {})
         if not isinstance(call_arguments, Mapping):
             raise BatchRefused(f"Call {index} ({tool}): 'arguments' must be an object.")
+        if tool in builtin_tools:
+            parsed.append(BatchCall(index, tool, dict(call_arguments), "mcp-hub"))
+            continue
         if tool not in servers:
             raise BatchRefused(f"Call {index}: this tool is not enabled in the Hub configuration.")
         if tool not in read_only:

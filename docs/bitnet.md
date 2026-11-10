@@ -3,7 +3,7 @@
 The optional `bitnet` extension runs a local 1-bit quantized model (Microsoft BitNet b1.58, 2B parameters) through `llama-server` on loopback. It adds three local AI capabilities without sending prompt tokens outside the machine:
 
 1. **Deterministic planning assistant:** When a client calls `hub__plan` or an issue investigation job is created, the planner inspects the natural-language task to detect the best playbook, the target environment, candidate child MCPs, and absolute time windows (`since` / `until`), filling missing fields before execution.
-2. **Result condenser:** Automatically condenses oversized read-only child tool results (above `settings.bitnet.condenseMinChars`, default 6,000 chars) before returning them to AI clients or storing them in investigation jobs. It uses extractive line deduplication and local model summarization to preserve key lines, errors, and IDs while cutting token overhead. The original full output is saved in an in-memory LRU store and can be retrieved via `hub__get_full_result` when referenced by `result_id`.
+2. **Result condenser:** Works alongside core structural JSON/table compaction (which runs even without BitNet, above `settings.bitnet.condenseMinChars`, default 9,000 chars). BitNet model line selection runs only for oversized multi-line unstructured text, while original non-lossless outputs are saved in memory for `hub__get_full_result`.
 3. **Offline draft summarizer:** In cross-system issue investigation jobs, if no external cloud model provider (OpenAI, Anthropic, Gemini) is configured, specialists for logs and SQL execute deterministic read-only queries, and the local BitNet model generates an offline draft summary (`Draft (local model):\n...`) marked as `partial`.
 
 ## Install from the desktop app
@@ -78,7 +78,7 @@ Settings are configured under the `settings.bitnet` block in `config/private/hub
 | `bitnet` | `maxRestarts` | `3` | Max restarts before marked unavailable. |
 | `bitnet` | `planTimeoutSeconds` | `3` | Timeout for planning assistant hints. |
 | `bitnet` | `condenseTimeoutSeconds` | `8` | Timeout for result condensation. |
-| `bitnet` | `condenseMinChars` | `6000` | Minimum character length to trigger condensation. |
+| `bitnet` | `condenseMinChars` | `9000` | Minimum character length to trigger condensation. |
 | `bitnet` | `fullResultTtlSeconds` | `1800` | Lifetime in seconds for full result retrieval. |
 | `bitnet` | `fullResultMaxEntries` | `50` | Maximum full results cached in memory. |
 | `bitnet` | `releaseRepository` | `"Ninh-Duong/mcp-hub"` | GitHub repository whose Release carries the prebuilt runtime and manifest. |

@@ -31,7 +31,7 @@ from .plan_merge import parse_window
 from mcp.types import Tool
 
 from .playbooks import Playbook
-from .projects import LogTarget, ProjectConfig
+from .projects import LogTarget, ProjectConfig, SqlTarget
 from .result_cache import cache_key
 
 PLAN_TOOL = "hub__plan"
@@ -90,6 +90,7 @@ class Plan:
     target: LogTarget | None = None
     task: str = ""
     window: tuple[datetime, datetime] | None = None
+    sql_target: SqlTarget | None = None
     # Call key -> number of failed attempts, or _SUCCEEDED once it succeeded.
     seen: dict[str, int] = field(default_factory=dict)
     had_failure: bool = False
@@ -184,7 +185,7 @@ def parse_plan(arguments: Mapping[str, Any], catalog: PlanCatalog, plan_id: str)
     playbook = _playbook(arguments, catalog)
     servers = _servers(arguments, catalog, playbook)
     steps = _steps(arguments, playbook)
-    project, env, target = _scope(arguments, catalog, playbook)
+    project, env, target, sql_target = _scope(arguments, catalog, playbook)
     writes = _strings(arguments.get("writes", []), "writes")
     for name in writes:
         facts = catalog.tools.get(name)
@@ -199,7 +200,7 @@ def parse_plan(arguments: Mapping[str, Any], catalog: PlanCatalog, plan_id: str)
         window = parse_window(arguments.get("since"), arguments.get("until"), catalog.max_window_hours)
     except ValueError as exc:
         raise PolicyRefused(str(exc)) from exc
-    return Plan(plan_id, frozenset(servers), env, frozenset(writes), checks, steps, playbook, project, target, task=task, window=window)
+    return Plan(plan_id, frozenset(servers), env, frozenset(writes), checks, steps, playbook, project, target, task=task, window=window, sql_target=sql_target)
 
 
 def _playbook(arguments: Mapping[str, Any], catalog: PlanCatalog) -> Playbook | None:
@@ -234,8 +235,8 @@ def _steps(arguments: Mapping[str, Any], playbook: Playbook | None) -> tuple[str
 
 def _scope(
     arguments: Mapping[str, Any], catalog: PlanCatalog, playbook: Playbook | None,
-) -> tuple[str | None, str | None, LogTarget | None]:
-    """(project alias, environment, log target), checked against the project and the playbook's needs."""
+) -> tuple[str | None, str | None, LogTarget | None, SqlTarget | None]:
+    """(project alias, environment, log target, optional sql hints), checked against project & playbook."""
     env = arguments.get("env")
     env = _text(env, "env") if env is not None else None
     alias = arguments.get("project")
@@ -243,7 +244,7 @@ def _scope(
     if alias is None:
         if needs_logs:
             raise PolicyRefused(f"Playbook {playbook.id} needs 'project': one of {', '.join(catalog.projects) or 'none'}.")
-        return None, env, None
+        return None, env, None, None
     project = catalog.projects.get(_text(alias, "project"))
     if project is None:
         raise PolicyRefused(f"'project' must be one of: {', '.join(catalog.projects) or 'none (none registered)'}.")
@@ -256,7 +257,7 @@ def _scope(
             f"Project {project.alias} has no log targets for {env}. Ask the user to add logs.{env} (organization, "
             "stream, rcid_field) for it in config/private/projects.json; do not discover them yourself."
         )
-    return project.alias, env, target
+    return project.alias, env, target, project.sql.get(env)
 
 
 def _text(value: Any, name: str) -> str:
@@ -279,29 +280,29 @@ def missing_plan(plan_id: Any) -> Violation:
 
 def check(
     plan: Plan | None, facts: CallFacts, arguments: Mapping[str, Any], health_tools: frozenset[str],
-    plan_id: Any = None,
+    plan_id: Any = None, *, builtin_tools: frozenset[str] = frozenset(),
 ) -> Violation | None:
     """The first rule this call breaks, or None. `arguments` excludes `hub_plan_id`."""
     if plan is None:
         return missing_plan(plan_id)
-    if facts.server_id not in plan.servers:
-        return Violation("server", f"{facts.name} belongs to {facts.server_id}, which the plan does not name. "
-                                   f"Call {PLAN_TOOL} again if the task needs it.")
-    for rule_check in (_check_playbook, _check_env, _check_target):
-        violation = rule_check(plan, facts, arguments)
-        if violation is not None:
-            return violation
-    if not facts.read_only and facts.name not in plan.writes:
-        return Violation("write", f"{facts.name} may write and the plan does not list it in 'writes'. "
-                                  "Write only what the user asked for.")
-    if facts.name in health_tools and not (plan.had_failure or plan.connection_checks):
-        return Violation("health_check", f"{facts.name} is a connection check: use it only to explain a failed "
-                                         "call, or when the user asked to check connections.")
+    if facts.name not in builtin_tools:
+        if facts.server_id not in plan.servers:
+            return Violation("server", f"{facts.name} belongs to {facts.server_id}, which the plan does not name. "
+                                       f"Call {PLAN_TOOL} again if the task needs it.")
+        for rule_check in (_check_playbook, _check_env, _check_target):
+            violation = rule_check(plan, facts, arguments)
+            if violation is not None:
+                return violation
+        if not facts.read_only and facts.name not in plan.writes:
+            return Violation("write", f"{facts.name} may write and the plan does not list it in 'writes'. "
+                                      "Write only what the user asked for.")
+        if facts.name in health_tools and not (plan.had_failure or plan.connection_checks):
+            return Violation("health_check", f"{facts.name} is a connection check: use it only to explain a failed "
+                                             "call, or when the user asked to check connections.")
     key = cache_key(facts.name, dict(arguments))
     outcome = plan.seen.get(key) if key is not None else None
     if outcome == _SUCCEEDED:
-        return Violation("repeat", f"{facts.name} already ran with these arguments in this plan. "
-                                   "Reuse that result.")
+        return Violation("repeat", f"{facts.name} already ran with these arguments in this plan. Reuse that result.")
     if outcome is not None and outcome >= MAX_FAILED_ATTEMPTS:
         return Violation("retry", f"{facts.name} already failed {outcome} times with these arguments. "
                                   "Report the failure instead of retrying.")
@@ -351,12 +352,12 @@ def _check_target(plan: Plan, facts: CallFacts, arguments: Mapping[str, Any]) ->
 
 def check_batch(
     plan: Plan | None, calls: Iterable[tuple[CallFacts, Mapping[str, Any]]], health_tools: frozenset[str],
-    plan_id: Any = None,
+    plan_id: Any = None, *, builtin_tools: frozenset[str] = frozenset(),
 ) -> tuple[int, Violation] | None:
     """The first (1-based index, violation) in a batch, counting a repeat inside the batch too."""
     keys: set[str] = set()
     for index, (facts, arguments) in enumerate(calls, 1):
-        violation = check(plan, facts, arguments, health_tools, plan_id)
+        violation = check(plan, facts, arguments, health_tools, plan_id, builtin_tools=builtin_tools)
         key = cache_key(facts.name, dict(arguments))
         if violation is None and key is not None and key in keys:
             violation = Violation("repeat", f"{facts.name} appears twice with the same arguments.")
@@ -379,7 +380,7 @@ def record(plan: Plan | None, name: str, arguments: Mapping[str, Any], ok: bool)
 
 
 def _scope_lines(plan: Plan) -> list[str]:
-    """The playbook's limits and steps, and the targets to pass, for the `hub__plan` answer."""
+    """The playbook's limits and steps, and the targets/SQL hints to pass, for the `hub__plan` answer."""
     lines = []
     if plan.project is not None:
         lines.append(f"Project: {plan.project} (pass project='{plan.project}' to source tools).")
@@ -388,6 +389,14 @@ def _scope_lines(plan: Plan) -> list[str]:
             f"Log targets for {plan.env}: organization='{plan.target.organization}', stream='{plan.target.stream}', "
             f"field='{plan.target.rcid_field}'. Use exactly these; do not list organizations or streams."
         )
+    if plan.sql_target is not None:
+        parts = []
+        if plan.sql_target.default_database:
+            parts.append(f"default_database='{plan.sql_target.default_database}'")
+        if plan.sql_target.databases:
+            parts.append("databases=[" + ", ".join(plan.sql_target.databases) + "]")
+        if parts:
+            lines.append(f"SQL hints for {plan.env}: {'; '.join(parts)}.")
     playbook = plan.playbook
     if playbook is not None:
         limit = f"; limit at most {playbook.max_limit}" if playbook.max_limit is not None else ""

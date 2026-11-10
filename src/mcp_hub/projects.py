@@ -30,11 +30,18 @@ class LogTarget:
 
 
 @dataclass(frozen=True)
+class SqlTarget:
+    default_database: str | None = None
+    databases: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class ProjectConfig:
     alias: str
     allowed_envs: tuple[str, ...]
     default_env: str | None = None
     logs: dict[str, LogTarget] = field(default_factory=dict)
+    sql: dict[str, SqlTarget] = field(default_factory=dict)
 
 
 def validate_project_env(project: ProjectConfig, env: str) -> str:
@@ -83,7 +90,10 @@ def load_projects(
             default_env = None
         if default_env is not None and (not isinstance(default_env, str) or default_env not in envs):
             raise ProjectConfigError(f"Project '{alias}' default_env must be one of its allowed_envs")
-        result[alias] = ProjectConfig(alias, tuple(envs), default_env, _log_targets(alias, value.get("logs", {}), envs))
+        result[alias] = ProjectConfig(
+            alias, tuple(envs), default_env, _log_targets(alias, value.get("logs", {}), envs),
+            _sql_targets(alias, value.get("sql", {}), envs),
+        )
     return result
 
 
@@ -101,4 +111,22 @@ def _log_targets(alias: str, raw: Any, envs: list[str]) -> dict[str, LogTarget]:
         if any(not isinstance(value, str) or not value.strip() for value in values.values()):
             raise ProjectConfigError(f"Project '{alias}' logs.{env} needs non-empty organization and stream")
         targets[env] = LogTarget(**values)
+    return targets
+
+
+def _sql_targets(alias: str, raw: Any, envs: list[str]) -> dict[str, SqlTarget]:
+    """Validate optional `sql` database hints: {env: {default_database?, databases?}} for allowed envs."""
+    if not isinstance(raw, dict):
+        raise ProjectConfigError(f"Project '{alias}' sql must be an object")
+    targets: dict[str, SqlTarget] = {}
+    for env, target in raw.items():
+        if env not in envs or not isinstance(target, dict):
+            raise ProjectConfigError(f"Project '{alias}' sql keys must be allowed environments with an object each")
+        default_db = target.get("default_database")
+        if default_db is not None and (not isinstance(default_db, str) or not default_db.strip()):
+            raise ProjectConfigError(f"Project '{alias}' sql.{env}.default_database must be a non-empty string")
+        dbs = target.get("databases", [])
+        if not isinstance(dbs, list) or any(not isinstance(item, str) or not item.strip() for item in dbs):
+            raise ProjectConfigError(f"Project '{alias}' sql.{env}.databases must be a list of non-empty names")
+        targets[env] = SqlTarget(default_db.strip() if default_db else None, tuple(item.strip() for item in dbs))
     return targets

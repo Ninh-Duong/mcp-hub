@@ -20,7 +20,7 @@ from .projects import load_projects
 from .jobs.runner import JobRunner
 from .jobs.store import JobStore
 from .preflight import refresh_windows_path
-from .server import HubRuntime, create_mcp_server
+from .server import HubRuntime, create_mcp_server, enable_core_condenser
 from .service_config import load_service_config, new_admin_token, write_connection_file
 from .settings import HttpSettings, Settings, load_settings
 
@@ -43,6 +43,8 @@ async def run_http() -> None:
             await runtime.connect(stack)
             job_runner = JobRunner(
                 store=job_store, runtime=runtime, projects=projects, agents=agent_configs, limits=settings.jobs,
+                condense_min_chars=settings.bitnet.condense_min_chars,
+                condense_timeout_seconds=settings.bitnet.condense_timeout_seconds,
             )
             job_runner.resume_queued_jobs()
             job_runner.watch_pending_approvals()
@@ -123,6 +125,9 @@ def install_extensions(
         from .bitnet import install_setup
         from .bitnet.setup import SETUP_EXTENSION
 
+        enable_core_condenser(runtime)
+        if job_runner is not None:
+            job_runner.condenser = runtime.condenser
         installed[SETUP_EXTENSION] = install_setup(runtime, root=hub_root, audit=audit)
     return installed
 

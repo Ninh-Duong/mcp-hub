@@ -39,10 +39,11 @@ Hub `config/private/projects.json`:
 
 ```json
 {"version":1,"projects":{"app":{"default_env":"dev","allowed_envs":["dev","stg","prod"],
-  "logs":{"dev":{"organization":"<SET_BY_USER>","stream":"<SET_BY_USER>","rcid_field":"rcid"}}}}}
+  "logs":{"dev":{"organization":"<SET_BY_USER>","stream":"<SET_BY_USER>","rcid_field":"rcid"}},
+  "sql":{"dev":{"default_database":"<SET_BY_USER>","databases":["<SET_BY_USER>"]}}}}}
 ```
 
-`logs` is optional. Per allowed environment it names the OpenObserve `organization` and `stream` where the project's logs live, and the request-ID field (`rcid_field`, default `rcid`). The log playbooks (`rcid-bug`, `service-errors`, `jira-ticket-bug`) need it: `hub__plan` returns these targets to the agent, so the agent never has to discover them, and refuses a log playbook for an environment without them ([usage-policy.md](../usage-policy.md#playbooks)). `project-status` lists which environments have a `logs` entry, never the values.
+`logs` is optional. Per allowed environment it names the OpenObserve `organization` and `stream` where the project's logs live, and the request-ID field (`rcid_field`, default `rcid`). The log playbooks (`rcid-bug`, `service-errors`, `jira-ticket-bug`) need it: `hub__plan` returns these targets to the agent, so the agent never has to discover them, and refuses a log playbook for an environment without them ([usage-policy.md](../usage-policy.md#playbooks)). Optional `sql` entries give `default_database` and `databases` hints through `hub__plan` and `hub__list_projects`. `project-status` lists which environments have `logs` and `sql` entries, never the values.
 
 Source child `config/private/projects.json`:
 

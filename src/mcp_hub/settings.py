@@ -65,8 +65,9 @@ class JobSettings:
 @dataclass(frozen=True)
 class BatchSettings:
     max_calls: int = 8
-    max_per_child: int = 4
+    max_per_child: int = 8
     timeout_seconds: float = 120.0
+    pack_chars: int = 9500
 
 
 @dataclass(frozen=True)
@@ -94,7 +95,7 @@ class BitnetSettings:
     max_restarts: int = 3
     plan_timeout_seconds: float = 3.0
     condense_timeout_seconds: float = 8.0
-    condense_min_chars: int = 6000
+    condense_min_chars: int = 9000
     full_result_ttl_seconds: float = 1800.0
     full_result_max_entries: int = 50
     # Install from the desktop app: the GitHub repository whose Release carries the prebuilt runtime and the

@@ -156,7 +156,7 @@ class SpecialistExecutor:
         tool_filter: Callable[[Any], bool] = is_read_only_tool,
         max_rounds: int = 8,
         condenser: ResultCondenser | None = None,
-        condense_min_chars: int = 6000,
+        condense_min_chars: int = 9000,
         condense_timeout_seconds: float = 8.0,
     ) -> None:
         self.runtime = runtime

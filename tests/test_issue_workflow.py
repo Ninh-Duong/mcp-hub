@@ -171,6 +171,14 @@ class IssueWorkflowTest(unittest.TestCase):
                 self.assertEqual(runner.list_projects(), [{
                     "alias": "orders", "default_env": "dev", "allowed_envs": ["dev", "prod"],
                 }])
+                from mcp_hub.projects import SqlTarget
+                runner.projects = {
+                    "orders": ProjectConfig("orders", ("dev",), "dev", sql={"dev": SqlTarget("OrdersDb", ("OrdersDb",))}),
+                }
+                self.assertEqual(runner.list_projects(), [{
+                    "alias": "orders", "default_env": "dev", "allowed_envs": ["dev"],
+                    "sql": {"dev": {"default_database": "OrdersDb", "databases": ["OrdersDb"]}},
+                }])
             finally:
                 store.close()
 
