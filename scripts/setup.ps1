@@ -83,10 +83,8 @@ function Get-ChildRepositories {
 }
 
 function Install-StatusApp {
-    $installed = Get-ItemProperty -Path "HKCU:\Software\mcp-hub-status" -Name InstallPath -ErrorAction SilentlyContinue
-    if ($installed) { Write-Host "The mcp-hub Status app is already installed."; return }
     if (-not (Invoke-Hubctl @("app", "-Install"))) {
-        Write-Warning "The Status app was not installed. You can download it later from the repository's Releases page."
+        Write-Warning "The Status app could not be installed or refreshed. Setup will continue; try the repository's Releases page later."
     }
 }
 
@@ -140,7 +138,7 @@ function Invoke-Setup {
     Write-Host "mcp-hub setup. It asks nothing; run it again any time." -ForegroundColor Green
     Write-Step 1 "Download the default child MCPs that are missing"
     $failed = @(Get-ChildRepositories)
-    Write-Step 2 "Install the status app"
+    Write-Step 2 "Install or refresh the status app"
     Install-StatusApp
     Write-Step 3 "Install and start the Hub (it installs Python, Node.js, and what each child needs; Windows may ask for permission)"
     if (-not (Invoke-Hubctl @("install"))) { throw "The Hub could not be installed. Run Setup again, or see docs/operations/shared-agent-hub.md." }

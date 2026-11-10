@@ -4,6 +4,8 @@ import importlib.machinery
 import importlib.util
 import hashlib
 import re
+import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -319,6 +321,191 @@ def load_build_script():
     return module
 
 
+@unittest.skipUnless(os.name == "nt", "Windows PowerShell only")
+class StatusAppRefreshTest(unittest.TestCase):
+    """Run the real installer functions with offline release/process boundaries."""
+
+    def run_install(self, body: str) -> str:
+        hubctl = HUB_ROOT / "scripts" / "hubctl.ps1"
+        installer = (HUB_ROOT / "packaging" / "desktop" / "installer.iss").read_text(encoding="utf-8")
+        guid = re.search(r'#define AppGuid "([A-F0-9-]+)"', installer)[1]
+        uninstall = rf"HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{{{guid}}}_is1"
+        with tempfile.TemporaryDirectory() as temp:
+            script = (
+                "$ErrorActionPreference = 'Stop'; Import-Module Microsoft.PowerShell.Utility; "
+                f"$tree = [Management.Automation.Language.Parser]::ParseFile('{hubctl}', [ref]$null, [ref]$null); "
+                "$tree.FindAll({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst]}, $false) "
+                "| ForEach-Object { . ([scriptblock]::Create($_.Extent.Text)) }; "
+                f"$env:TEMP = '{temp}'; $script:installed = Join-Path $env:TEMP 'mcp-hub-status.exe'; "
+                "[IO.File]::WriteAllText($script:installed, 'current app'); "
+                f"$script:uninstall = '{uninstall}'; $script:displayVersion = '1.0.0'; $statusAppKey = 'unused'; "
+                "function Get-ItemProperty { [CmdletBinding()] param($Path, $Name) "
+                "if ($Name -eq 'mcp-hub-status') { return $null }; "
+                "if ($Name -eq 'InstallPath') { return [pscustomobject]@{ InstallPath = $env:TEMP } }; "
+                "if ($Name -ne 'DisplayVersion' -or $Path -cne $script:uninstall) { throw 'wrong version registry key' }; "
+                "[pscustomobject]@{ DisplayVersion = $script:displayVersion } }; "
+                "function Set-ItemProperty { [CmdletBinding()] param($Path, $Name, $Value) }; "
+                "function Remove-ItemProperty { [CmdletBinding()] param($Path, $Name) }; "
+                "function Get-CimInstance { @() }; "
+                "function Get-ReleasesUrl { 'https://github.com/example/example/releases' }; "
+                "function Invoke-RestMethod { param($Uri) if ($Uri -notlike '*/latest') { throw 'wrong release endpoint' }; "
+                "[pscustomobject]@{ draft = $false; prerelease = $false; tag_name = 'v2.0.0'; assets = @( "
+                "[pscustomobject]@{name='mcp-hub-status-setup-2.0.0.exe'; browser_download_url='installer'}, "
+                "[pscustomobject]@{name='mcp-hub-status-setup-2.0.0.exe.sha256'; browser_download_url='checksum'}) } }; "
+                "function Invoke-WebRequest { param($Uri, $OutFile, [switch]$UseBasicParsing) "
+                "if ($Uri -eq 'installer') { [IO.File]::WriteAllText($OutFile, 'release') } "
+                "else { (Get-FileHash -LiteralPath ($OutFile -replace '\\.sha256$', '') -Algorithm SHA256).Hash "
+                "| Set-Content -LiteralPath $OutFile } }; "
+                "function Start-Process { param($FilePath, $ArgumentList, [switch]$Wait, [switch]$PassThru) "
+                "Write-Host ('RUN=' + (Split-Path $FilePath -Leaf) + ';ARGS=' + $ArgumentList); "
+                "[pscustomobject]@{ ExitCode = 0 } }; "
+                "function Find-LocalInstaller { throw 'LOCAL FALLBACK USED' }; "
+                "function Start-SourceStatusApp { throw 'SOURCE FALLBACK USED' }; "
+                + body
+            )
+            result = subprocess.run(
+                [shutil.which("powershell.exe"), "-NoProfile", "-NonInteractive", "-Command", script],
+                capture_output=True, text=True, timeout=60,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            return result.stdout
+
+    def test_older_installed_app_runs_verified_release_silently(self) -> None:
+        output = self.run_install("Install-StatusApp")
+        self.assertIn("RUN=mcp-hub-status-setup-2.0.0.exe;ARGS=/VERYSILENT", output)
+
+    def test_running_app_closes_before_refresh_and_keeps_its_sign_in_choice(self) -> None:
+        body = r"""
+$script:runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+$script:startup = $null
+$script:closed = $false
+function Get-ItemProperty {
+    [CmdletBinding()] param($Path, $Name)
+    if ($Path -eq $script:runKey) {
+        if ($null -eq $script:startup) { return $null }
+        return [pscustomobject]@{ 'mcp-hub-status' = $script:startup }
+    }
+    if ($Name -eq 'InstallPath') { return [pscustomobject]@{ InstallPath = $env:TEMP } }
+    if ($Name -eq 'DisplayVersion') { return [pscustomobject]@{ DisplayVersion = $script:displayVersion } }
+    throw 'wrong registry value'
+}
+function Set-ItemProperty { param($Path, $Name, $Value) $script:startup = $Value }
+function Remove-ItemProperty { param($Path, $Name) $script:startup = $null }
+function Get-CimInstance { @([pscustomobject]@{ ProcessId = 4321; ExecutablePath = $script:installed }) }
+function Get-Process {
+    $process = [pscustomobject]@{}
+    $process | Add-Member ScriptMethod CloseMainWindow { $script:closed = $true; return $true }
+    $process | Add-Member ScriptMethod WaitForExit { param($Timeout); return $script:closed }
+    return $process
+}
+function Start-Process {
+    param($FilePath, $ArgumentList, [switch]$Wait, [switch]$PassThru)
+    if ($FilePath -like '*mcp-hub-status-setup-2.0.0.exe') {
+        if (-not $script:closed) { throw 'installer started before the app closed' }
+        $script:startup = 'installer-default'
+        Write-Host 'INSTALLER'
+        return [pscustomobject]@{ ExitCode = 0 }
+    }
+    if ($FilePath -eq $script:installed) { Write-Host 'RELAUNCHED'; return }
+    throw 'unexpected process'
+}
+Install-StatusApp
+if ($null -eq $script:startup) { 'SIGNIN=off' } else { 'SIGNIN=' + $script:startup }
+"""
+        for sign_in in ("off", "'custom-startup-command'"):
+            with self.subTest(sign_in=sign_in):
+                output = self.run_install(body.replace("$script:startup = $null", f"$script:startup = {('$null' if sign_in == 'off' else sign_in)}"))
+                self.assertIn("INSTALLER", output)
+                self.assertIn("RELAUNCHED", output)
+                expected = "SIGNIN=off" if sign_in == "off" else "SIGNIN=custom-startup-command"
+                self.assertIn(expected, output)
+
+    def test_app_that_cannot_close_is_kept_and_installer_does_not_run(self) -> None:
+        body = r"""
+function Get-CimInstance { @([pscustomobject]@{ ProcessId = 4321; ExecutablePath = $script:installed }) }
+function Get-Process {
+    $process = [pscustomobject]@{}
+    $process | Add-Member ScriptMethod CloseMainWindow { return $false }
+    return $process
+}
+function Start-Process { throw 'installer must not run' }
+Install-StatusApp
+Get-Content -LiteralPath $script:installed
+"""
+        output = self.run_install(body)
+        self.assertIn("Close the Status app and run Setup again.", output)
+        self.assertIn("current app", output)
+        self.assertNotIn("installer must not run", output)
+
+    def test_same_and_newer_app_skip_download_and_installer(self) -> None:
+        for version in ("2.0.0", "3.0.0"):
+            with self.subTest(version=version):
+                output = self.run_install(
+                    f"$script:displayVersion = '{version}'; "
+                    "function Invoke-WebRequest { throw 'unexpected download' }; Install-StatusApp"
+                )
+                self.assertNotIn("RUN=", output)
+                self.assertNotIn("WARNING:", output)
+
+    def test_stale_registry_and_missing_app_keep_first_install_behavior(self) -> None:
+        for registry in ("[pscustomobject]@{ InstallPath = $env:TEMP }", "$null"):
+            with self.subTest(registry=registry):
+                output = self.run_install(
+                    "Remove-Item -LiteralPath $script:installed; "
+                    f"function Get-ItemProperty {{ {registry} }}; Install-StatusApp"
+                )
+                self.assertIn("RUN=mcp-hub-status-setup-2.0.0.exe;ARGS=", output)
+                self.assertNotIn("/VERYSILENT", output)
+
+    def test_existing_app_failures_preserve_app_and_never_fall_back(self) -> None:
+        failures = {
+            "lookup": "function Invoke-RestMethod { throw 'offline' }",
+            "download": "function Invoke-WebRequest { throw 'offline' }",
+            "checksum": "function Get-FileHash { [pscustomobject]@{ Hash = [guid]::NewGuid().ToString('N') } }",
+            "installer": "function Start-Process { [pscustomobject]@{ ExitCode = 1 } }",
+            "launch": "function Start-Process { throw 'launch failed' }",
+            "remote": "function Get-ReleasesUrl { $null }",
+            "prerelease": "function Invoke-RestMethod { [pscustomobject]@{ prerelease = $true } }",
+        }
+        for failure, override in failures.items():
+            with self.subTest(failure=failure):
+                output = self.run_install(
+                    override + "; Install-StatusApp; 'CONTINUED'; Get-Content -LiteralPath $script:installed"
+                )
+                self.assertIn("WARNING:", output)
+                self.assertIn("CONTINUED", output)
+                self.assertIn("current app", output)
+                self.assertNotIn("FALLBACK USED", output)
+                if failure not in ("installer", "launch"):
+                    self.assertNotIn("RUN=", output)
+
+    def test_missing_app_retains_local_fallback(self) -> None:
+        output = self.run_install(
+            "Remove-Item -LiteralPath $script:installed; function Invoke-RestMethod { throw 'offline' }; "
+            "function Find-LocalInstaller { 'local-setup.exe' }; Install-StatusApp"
+        )
+        self.assertIn("RUN=local-setup.exe", output)
+
+    def test_version_comes_from_installer_registry_without_launching_app(self) -> None:
+        output = self.run_install(
+            "$script:displayVersion = '1.2.3'; function Start-Process { throw 'version process forbidden' }; "
+            "try { 'VERSION=' + (Get-StatusAppVersion) } catch { 'REJECTED' }"
+        )
+        self.assertIn("VERSION=1.2.3", output)
+
+    def test_missing_or_malformed_registry_version_preserves_existing_app(self) -> None:
+        for value in ("$null", "''", "'unknown'", "'1.2'", "'1.2.3-beta'", "'999999999999.2.3'"):
+            with self.subTest(value=value):
+                output = self.run_install(
+                    f"$script:displayVersion = {value}; Install-StatusApp; 'CONTINUED'; "
+                    "Get-Content -LiteralPath $script:installed"
+                )
+                self.assertIn("WARNING:", output)
+                self.assertIn("CONTINUED", output)
+                self.assertIn("current app", output)
+                self.assertNotIn("RUN=", output)
+
+
 class DesktopPackagingTest(unittest.TestCase):
     """The desktop app's installer: a separate, per-user product that bundles nothing of the Hub."""
 
@@ -373,10 +560,9 @@ class DesktopPackagingTest(unittest.TestCase):
     def test_hubctl_points_to_the_release_and_installs_only_a_checked_one(self) -> None:
         script = (HUB_ROOT / "scripts" / "hubctl.ps1").read_text(encoding="utf-8")
         install = script[script.index("function Install-ReleasedStatusApp"):script.index("function Write-ConnectedClients")]
-        # The SHA-256 is compared before anything runs, and the setup is interactive (never /SILENT).
+        # The SHA-256 is compared before either the first-install or refresh installer runs.
         self.assertLess(install.index("if ($actual -ne $expected)"), install.index("Start-Process -FilePath $path"))
         self.assertIn("Remove-Item -LiteralPath $path -Force", install)
-        self.assertNotIn("/SILENT", install)
         # The published Release is tried before a build left in dist/, which may be older.
         status = script[script.index("function Install-StatusApp"):script.index("function Write-ConnectedClients")]
         self.assertLess(status.index("Install-ReleasedStatusApp"), status.index("Find-LocalInstaller"))
@@ -462,6 +648,49 @@ class DesktopPackagingTest(unittest.TestCase):
         self.assertEqual(pyinstaller[1:3], ["-m", "PyInstaller"])
         self.assertTrue(pyinstaller[-1].endswith("mcp-hub-status.spec"))
 
+    def test_pyinstaller_does_not_inherit_unrelated_native_dll_paths(self) -> None:
+        build = load_build_script()
+        foreign_path = "foreign-native-dlls"
+        system_root = "windows"
+        with (
+            patch.object(build, "os", SimpleNamespace(environ={"PATH": foreign_path, "SystemRoot": system_root},
+                                                         pathsep=os.pathsep)),
+            patch.object(build, "find_iscc", return_value=Path("ISCC.exe")),
+            patch.object(build, "project_version", return_value="1.2.3"),
+            patch.object(build, "draw_icon", return_value=Path("app.ico")),
+            patch.object(build, "check_runtime_libraries"),
+            patch.object(build, "check_bundle"),
+            patch.object(build, "check_bundle_version"),
+            patch.object(build.subprocess, "run") as run,
+        ):
+            build.main()
+
+        environment = run.call_args_list[0].kwargs["env"]
+        self.assertEqual(
+            environment["PATH"].split(os.pathsep),
+            [str(Path(build.sys.executable).resolve().parent), str(Path(system_root) / "System32"), system_root],
+        )
+        self.assertNotIn(foreign_path, environment["PATH"])
+
+    def test_bundle_self_check_uses_the_same_clean_environment(self) -> None:
+        build = load_build_script()
+        with tempfile.TemporaryDirectory() as tmp:
+            build.BUILD = Path(tmp)
+            observed = {}
+
+            def renders(command, **kwargs):
+                observed.update(kwargs)
+                Path(command[2]).mkdir(parents=True, exist_ok=True)
+                (Path(command[2]) / "running.png").write_bytes(b"png")
+                return SimpleNamespace(returncode=0)
+
+            with patch.dict(os.environ, {"PATH": "foreign-native-dlls", "SystemRoot": "windows",
+                                         "QT_QPA_PLATFORM": "offscreen"}):
+                build.check_bundle(renders)
+
+        self.assertNotIn("foreign-native-dlls", observed["env"]["PATH"])
+        self.assertNotIn("QT_QPA_PLATFORM", observed["env"])
+
     def test_build_script_self_checks_the_bundle(self) -> None:
         import subprocess
         from types import SimpleNamespace
@@ -482,18 +711,21 @@ class DesktopPackagingTest(unittest.TestCase):
                 with self.subTest(run=run), self.assertRaises(SystemExit):
                     build.check_bundle(run)
 
-    def test_build_script_checks_the_bundle_reports_the_project_version(self) -> None:
-        import subprocess
-        from types import SimpleNamespace
-
+    def test_build_script_checks_the_bundled_metadata_version(self) -> None:
         build = load_build_script()
-        build.check_bundle_version("1.2.3", lambda *_a, **_k: SimpleNamespace(returncode=0, stdout="1.2.3\n"))
-        for run in (lambda *_a, **_k: SimpleNamespace(returncode=0, stdout="unknown\n"),  # metadata missing
-                    lambda *_a, **_k: SimpleNamespace(returncode=0, stdout=""),
-                    lambda *_a, **_k: SimpleNamespace(returncode=1, stdout="1.2.3\n"),
-                    lambda *_a, **_k: (_ for _ in ()).throw(subprocess.TimeoutExpired("exe", 1))):
-            with self.subTest(run=run), self.assertRaises(SystemExit):
-                build.check_bundle_version("1.2.3", run)
+        with tempfile.TemporaryDirectory() as temp:
+            bundle = Path(temp)
+            metadata = bundle / "_internal" / "mcp_hub-1.2.3.dist-info" / "METADATA"
+            metadata.parent.mkdir(parents=True)
+            metadata.write_text("Metadata-Version: 2.1\nName: mcp-hub\nVersion: 1.2.3\n", encoding="utf-8")
+            with patch.object(build, "BUNDLE", bundle):
+                build.check_bundle_version("1.2.3")
+                metadata.write_text("Metadata-Version: 2.1\nName: mcp-hub\nVersion: 1.2.4\n", encoding="utf-8")
+                with self.assertRaises(SystemExit):
+                    build.check_bundle_version("1.2.3")
+                metadata.unlink()
+                with self.assertRaises(SystemExit):
+                    build.check_bundle_version("1.2.3")
         main = Path(build.__file__).read_text(encoding="utf-8")
         self.assertLess(main.index("check_bundle()\n    check_bundle_version(version)"), main.index("iscc_command(iscc, version"))
 

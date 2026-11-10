@@ -3,7 +3,7 @@
     uv run --isolated --group build python scripts/build_desktop.py
 
 Steps: draw the app icon with Qt, bundle the app with PyInstaller (packaging/desktop/mcp-hub-status.spec),
-check that the bundle carries the Visual C++ runtime, starts, and reports the project version, then compile packaging/desktop/installer.iss with Inno Setup 6 (winget install JRSoftware.InnoSetup).
+check that the bundle carries the Visual C++ runtime, starts, and contains the project version metadata, then compile packaging/desktop/installer.iss with Inno Setup 6 (winget install JRSoftware.InnoSetup).
 Everything is written below build/ and dist/, which git ignores; nothing of config/private/ is read.
 """
 from __future__ import annotations
@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tomllib
+from importlib import metadata
 from pathlib import Path
 
 from mcp_hub.desktop.constants import APP_NAME, EXE_NAME
@@ -96,6 +97,17 @@ def pyinstaller_command() -> list[str]:
     ]
 
 
+def pyinstaller_environment(source: dict[str, str] | None = None) -> dict[str, str]:
+    """Keep unrelated PATH DLLs out of the bundle and its startup self-check."""
+    environ = dict(os.environ if source is None else source)
+    system_root = environ.get("SystemRoot") or environ.get("WINDIR")
+    paths = [str(Path(sys.executable).resolve().parent)]
+    if system_root:
+        paths.extend((str(Path(system_root) / "System32"), system_root))
+    environ["PATH"] = os.pathsep.join(paths)
+    return environ
+
+
 def iscc_command(iscc: Path, version: str, icon: Path) -> list[str]:
     return [
         str(iscc), f"/DAppVersion={version}", f"/DSourceDir={BUNDLE}",
@@ -118,7 +130,8 @@ def check_bundle(run=subprocess.run) -> None:
     command = [str(exe), "--screenshot", str(out), "--states", "running", "--lang", "en", "--theme", "light"]
     try:
         # The real platform: draw_icon set QT_QPA_PLATFORM=offscreen for this process only.
-        environ = {key: value for key, value in os.environ.items() if key != "QT_QPA_PLATFORM"}
+        environ = pyinstaller_environment()
+        environ.pop("QT_QPA_PLATFORM", None)
         result = run(command, cwd=ROOT, env=environ, timeout=BUNDLE_CHECK_SECONDS)
     except subprocess.TimeoutExpired as exc:
         raise SystemExit("The bundled app did not finish its self-check in time.") from exc
@@ -126,16 +139,13 @@ def check_bundle(run=subprocess.run) -> None:
         raise SystemExit("The bundled app failed its self-check; run it from build/desktop/dist to see the error.")
 
 
-def check_bundle_version(version: str, run=subprocess.run) -> None:
-    """The bundled exe must report the project version: the update check compares it with the latest Release."""
-    try:
-        result = run([str(BUNDLE / EXE_NAME), "--version"], cwd=ROOT, capture_output=True, text=True,
-                     timeout=BUNDLE_CHECK_SECONDS)
-    except subprocess.TimeoutExpired as exc:
-        raise SystemExit("The bundled app did not report its version in time.") from exc
-    reported = (result.stdout or "").strip()
-    if result.returncode != 0 or reported != version:
-        raise SystemExit(f"The bundled app reports version {reported or 'nothing'}, not {version}; "
+def check_bundle_version(version: str) -> None:
+    """The windowed app reads this package metadata to compare its version with the latest Release."""
+    distributions = metadata.distributions(path=[str(BUNDLE / "_internal")])
+    package = next((item for item in distributions if item.metadata.get("Name", "").lower() == "mcp-hub"), None)
+    reported = package.version if package else None
+    if reported != version:
+        raise SystemExit(f"The bundle carries version {reported or 'nothing'}, not {version}; "
                          "the package metadata is missing from the bundle.")
 
 
@@ -143,7 +153,9 @@ def main() -> int:
     iscc = find_iscc()  # fail before the slow bundle step
     version = project_version()
     icon = draw_icon(BUILD / f"{APP_NAME}.ico")
-    subprocess.run(pyinstaller_command(), check=True, cwd=ROOT, env={**os.environ, "MCP_HUB_STATUS_ICON": str(icon)})
+    environ = pyinstaller_environment()
+    environ["MCP_HUB_STATUS_ICON"] = str(icon)
+    subprocess.run(pyinstaller_command(), check=True, cwd=ROOT, env=environ)
     check_runtime_libraries()
     check_bundle()
     check_bundle_version(version)
