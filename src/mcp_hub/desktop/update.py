@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from .constants import APP_NAME, EXE_NAME, UPDATE_REPOSITORY
-from .status import DesktopError, HubSnapshot
+from .status import DesktopError
 
 Version = tuple[int, int, int]
 Opener = Callable[..., Any]
@@ -39,11 +39,7 @@ MAX_INSTALLER_BYTES = 300 * 1024 * 1024
 CHUNK_BYTES = 1024 * 1024
 UPDATE_FOLDER = f"{APP_NAME}-update"
 _VERSION = re.compile(r"v?(\d+)\.(\d+)\.(\d+)")
-_INSTALLER = re.compile(r"mcp-hub-status-setup-(\d+\.\d+\.\d+)\.exe")
 _SHA256 = re.compile(r"[0-9a-fA-F]{64}")
-# A child in one of these states fails the health gate; `credentials required`, `disabled`, and `connecting` do not.
-RECONNECTING = "reconnecting"
-NOT_FILLED_IN = "credentials required"
 # Waits for the app (its PID) to exit, runs the installer silently, then opens the app again, also when the
 # installer failed, so the user is never left without the app. Paths and the PID come through the environment.
 UPDATE_SCRIPT = (
@@ -131,19 +127,6 @@ def check_latest(current: str | None, opener: Opener | None = None) -> Release |
 def open_notes(release: Release, opener: Callable[[str], Any] = webbrowser.open) -> None:
     """Open the Release page ("what's new"); the address was checked to be this repository's Releases."""
     opener(release.notes_url)
-
-
-def update_blocked(snapshot: HubSnapshot | None) -> tuple[str, ...]:
-    """The children that fail the health gate, so an update waits until they are fixed.
-
-    This is the Hub's live state, the same PASS/WARN/FAIL classification scripts/smoke.py makes: a child that is not
-    started or keeps reconnecting is a FAIL; one that only needs its account, is off, or is starting is not. A Hub
-    that is not running cannot be checked and does not block.
-    """
-    if snapshot is None or snapshot.hub != "running":
-        return ()
-    return tuple(child.server_id for child in snapshot.children
-                 if child.state == RECONNECTING or (child.tone == "error" and child.state != NOT_FILLED_IN))
 
 
 def _expected_hash(text: bytes) -> str:

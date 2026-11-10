@@ -6,6 +6,8 @@ unexpected answer); the window turns either into a footer message.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+import os
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -14,6 +16,15 @@ from . import status
 from .connection import load_connection
 
 CONTROL_COMMANDS = ("restart", "stop")
+UPDATE_PATH = "/dashboard/api/update"
+
+
+@dataclass(frozen=True)
+class UpdateStatus:
+    run_id: str
+    state: str
+    components: tuple[dict[str, Any], ...]
+    events: tuple[dict[str, Any], ...]
 
 
 @dataclass(frozen=True)
@@ -82,6 +93,48 @@ class HubClient:
         if command not in CONTROL_COMMANDS:
             raise ValueError(f"Unknown Hub command: {command}")
         self._call(f"/dashboard/api/control/{command}", {})
+
+    def read_update(self) -> UpdateStatus:
+        return update_status_from(self._call(UPDATE_PATH))
+
+    def start_update(self) -> UpdateStatus:
+        return update_status_from(self._call(UPDATE_PATH, {}))
+
+    def check_updates(self) -> UpdateStatus:
+        return update_status_from(self._call(f"{UPDATE_PATH}/check", {}))
+
+    def retry_update(self, components: tuple[str, ...]) -> UpdateStatus:
+        return update_status_from(self._call(f"{UPDATE_PATH}/retry", {"components": list(components)}))
+
+    @staticmethod
+    def read_saved_update() -> UpdateStatus | None:
+        """Read the app's sanitized update status while the Hub is restarting."""
+        root = os.environ.get("LOCALAPPDATA")
+        if not root:
+            return None
+        try:
+            value = json.loads((Path(root) / "mcp-hub-status" / "update.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        try:
+            return update_status_from(value)
+        except ValueError:
+            return None
+
+
+def update_status_from(value: dict[str, Any]) -> UpdateStatus:
+    """Accept only the bounded public state shape; never render raw process output."""
+    if not isinstance(value, dict):
+        raise ValueError("The Hub returned unexpected update status")
+    run_id, state = value.get("run_id", ""), value.get("state", "idle")
+    components, events = value.get("components", []), value.get("events", [])
+    if not isinstance(run_id, str) or len(run_id) > 80 or state not in {"idle", "running", "partial", "complete"}:
+        raise ValueError("The Hub returned unexpected update status")
+    if not isinstance(components, list) or len(components) > 32 or not all(isinstance(item, dict) for item in components):
+        raise ValueError("The Hub returned unexpected update components")
+    if not isinstance(events, list) or len(events) > 100 or not all(isinstance(item, dict) for item in events):
+        raise ValueError("The Hub returned unexpected update events")
+    return UpdateStatus(run_id, state, tuple(components), tuple(events))
 
 
 def _hub_flag(value: dict[str, Any]) -> bool:

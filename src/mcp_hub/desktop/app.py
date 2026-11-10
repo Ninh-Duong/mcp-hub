@@ -30,7 +30,7 @@ from .hub_page import ChildrenPage, HubPage
 from .i18n import LANGUAGES, Translator, system_language
 from .mini import MiniBar
 from .settings import AppearancePage, SettingsPanel
-from .update_card import DOWNLOADING, FAILED, INSTALLING, READY, UpdateCard
+from .update_card import CHECKING, DOWNLOADING, FAILED, INSTALLING, READY, UPDATING, UpdateCard
 from .widgets import Card, Row, UsageRow, button, dot_icon, label, set_props, show_elided
 
 # Never equal to a section key, so every section draws once after a theme switch or at start.
@@ -113,6 +113,8 @@ class StatusWindow(QWidget):
         self.appearance = appearance if appearance.theme in theme.THEMES else replace(appearance, theme="light")
         self._init_state()
         self.poll_timer = QTimer(self, interval=theme.POLL_INTERVAL_MS, timeout=self.refresh)
+        self.update_timer = QTimer(self, interval=theme.POLL_INTERVAL_MS, timeout=self.refresh_update)
+        self.update_check_timer = QTimer(self, interval=24 * 60 * 60 * 1000, timeout=self.check_updates)
         self.drain_timer = QTimer(self, interval=theme.QUEUE_CHECK_MS, timeout=self.process_results)
         self.save_timer = QTimer(self, singleShot=True, interval=theme.PREFS_SAVE_DELAY_MS, timeout=self.flush_prefs)
         self._setup_window()
@@ -124,6 +126,9 @@ class StatusWindow(QWidget):
         self.hub_settings: hub_api.HubSettings | None = None
         self.update_release: update.Release | None = None
         self.update_state = READY
+        self.update_status: hub_api.UpdateStatus | None = hub_api.HubClient.read_saved_update()
+        self._update_polling = False
+        self._update_started_at = 0.0
         self.autostart: dict[str, bool | None] | None = None
         self.restart_needed = False
         self.results: queue.Queue[tuple[str, Any]] = queue.Queue()
@@ -179,8 +184,8 @@ class StatusWindow(QWidget):
         outer.addWidget(self.settings)
         self.children_count, self.children_list = self._list_card(outer, "desktop.section.children")
         self.clients_count, self.clients_list = self._list_card(outer, "desktop.section.clients")
-        # Not in self.cards: it shows only while an update is available, in the full window.
-        self.update_card = UpdateCard(self.install_update, self.show_update_notes)
+        # Always present in the full window so the user can check Hub/child updates too.
+        self.update_card = UpdateCard(self.check_updates, self.install_update, self.retry_update, self.show_update_notes)
         outer.addWidget(self.update_card)
         self._build_action_card(outer)
         self.outer = outer
@@ -346,7 +351,7 @@ class StatusWindow(QWidget):
             ("clients", (language, hub, activity_ui, snapshot.clients if snapshot else (),
                          snapshot.recent if snapshot else ()), self._render_clients),
             ("client_usage", (language, self._client_usage_key(activity_ui)), self._render_client_usage),
-            ("update", (language, self.update_release, self.update_state, update.update_blocked(snapshot), hub == "running"),
+            ("update", (language, self.update_release, self.update_state, self.update_status, hub == "running"),
              self._render_update),
             ("actions", hub, self._render_actions),
             ("mini", (language, self._mini_state(activity_ui)), self._render_mini),
@@ -499,10 +504,9 @@ class StatusWindow(QWidget):
 
     def _render_update(self, hub: str | None) -> None:
         release = self.update_release
-        self.update_card.setVisible(release is not None and not self.compact)
-        if release is not None:
-            self.update_card.sync(self.t, release.label, self.updater.current if self.updater else "", self.update_state,
-                                  update.update_blocked(self.snapshot), hub == "running")
+        self.update_card.setVisible(not self.compact)
+        self.update_card.sync(self.t, release.label if release else None, self.updater.current if self.updater else "",
+                              self.update_state, self.update_status, hub == "running")
 
     def _render_actions(self, hub: str | None) -> None:
         # One primary action: Start Hub while the Hub is down, Open dashboard otherwise.
@@ -530,8 +534,10 @@ class StatusWindow(QWidget):
         """Poll the Hub now and every POLL_INTERVAL_MS, and drain worker results on the Qt thread."""
         self.refresh()
         self.poll_timer.start()
+        self.update_timer.start()
+        self.update_check_timer.start()
         self.drain_timer.start()
-        self._check_for_update()
+        self.check_updates()
 
     def refresh(self) -> None:
         if self._polling:
@@ -559,7 +565,7 @@ class StatusWindow(QWidget):
                 self.render()
             elif kind == "control_failed":
                 self._control_failed()
-            elif kind in ("update_found", "update_state"):
+            elif kind in ("update_check", "update_status", "update_state"):
                 self._update_changed(kind, value)
             elif kind == "usage":
                 self._apply_usage(*value)
@@ -585,41 +591,104 @@ class StatusWindow(QWidget):
         if snapshot.hub == "running" and not was_running and not self.settings.isHidden():
             self.load_tab(self.settings.tab)  # the Hub can answer now
 
-    # Updates of the app itself
+    # Whole-system updates
 
-    def _check_for_update(self) -> None:
-        """Once, at start, off the Qt thread; a failed check (no network) shows nothing."""
-        if self.updater is None:
+    def check_updates(self) -> None:
+        if self.update_state in {CHECKING, UPDATING, DOWNLOADING, INSTALLING}:
             return
-        updater = self.updater
+        self.update_state = CHECKING
+        self.render()
 
         def job() -> None:
-            release = updater.check()
-            if release is not None:
-                self.results.put(("update_found", release))
+            release = self.updater.check() if self.updater else None
+            try:
+                status_value = self.hub_store.check_updates()
+            except (OSError, ValueError):
+                status_value = self.hub_store.read_saved_update()
+            self.results.put(("update_check", (release, status_value)))
+
+        self.run_worker(job)
+
+    def refresh_update(self) -> None:
+        """Refresh durable status while a run is active, including after Hub restarts."""
+        if self._update_polling or not (self.update_status and self.update_status.state == "running"):
+            return
+        self._update_polling = True
+
+        def job() -> None:
+            try:
+                current = self.hub_store.read_update()
+            except (OSError, ValueError):
+                current = self.hub_store.read_saved_update() or self.update_status
+            self.results.put(("update_status", current))
 
         self.run_worker(job)
 
     def _update_changed(self, kind: str, value: Any) -> None:
-        if kind == "update_found":
-            self.update_release = value
+        if kind == "update_check":
+            self.update_release, self.update_status = value
+            self.update_state = READY
+        elif kind == "update_status":
+            self._update_polling = False
+            self.update_status = value
+            if value is not None and value.state in {"complete", "partial"}:
+                self.update_state = FAILED if value.state == "partial" else READY
+                if value.state in {"complete", "partial"}:
+                    self._install_desktop_update()
+            else:
+                self.update_state = UPDATING
         else:
             self.update_state = value
         self.render()
         if self.update_state == INSTALLING:
-            self.close()  # the hidden update script waits for this process to exit, installs, and opens the new app
+            self.close()
 
-    def preview_update(self, release: update.Release | None) -> None:
-        """Screenshot mode: show (or hide) the update card for a sample release."""
-        self.update_release, self.update_state = release, READY
+    def _start_system_update(self, retry: bool = False) -> None:
+        self.update_state = UPDATING
         self.render()
 
+        def job() -> None:
+            try:
+                if not self.snapshot or self.snapshot.hub != "running":
+                    system.start_hub()
+                    deadline = time.monotonic() + system.START_TIMEOUT_SECONDS
+                    while time.monotonic() < deadline:
+                        try:
+                            self.hub_store.read_update()
+                            break
+                        except (OSError, ValueError):
+                            time.sleep(0.5)
+                current = self.update_status
+                failed = tuple(item.get("id") for item in (current.components if current else ())
+                               if item.get("state") == "failed" and isinstance(item.get("id"), str))
+                result = self.hub_store.retry_update(failed) if retry else self.hub_store.start_update()
+                self.results.put(("update_status", result))
+            except (OSError, ValueError):
+                self.results.put(("update_state", FAILED))
+                if self.update_release:
+                    self.run_worker(self._install_desktop_update)
+
+        self.run_worker(job)
+
     def install_update(self) -> None:
-        """Download, verify, and hand over to the update script; the card shows the step and any failure."""
-        release, updater = self.update_release, self.updater
-        if release is None or updater is None or self.update_state not in (READY, FAILED):
+        if self.update_state not in {READY, FAILED}:
             return
-        if update.update_blocked(self.snapshot):
+        if self.update_state == FAILED and self.update_status and self.update_status.state == "complete":
+            self._install_desktop_update()
+            return
+        self._start_system_update()
+
+    def retry_update(self) -> None:
+        if self.update_state != FAILED:
+            return
+        if self.update_status and self.update_status.state == "complete":
+            self._install_desktop_update()
+            return
+        self._start_system_update(retry=True)
+
+    def _install_desktop_update(self) -> None:
+        release, updater = self.update_release, self.updater
+        if release is None or updater is None:
             return
         self.update_state = DOWNLOADING
         self.render()
@@ -627,12 +696,17 @@ class StatusWindow(QWidget):
         def job() -> None:
             try:
                 updater.install(release)
-            except (OSError, RuntimeError):  # DesktopError is a RuntimeError; nothing of it is shown
+            except (OSError, RuntimeError):
                 self.results.put(("update_state", FAILED))
             else:
                 self.results.put(("update_state", INSTALLING))
 
         self.run_worker(job)
+
+    def preview_update(self, release: update.Release | None) -> None:
+        """Screenshot mode: show (or hide) the update card for a sample release."""
+        self.update_release, self.update_state = release, READY
+        self.render()
 
     def show_update_notes(self) -> None:
         if self.update_release is not None and self.updater is not None:
