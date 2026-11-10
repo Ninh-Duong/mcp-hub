@@ -107,14 +107,14 @@ class StatusWindow(QWidget):
         # Hub settings (through the Hub's API) and sign-in entries: read and written on worker threads.
         self.hub_store, self.read_autostart, self.write_autostart = hub_store, read_autostart, write_autostart
         self.run_worker, self.stream, self.now = run_worker, stream, now
-        # Offers a newer app version (checked once, at start); None runs without it (from source, in tests).
+        # Offers a newer app version (checked at start and hourly); None runs without it (from source, in tests).
         self.updater = updater
         appearance = appearance or theme.Appearance()
         self.appearance = appearance if appearance.theme in theme.THEMES else replace(appearance, theme="light")
         self._init_state()
         self.poll_timer = QTimer(self, interval=theme.POLL_INTERVAL_MS, timeout=self.refresh)
         self.update_timer = QTimer(self, interval=theme.POLL_INTERVAL_MS, timeout=self.refresh_update)
-        self.update_check_timer = QTimer(self, interval=24 * 60 * 60 * 1000, timeout=self.check_updates)
+        self.update_check_timer = QTimer(self, interval=60 * 60 * 1000, timeout=self.check_updates)
         self.drain_timer = QTimer(self, interval=theme.QUEUE_CHECK_MS, timeout=self.process_results)
         self.save_timer = QTimer(self, singleShot=True, interval=theme.PREFS_SAVE_DELAY_MS, timeout=self.flush_prefs)
         self._setup_window()

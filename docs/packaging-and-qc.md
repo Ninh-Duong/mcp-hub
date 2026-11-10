@@ -36,7 +36,7 @@ When no uv is found, the launchers download the installer of one pinned uv relea
 
 ### Desktop installer
 
-`uv run --isolated --group build python scripts/build_desktop.py` builds `dist/mcp-hub-status-setup-<version>.exe` with PyInstaller and Inno Setup 6 (`winget install JRSoftware.InnoSetup` once). It is not part of `package_qc.py`; `tests/test_bootstrap_scripts.py` checks the spec, the installer script, and the build commands offline.
+`uv run --isolated --group build python scripts/build_desktop.py` builds `dist/mcp-hub-status-setup-<version>.exe` with PyInstaller and Inno Setup 6 (`winget install JRSoftware.InnoSetup` once). PyInstaller uses only the active Python and Windows system DLL paths so unrelated native DLLs from the calling shell cannot contaminate the bundle. It is not part of `package_qc.py`; `tests/test_bootstrap_scripts.py` checks the spec, the installer script, and the build commands offline.
 
 **Releases.** `.github/workflows/desktop-release.yml` publishes the installer:
 - **When it runs:** a push to `master` (a `plan` job on Linux reads `pyproject.toml` and checks that no Release `v<project version>` exists yet), a push of a tag `v<project version>` (the manual fallback, for example `v0.1.1`), or by hand. Nothing is built when the release already exists.
@@ -50,7 +50,7 @@ When no uv is found, the launchers download the installer of one pinned uv relea
 - **Permissions:** only the build job gets `contents: write`; the `plan` job only reads.
 - **One at a time:** a `concurrency` group queues runs, so two pushes in a row cannot publish the same version twice.
 
-Numbering, the release steps, and how each part is upgraded are in [versioning.md](versioning.md). The build also runs the bundled exe with `--version` and fails when it differs from `pyproject.toml` (the installed app reads its version from the bundled package metadata, which the update check compares with the latest Release). Raise the version in `pyproject.toml` before merging to `master` (the release is made then). The installer never installs over the same version, so users update only to a higher one. `build/` and `dist/` are ignored and never committed. Details: [desktop-app.md → Build the installer](desktop-app.md#build-the-installer).
+Numbering, the release steps, and how each part is upgraded are in [versioning.md](versioning.md). The build checks that the bundled package metadata matches `pyproject.toml` (the installed app reads the same metadata to compare its version with the latest Release). Raise the version in `pyproject.toml` before merging to `master` (the release is made then). The installer never installs over the same version, so users update only to a higher one. `build/` and `dist/` are ignored and never committed. Details: [desktop-app.md → Build the installer](desktop-app.md#build-the-installer).
 
 ## Offline package QC
 
