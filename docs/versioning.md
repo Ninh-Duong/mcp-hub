@@ -45,31 +45,31 @@ Agents in this repository ask the user, once per finished change, whether to rai
 
 ## Upgrade each part
 
-Upgrade in this order and check at the end.
+On Windows, press **Update** in mcp-hub Status. It checks enabled child repositories, the Hub checkout, and the desktop release, then coordinates the upgrade and reports each result in the app. No terminal command is needed for routine updates.
 
 | Part | How |
 |---|---|
-| **Desktop status app** | Press **Update** on the card the app shows (below), or run `.\scripts\hubctl.ps1 app -Install`, or run the newer `mcp-hub-status-setup-<version>.exe`. The app keeps its folder, its sign-in entry, and the remembered look. |
-| **Hub** | In the `mcp-hub` folder: `git pull --ff-only`, then `.\scripts\hubctl.ps1 restart`. The restart syncs the locked environment and runs every child's `prepare` step. If you only sign out and in again instead, the Hub still syncs its own Python environment when `uv.lock` changed (children's `prepare` steps run only through `hubctl`). Running `Setup.cmd` again does the same and also downloads any default child that is missing. |
-| **A child MCP** | In the child's folder: `git pull --ff-only`, then `.\scripts\hubctl.ps1 restart` in `mcp-hub` (it runs the child's own `prepare` step again). |
-| **Check** | `uv run python scripts/smoke.py`: each child in turn, then the Hub. `FAIL` needs a fix; `WARN` only means an account or project folder is not filled in yet. |
+| **Desktop status app** | Press **Update** in the app. It keeps its folder, sign-in entry, and remembered look. |
+| **Hub and enabled child MCPs** | Press **Update** in the app. Enabled child repos update concurrently before the Hub; Hub environment sync, child preparation, restart, and health check follow. |
+| **Check or retry** | The app checks at startup and every 24 hours while open; **Check updates** runs a check immediately. Failed components are listed with a **Retry** action. |
 
-`git pull --ff-only` stops instead of merging when the folder has local commits or the history diverged; resolve that first. Nothing here ever reads or changes the private files under `config/private/`.
+Repositories with local edits, local-only commits, diverged history, or no upstream tracking branch are skipped and reported. The updater does not overwrite those changes. Nothing here reads or changes private files under `config/private/`.
 
 ## How the app finds a new version
 
-The installed status app asks for an update **once, when it starts**, and never again while it runs. There is no switch to turn this off.
+The installed status app checks for updates when it starts and every 24 hours while open. The user can also check manually. There is no switch to turn checks off.
 
-- **The request.** One `GET https://api.github.com/repos/<owner>/mcp-hub/releases/latest` (the repository is `UPDATE_REPOSITORY` in `desktop/constants.py`). It sends no token, no user data, and nothing from the Hub; the Hub's admin token never goes through the connection used for GitHub. A failed request (offline, rate limit, an odd answer) shows nothing.
+- **The request.** The app checks the latest desktop Release and asks the local Hub to check its checkout and enabled child repositories. GitHub requests send no Hub token or user data. A failed check is shown in the app with a retry action.
 - **When a card appears.** The latest Release is neither a draft nor a pre-release, its tag is a version higher than the one the app runs, and it carries `mcp-hub-status-setup-<version>.exe` and its `.sha256` from this repository's Releases. The card says which version is available, shows the version in use, and has **Update** and **What's new** (the Release page).
 - **Only the installed app.** An app run from source has no installer to replace and never offers an update.
 
 ## What Update does
 
-1. **Health gate.** Update is disabled while a child fails the Hub's live check: a child that is `unavailable` or keeps `reconnecting` blocks it, and the card names it. This is the same `PASS`/`WARN`/`FAIL` split as `scripts/smoke.py`, read from the state the Hub already reports (the installed app does not run scripts). A child that only needs its account (`credentials required`), is `disabled`, or is `connecting` does not block, and neither does a Hub that is not running (the card says its health was not checked).
-2. **Download and verify.** The installer and its `.sha256` come from the Release into the user's temp folder. The installer runs only when its SHA-256 matches; otherwise it is deleted and the card shows one fixed sentence. The file name is built from the verified version, never from the download address, and a download is stopped at 300 MB.
-3. **Install silently, reopen.** The app starts a hidden PowerShell and exits. That script waits for the app to end, runs the installer with `/SILENT /SUPPRESSMSGBOXES /NORESTART`, deletes it, and opens the app again, also when the installer failed, so the user is never left without the app.
-4. **Failure.** The card shows `desktop.update.failed` and lets the user try again. The Hub and its children are never touched.
+1. **Check repositories.** The updater uses the Hub's effective config and checks only installed, enabled child repos. It skips unsafe local Git states and reports each reason.
+2. **Update and prepare.** After stopping the Hub, it updates eligible children concurrently, then updates the Hub checkout. It runs the existing locked environment sync and child preparation before restarting the Hub.
+3. **Check and report.** A smoke check runs after restart. Per-component states and sanitized progress events remain available while the Hub is stopped and after app restart. Failed components can be retried.
+4. **Update the app.** When a newer app release exists, the app downloads the installer and SHA-256, verifies the file, then runs the existing silent installer handoff after Hub work completes.
+5. **Failure.** An update failure is isolated and shown with its component. Local edits are preserved. The app, Hub, and child results are retained so the failed part can be retried.
 
 **Trust.** The SHA-256 protects against a damaged or interrupted download. It is published next to the installer, so it does not protect against someone who can change the Release itself. The installer is not code-signed, so Windows SmartScreen may warn once, as it does for a manual install.
 

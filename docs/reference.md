@@ -44,6 +44,10 @@ The shared service listens on `127.0.0.1` and `settings.http.port` (default 8765
 | POST | `/dashboard/api/settings/bitnet` | admin token only | `{"enabled": bool}`: the BitNet extension at the next start |
 | POST | `/dashboard/api/settings/servers/{server_id}` | admin token only | `{"enabled": bool}` for one child (404 unknown, 409 with `MCP_HUB_CONFIG`) |
 | GET, POST | `/dashboard/api/settings/autostart` | admin token only | The Hub's sign-in task, `{"hub": bool}` (503 when `hubctl` fails) |
+| GET | `/dashboard/api/update` | admin token only | Current bounded update state and sanitized component events |
+| POST | `/dashboard/api/update/check` | admin token only | Start asynchronous update discovery; returns update state |
+| POST | `/dashboard/api/update` | admin token only | Start the full update; 409 while another update is running |
+| POST | `/dashboard/api/update/retry` | admin token only | `{"components": [id, ...]}`: retry failed components from the latest run |
 | GET | `/dashboard/api/activity` | admin token, session | Activity UI only: one day's calls (`date`, `limit`, `offset`, filters) |
 | GET | `/dashboard/api/activity/stream` | admin token, session | Activity UI only: live call events (server-sent events, keep-alive every 15 s) |
 

@@ -95,6 +95,33 @@ class HubClientTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             client.control("start")  # starting is the Hub's task, not an HTTP call
 
+    def test_update_check_start_retry_and_status_use_admin_routes(self) -> None:
+        value = {"run_id": "run-1", "state": "partial", "components": [
+            {"id": "mcp-jira-sync", "kind": "child", "state": "failed", "phase": "fetch", "error_code": "network"}
+        ], "events": []}
+        client, opener = self.client({
+            "/dashboard/api/update/check": value,
+            "/dashboard/api/update": value,
+            "/dashboard/api/update/retry": value,
+        })
+        self.assertEqual(client.check_updates().state, "partial")
+        self.assertEqual(client.read_update().run_id, "run-1")
+        self.assertEqual(client.start_update().state, "partial")
+        self.assertEqual(client.retry_update(("mcp-jira-sync",)).components[0]["id"], "mcp-jira-sync")
+        self.assertEqual([item[:2] for item in opener.requests], [
+            ("POST", "/dashboard/api/update/check"), ("GET", "/dashboard/api/update"),
+            ("POST", "/dashboard/api/update"), ("POST", "/dashboard/api/update/retry"),
+        ])
+        self.assertTrue(all(item[2] == f"Bearer {TOKEN}" for item in opener.requests))
+
+    def test_update_status_rejects_unbounded_or_unknown_states(self) -> None:
+        for value in (
+            {"state": "unknown"}, {"state": "running", "components": [None]},
+            {"state": "running", "events": [{}] * 101},
+        ):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                hub_api.update_status_from(value)
+
     def test_failures_are_os_or_value_errors(self) -> None:
         error = HTTPError("http://127.0.0.1:8765/dashboard/api/settings", 409, "conflict", None, None)
         cases = (
