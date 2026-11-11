@@ -91,6 +91,11 @@ When the Hub uses MCP `stdio`, stdout is reserved for protocol messages. Send ap
 | `tool.call.interrupted` | WARNING | The call was cancelled before the child answered. |
 | `tool.result.condensed` | INFO | A large read-only result was condensed: `request_id`, `server`, `tool`, `kept_lines`, `total_lines`, `source` (`rules` | `bitnet` | `fallback`), and `duration_ms`. Never the result content. |
 | `bitnet.sidecar.state` | INFO | Sidecar lifecycle or supervisor state change: `state`, `restarts`, and `error_type` when unavailable. |
+| `bitnet.install.started` | INFO | The desktop app started a BitNet install. |
+| `bitnet.install.step` | INFO | The install moved to `step` (`prepare`, `runtime`, `model`, `extract`). |
+| `bitnet.install.finished` | INFO | BitNet was installed and switched on. |
+| `bitnet.install.failed` | WARNING | The install stopped: `error_type` is a short code (`network`, `checksum`, `disk`, …), never a path or URL. |
+| `bitnet.install.enable_failed` | WARNING | BitNet was installed but could not be switched on in `hub.json`: `error_type`. |
 | `preflight.check` | INFO / WARNING | A pre-start check of one child: `server`, `step` (runtime name or `prepare`), and `ok`. No child output. |
 | `connection_file.failed` | WARNING | The service could not write the connection file, or restrict it to the current user (`error_type` only). The Hub still starts. If the file was not written, the desktop app shows **Not installed** and `hubctl stop`/`open` cannot reach the dashboard API until a later start writes it. |
 | `extension.unknown` | WARNING | The launch file named an extension the Hub does not know; it is ignored. |

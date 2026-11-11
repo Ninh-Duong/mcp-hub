@@ -54,6 +54,7 @@ class Condensed:
     kept_lines: int
     total_lines: int
     source: str                                # "rules" | "bitnet"
+    lossless: bool = False
 
 
 class ResultCondenser(Protocol):

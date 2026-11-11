@@ -44,7 +44,8 @@ def main(argv: list[str]) -> None:
         for alias, project in projects.items():
             default = project.default_env or "<ask per job>"
             logs = ",".join(project.logs) or "<none>"
-            print(f"{alias}: default_env={default}, allowed_envs={','.join(project.allowed_envs)}, logs_envs={logs}")
+            sql = ",".join(project.sql) or "<none>"
+            print(f"{alias}: default_env={default}, allowed_envs={','.join(project.allowed_envs)}, logs_envs={logs}, sql_envs={sql}")
         return
     if len(argv) < 2 or argv[0] not in {"keys", "set"} or (argv[0] == "set" and len(argv) != 4):
         raise SystemExit(__doc__)

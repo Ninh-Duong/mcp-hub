@@ -397,6 +397,29 @@ class PlaybookRuntimeTest(RuntimeGateTest):
         self.assertEqual(set(HubRuntime(self.runtime.config, self.audit).playbooks), set(load_playbooks()))
         self.assertIn("rcid-bug", policy.plan_tool(load_playbooks()).description)
 
+    async def test_plan_allows_builtin_full_result_in_batch_and_includes_sql_hints(self) -> None:
+        from mcp_hub.full_results import FullResultStore
+        from mcp_hub.projects import SqlTarget
+
+        store = FullResultStore(max_entries=10, ttl_seconds=60.0)
+        rid = store.put("retrieved full payload")
+        self.runtime.full_results = store
+        self.runtime.projects = {
+            "orders": ProjectConfig("orders", ("dev", "stg"), "stg", {"stg": TARGET}, {"stg": SqlTarget("DbMain", ("DbMain",))}),
+        }
+        plan_res = await self.call("hub__plan", playbook_args())
+        self.assertIn("SQL hints for stg: default_database='DbMain'; databases=[DbMain].", plan_res.content[0].text)
+        plan_id = re.search(r'hub_plan_id="([^"]+)"', plan_res.content[0].text)[1]
+        batch_res = await self.call("hub__batch", {
+            "hub_plan_id": plan_id,
+            "calls": [
+                {"tool": "logs__query", "arguments": {"env": "stg"}},
+                {"tool": "hub__get_full_result", "arguments": {"result_id": rid}},
+            ],
+        })
+        self.assertFalse(batch_res.is_error, batch_res.content[0].text)
+        self.assertIn("retrieved full payload", "\n".join(b.text for b in batch_res.content))
+
 
 class SummaryTest(unittest.TestCase):
     def test_the_instruction_summary_fits_codex_and_names_the_plan(self) -> None:

@@ -59,7 +59,7 @@
           "server": "mcp-server-logs",
           "name": "list_log_providers",
           "exposeAs": "logs__list_log_providers",
-          "cacheSeconds": 120
+          "cacheSeconds": 600
         },
         {
           "server": "mcp-server-logs",
@@ -77,19 +77,19 @@
           "server": "mcp-server-logs",
           "name": "list_openobserve_streams",
           "exposeAs": "logs__list_openobserve_streams",
-          "cacheSeconds": 120
+          "cacheSeconds": 600
         },
         {
           "server": "mcp-server-logs",
           "name": "list_openobserve_stream_schema",
           "exposeAs": "logs__list_openobserve_stream_schema",
-          "cacheSeconds": 120
+          "cacheSeconds": 600
         },
         {
           "server": "mcp-server-logs",
           "name": "list_openobserve_services",
           "exposeAs": "logs__list_openobserve_services",
-          "cacheSeconds": 120
+          "cacheSeconds": 600
         },
         {
           "server": "mcp-server-logs",
@@ -252,25 +252,25 @@
           "server": "mcp-sqlserver",
           "name": "list_databases",
           "exposeAs": "sql__list_databases",
-          "cacheSeconds": 120
+          "cacheSeconds": 600
         },
         {
           "server": "mcp-sqlserver",
           "name": "list_tables",
           "exposeAs": "sql__list_tables",
-          "cacheSeconds": 120
+          "cacheSeconds": 600
         },
         {
           "server": "mcp-sqlserver",
           "name": "describe_table",
           "exposeAs": "sql__describe_table",
-          "cacheSeconds": 120
+          "cacheSeconds": 600
         },
         {
           "server": "mcp-sqlserver",
           "name": "find_columns",
           "exposeAs": "sql__find_columns",
-          "cacheSeconds": 120
+          "cacheSeconds": 600
         },
         {
           "server": "mcp-sqlserver",
@@ -296,7 +296,7 @@
           "server": "mcp-sqlserver",
           "name": "get_object_definition",
           "exposeAs": "sql__get_object_definition",
-          "cacheSeconds": 120
+          "cacheSeconds": 600
         },
         {
           "server": "mcp-sqlserver",

@@ -36,8 +36,9 @@ Each result is headed `[i] <tool>: ok|error (<ms> ms)`. The `hub_plan_id` comes 
   - the child's timeout.
 - **Limits come from [settings](settings.md):**
   - `settings.batch.maxCalls` (8): the most calls in one batch;
-  - `maxPerChild` (4): the most calls one child serves at the same time;
-  - `timeoutSeconds` (120): the time the whole batch may take.
+  - `maxPerChild` (8): the most calls one child serves at the same time;
+  - `timeoutSeconds` (120): the time the whole batch may take;
+  - `packChars` (9500): combined output budget before large items are compacted structurally.
 
 Clients learn to use it from the Hub's server instructions and the client rules ("Batch independent reads"). See [security-and-logging.md](security-and-logging.md) for its audit events.
 

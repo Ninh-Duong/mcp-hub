@@ -18,7 +18,9 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(Settings().jobs.max_job_seconds, 900)
         self.assertEqual(Settings().jobs.max_window_hours, 168)
         self.assertEqual(Settings().bitnet.port, 8766)
-        self.assertEqual(Settings().bitnet.condense_min_chars, 6000)
+        self.assertEqual(Settings().bitnet.condense_min_chars, 9000)
+        self.assertEqual(Settings().batch.max_per_child, 8)
+        self.assertEqual(Settings().batch.pack_chars, 9500)
 
     def test_camel_case_keys_override_only_what_they_name(self) -> None:
         settings = parse_settings({

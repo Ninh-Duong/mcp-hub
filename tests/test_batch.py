@@ -138,6 +138,18 @@ class BatchRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.is_error)  # only when every call failed
         self.assertEqual(self.events()[-1][0], "tool.call.failed")
 
+    async def test_get_full_result_allowed_in_batch_when_enabled(self) -> None:
+        from mcp_hub.full_results import FullResultStore
+
+        store = FullResultStore(max_entries=10, ttl_seconds=60.0)
+        rid = store.put("full-payload-data")
+        self.runtime.full_results = store
+        result = await self.call(calls(("logs__query", {"delay": 0}), ("hub__get_full_result", {"result_id": rid})))
+        self.assertFalse(result.is_error)
+        texts = "\n".join(block.text for block in result.content if hasattr(block, "text"))
+        self.assertIn("[2] hub__get_full_result: ok", texts)
+        self.assertIn("full-payload-data", texts)
+
     async def test_a_call_still_running_at_the_limit_is_cancelled(self) -> None:
         self.runtime.settings = replace(self.runtime.settings, batch=BatchSettings(timeout_seconds=0.2))
         result = await self.call(calls(("logs__query", {"delay": 0}), ("jira__read", {"delay": 5})))

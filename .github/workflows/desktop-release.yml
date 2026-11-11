@@ -66,7 +66,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.build == 'true'
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 90
     permissions:
       contents: write # create the release and attach the installer
     steps:
@@ -76,6 +76,8 @@ jobs:
           python-version: "3.12"
           enable-cache: true
       - name: Run package QC
+        # QC takes about 2 minutes; a stuck test fails here instead of holding the job to its limit.
+        timeout-minutes: 20
         shell: pwsh
         run: |
           uv sync --locked --python 3.12
@@ -92,6 +94,11 @@ jobs:
               $hash = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
               Set-Content -LiteralPath "$($installer.FullName).sha256" -Value "$hash  $($installer.Name)" -Encoding ascii -NoNewline
           }
+      - name: Build the BitNet runtime
+        # llama-server for the desktop app's one-click BitNet install: built, smoke-tested with the pinned model,
+        # and described by bitnet-manifest.json (docs/bitnet.md).
+        shell: pwsh
+        run: uv run --locked --python 3.12 python scripts/build_bitnet_runtime.py --out dist
       - name: Publish the release
         if: needs.plan.outputs.publish == 'true'
         shell: pwsh
@@ -101,5 +108,5 @@ jobs:
         run: |
           # A tag push names an existing tag; a push to master creates it at the commit that was built.
           $target = if ($env:GITHUB_REF_TYPE -eq 'tag') { @('--verify-tag') } else { @('--target', $env:GITHUB_SHA) }
-          $files = @(Get-ChildItem dist -Filter "mcp-hub-status-setup-*" | ForEach-Object FullName)
+          $files = @(Get-ChildItem dist -File | Where-Object { $_.Name -like "mcp-hub-status-setup-*" -or $_.Name -like "bitnet-*" } | ForEach-Object FullName)
           gh release create $env:TAG @files @target --generate-notes --title "mcp-hub Status $env:TAG"

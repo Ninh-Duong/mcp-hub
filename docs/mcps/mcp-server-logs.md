@@ -35,7 +35,7 @@ All are read-only except `logs__export_openobserve_logs`. The OpenObserve tools,
 
 ## Hub result cache
 
-Shared rules: [Hub result cache](README.md#hub-result-cache). Defaults here: 300 s for `logs__list_openobserve_organizations`; 120 s for `logs__list_log_providers`, the stream/schema/service discovery tools, and `logs__list_ai_context_snapshots`; 60 s for `logs__query_logs`, `logs__search_openobserve_logs`, `logs__get_openobserve_service_logs`, `logs__find_openobserve_logs_by_rcid`, and `logs__read_ai_context`; none for `logs__export_openobserve_logs`.
+Shared rules: [Hub result cache](README.md#hub-result-cache). Defaults here: 300 s for `logs__list_openobserve_organizations`; 600 s for `logs__list_log_providers` and the stream/schema/service discovery tools; 120 s for `logs__list_ai_context_snapshots`; 60 s for `logs__query_logs`, `logs__search_openobserve_logs`, `logs__get_openobserve_service_logs`, `logs__find_openobserve_logs_by_rcid`, and `logs__read_ai_context`; none for `logs__export_openobserve_logs`.
 
 ## Care
 

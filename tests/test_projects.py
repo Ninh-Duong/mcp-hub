@@ -65,6 +65,23 @@ class ProjectConfigTest(unittest.TestCase):
             with self.subTest(logs=logs), self.assertRaises(ProjectConfigError):
                 load(logs)
 
+    def test_optional_sql_hints_per_environment(self) -> None:
+        from mcp_hub.projects import ProjectConfigError, SqlTarget, load_projects
+
+        def load(sql: object):
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                path = root / "projects.json"
+                project = {"allowed_envs": ["dev", "stg"], "sql": sql}
+                path.write_text(json.dumps({"version": 1, "projects": {"orders": project}}), encoding="utf-8")
+                return load_projects(path=path, private_root=root)["orders"].sql
+
+        loaded = load({"dev": {"default_database": "DbMain", "databases": ["DbMain", "DbBilling"]}})
+        self.assertEqual(loaded, {"dev": SqlTarget("DbMain", ("DbMain", "DbBilling"))})
+        for bad_sql in ([], {"prod": {"default_database": "db"}}, {"dev": {"default_database": " "}}, {"dev": {"databases": [""]}}):
+            with self.subTest(sql=bad_sql), self.assertRaises(ProjectConfigError):
+                load(bad_sql)
+
 
 if __name__ == "__main__":
     unittest.main()

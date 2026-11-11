@@ -25,7 +25,7 @@ The Hub therefore enforces the rules it can check. Before any child tool runs, a
 2. **Read the answer.** The Hub returns:
    - a `hub_plan_id`;
    - the tools allowed for each planned child;
-   - each child's contract, `docs/mcps/<server-id>.md`. This is the same text as the child's MCP prompt, so clients without prompt support still receive it.
+   - concise runtime sections of each child's contract (`docs/mcps/<server-id>.md`), plus any configured log targets and SQL database hints. Full setup/diagnostic docs remain available via the child's MCP prompt.
 3. **Pass the ID.** Every later call of the task carries `"hub_plan_id": "<id>"`, including `hub__batch`, where it goes at the top level beside `calls`. The Hub adds this argument to every tool schema it publishes and removes it before the call reaches the child.
 4. **Plan again to change scope.** For a new task, another child, or another environment the user named, the client calls `hub__plan` again and uses the new ID.
 

@@ -30,7 +30,7 @@ These rules apply in any workspace where the `mcp-hub` MCP server is connected. 
 
 ## Condensed results and planning assistance
 
-Results may be condensed. A footer names a `result_id`; call `hub__get_full_result` only when the evidence you need is missing from the condensed text. With BitNet on, `hub__plan` may fill playbook, servers, env, and the time window from `task` and `project`; read the returned plan and use its window.
+Results may be compacted losslessly into tabular JSON (`_table` + `_rows`) or condensed (footer names `result_id`; call `hub__get_full_result` only when needed evidence is missing). `hub__get_full_result` supports `result_ids`, `contains`/`regex`/`fields` filtering, and running inside `hub__batch`. With BitNet on, `hub__plan` may fill playbook, servers, env, and the time window from `task` and `project`; read the returned plan and use its window.
 
 ## Batch independent reads
 

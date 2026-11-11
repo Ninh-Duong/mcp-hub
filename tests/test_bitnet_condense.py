@@ -142,6 +142,18 @@ class BitnetCondenseTest(unittest.IsolatedAsyncioTestCase):
             res = await condenser.condense("some text", "task")
         self.assertIsNone(res)
 
+    async def test_compact_single_line_json_skips_client_and_keeps_data(self) -> None:
+        import json as json_mod
+
+        raw = json_mod.dumps({"rows": [{"id": i, "tenant": "976" if i == 5 else "967", "msg": "m" * 120} for i in range(40)]})
+        client = _FakeCondenseClient(reply={"keep": [1]})
+        condenser = BitnetCondenser(client, max_chars=2500)
+        res = await condenser.condense(raw, "find tenant 976")
+        self.assertIsNotNone(res)
+        self.assertEqual(client.call_count, 0)
+        self.assertFalse(res.text.startswith("[... 1 more lines omitted]"))
+        self.assertIn("976", res.text)
+
 
 if __name__ == "__main__":
     unittest.main()

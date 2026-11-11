@@ -180,7 +180,7 @@ class JobRunner:
         condenser: ResultCondenser | None = None,
         summarizer: DraftSummarizer | None = None,
         plan_timeout_seconds: float = 3.0,
-        condense_min_chars: int = 6000,
+        condense_min_chars: int = 9000,
         condense_timeout_seconds: float = 8.0,
     ) -> None:
         self.store = store
@@ -364,10 +364,20 @@ class JobRunner:
         return self.store.list_jobs(limit=limit, offset=offset)
 
     def list_projects(self) -> list[dict[str, Any]]:
-        return [
-            {"alias": project.alias, "default_env": project.default_env, "allowed_envs": list(project.allowed_envs)}
-            for project in sorted(self.projects.values(), key=lambda item: item.alias.casefold())
-        ]
+        return [self._project_entry(project) for project in sorted(self.projects.values(), key=lambda item: item.alias.casefold())]
+
+    def _project_entry(self, project: ProjectConfig) -> dict[str, Any]:
+        entry: dict[str, Any] = {
+            "alias": project.alias,
+            "default_env": project.default_env,
+            "allowed_envs": list(project.allowed_envs),
+        }
+        if project.sql:
+            entry["sql"] = {
+                env: {"default_database": target.default_database, "databases": list(target.databases)}
+                for env, target in project.sql.items()
+            }
+        return entry
 
     def _require_encryption(self) -> None:
         """Refuse new jobs up front where the store cannot encrypt them (DPAPI exists only on Windows)."""

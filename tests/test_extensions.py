@@ -308,9 +308,11 @@ class LaunchFileTest(_AuditCase):
             self.assertEqual(saved_extensions(), frozenset())
 
     def test_service_installs_only_requested_extensions(self) -> None:
-        self.assertEqual(service.install_extensions(frozenset(), self.runtime, None, self.audit), {})
+        # Without BitNet only its install state and route are added (bitnet/setup.py); no observer, no hook.
+        self.assertEqual(list(service.install_extensions(frozenset(), self.runtime, None, self.audit)), ["bitnet-setup"])
         self.assertEqual(self.runtime.observers, ())
-        self.assertEqual(service.install_extensions(frozenset({"unknown"}), self.runtime, None, self.audit), {})
+        self.assertEqual(list(service.install_extensions(frozenset({"unknown"}), self.runtime, None, self.audit)),
+                         ["bitnet-setup"])
         self.assertIn("extension.unknown", self.log())
 
         installed = service.install_extensions(frozenset({ACTIVITY_UI}), self.runtime, None, self.audit)

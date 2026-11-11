@@ -12,6 +12,7 @@ from ..server import HubRuntime
 from .client import BitnetClient
 from .condense import BitnetCondenser
 from .planner import BitnetPlanAssistant
+from .setup import BitnetSetup
 from .sidecar import Sidecar
 from .summarize import BitnetDraftSummarizer
 
@@ -19,18 +20,23 @@ from .summarize import BitnetDraftSummarizer
 @dataclass
 class BitnetExtension:
     sidecar: Sidecar
+    setup: BitnetSetup
 
     def dashboard_extension(self) -> DashboardExtension:
-        return DashboardExtension(
-            name="bitnet",
-            status_fields=self.sidecar.status_fields,
-        )
+        # The setup's status includes the sidecar's state; its route installs while BitNet is on, too.
+        return DashboardExtension(name="bitnet", routes=self.setup.routes(), status_fields=self.setup.status_fields)
 
     async def start(self) -> None:
         await self.sidecar.start()
 
     async def close(self) -> None:
+        await self.setup.close()
         await self.sidecar.stop()
+
+
+def install_setup(runtime: HubRuntime, *, root: Path, audit: AuditLog | None) -> BitnetSetup:
+    """The install state and route only, for a Hub that runs without the BitNet extension."""
+    return BitnetSetup(root, runtime.settings.bitnet, audit)
 
 
 def install(runtime: HubRuntime, job_runner: Any, *, root: Path, audit: AuditLog) -> BitnetExtension:
@@ -46,4 +52,4 @@ def install(runtime: HubRuntime, job_runner: Any, *, root: Path, audit: AuditLog
         job_runner.condenser = runtime.condenser
         job_runner.summarizer = BitnetDraftSummarizer(client)
     sidecar = Sidecar(root, settings, audit, log_dir=getattr(runtime, "child_log_dir", None))
-    return BitnetExtension(sidecar)
+    return BitnetExtension(sidecar, BitnetSetup(root, settings, audit, sidecar=sidecar))

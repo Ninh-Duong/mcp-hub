@@ -164,6 +164,33 @@ class Row(QWidget):
         self.detail.setText(detail)
 
 
+class Spinner:
+    """Turns a glyph label through theme.SPINNER_GLYPHS while something runs; a hidden label is left alone."""
+
+    def __init__(self, glyph: QLabel) -> None:
+        self.glyph = glyph
+        self.frame = 0
+        self.timer = QTimer(glyph, interval=theme.SPINNER_MS, timeout=self.tick)
+
+    @property
+    def running(self) -> bool:
+        return self.timer.isActive()
+
+    def start(self) -> None:
+        if not self.timer.isActive():
+            self.timer.start()
+        self.tick()
+
+    def stop(self) -> None:
+        self.timer.stop()
+
+    def tick(self) -> None:
+        if not self.glyph.isVisible() and self.glyph.text():
+            return
+        self.glyph.setText(theme.SPINNER_GLYPHS[self.frame % len(theme.SPINNER_GLYPHS)])
+        self.frame += 1
+
+
 def show_elided(widget: QLabel, text: str, width: int, tooltip: str = "") -> None:
     """One line of at most `width` px, cut with an ellipsis; the tooltip holds the full detail."""
     widget.setText(widget.fontMetrics().elidedText(text, Qt.TextElideMode.ElideRight, width))

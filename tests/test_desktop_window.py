@@ -82,6 +82,14 @@ class FakeStore:
     def set_bitnet(self, enabled: bool) -> None:
         self.bitnet = enabled
 
+    installs = 0
+    fail_install = False
+
+    def install_bitnet(self) -> None:
+        if self.fail_install:
+            raise OSError("refused")
+        self.installs += 1
+
     def set_server_enabled(self, server_id: str, enabled: bool) -> None:
         self.enabled[server_id] = enabled
 
@@ -452,6 +460,82 @@ class StatusWindowTest(unittest.TestCase):
         self.assertEqual(page.bitnet_status.text(), "Installing\u2026")
         self.window.apply(HubSnapshot(hub="running", bitnet_state="unavailable"))
         self.assertEqual(page.bitnet_status.text(), "Unavailable")
+
+    def test_bitnet_installs_with_a_spinner_then_asks_for_a_restart(self) -> None:
+        info, page = status.BitnetInfo, self.window.hub_page
+        self.window.apply(replace(running(), bitnet=info()))
+        self.window.show_tab("hub")
+        self.window.process_results()
+        self.assertEqual(page.bitnet_status.text(), "Not installed")
+        self.assertEqual(page.bitnet_action.text(), "Install BitNet")
+        self.assertTrue(page.bitnet_buttons[True].isHidden())  # On/Off only once installed
+        page.bitnet_action.click()
+        self.window.process_results()
+        self.assertEqual(self.store.installs, 1)
+
+        self.window.apply(replace(running(), bitnet=info(state="installing", installing=True, step="model", progress=42)))
+        self.assertEqual(page.bitnet_status.text(), "Downloading the model… 42%")
+        self.assertTrue(page.bitnet_spinner.running)
+        self.assertTrue(page.bitnet_action.isHidden())
+        self.assertEqual(self.window.poll_timer.interval(), theme.BUSY_POLL_INTERVAL_MS)
+
+        self.store.bitnet = True  # the Hub switches BitNet on when the install finishes
+        self.window.load_tab("hub")
+        self.window.process_results()
+        self.window.apply(replace(running(), bitnet=info(installed=True, state="off", restart_needed=True)))
+        self.assertFalse(page.bitnet_spinner.running)
+        self.assertEqual(page.bitnet_status.text(), "Installed. Restart the Hub to connect BitNet.")
+        self.assertFalse(page.bitnet_buttons[True].isHidden())
+        page.bitnet_action.click()
+        self.assertEqual(self.launched[-1], ["restart"])
+
+        self.window.apply(replace(running(), bitnet=info(installed=True, enabled=True, state="ready")))
+        self.assertEqual(page.bitnet_status.text(), "Ready")
+        self.assertTrue(page.bitnet_action.isHidden())
+        self.assertEqual(self.window.poll_timer.interval(), theme.POLL_INTERVAL_MS)
+
+    def test_a_failed_bitnet_install_offers_a_retry(self) -> None:
+        page = self.window.hub_page
+        self.window.apply(replace(running(), bitnet=status.BitnetInfo(error="network")))
+        self.window.show_tab("hub")
+        self.window.process_results()
+        self.assertEqual(page.bitnet_status.text(), "The download failed. Check the network and try again.")
+        self.assertEqual(page.bitnet_action.text(), "Try again")
+        self.store.fail_install = True
+        page.bitnet_action.click()
+        self.window.process_results()
+        self.assertEqual(self.window.footer.text(), "Could not start the install.")
+
+    def test_bitnet_has_its_own_dot_under_the_children_and_is_not_counted(self) -> None:
+        info, logs = status.BitnetInfo, ChildRow("mcp-server-logs", "connected", "ok")
+        self.window.apply(replace(running(logs), bitnet=info(installed=True, enabled=True, state="ready")))
+        self.assertEqual(texts(self.window.children_list), ["● mcp-server-logs", "● BitNet"])
+        self.assertEqual(self.window.children_count.text(), "1/1")
+        self.window.apply(replace(running(logs), bitnet=info(installed=True, enabled=True, state="unavailable")))
+        self.assertEqual(texts(self.window.children_list)[-1], "● BitNet Unavailable")
+        self.assertEqual(self.window.bitnet_row.glyph.property("tone"), "error")
+        self.window.apply(replace(running(logs), bitnet=info(state="installing", installing=True, step="model", progress=7)))
+        self.assertEqual(texts(self.window.children_list)[-1], "◐ BitNet 7%")
+        self.window.apply(replace(running(logs), bitnet=info()))
+        self.assertEqual(texts(self.window.children_list)[-1], "○ BitNet Not installed")
+        self.window.apply(replace(running(logs), bitnet=info(installed=True, state="off")))
+        self.assertEqual(texts(self.window.children_list)[-1], "○ BitNet Off")
+        self.window.apply(running(logs))  # a Hub too old to report BitNet
+        self.assertEqual(texts(self.window.children_list), ["● mcp-server-logs"])
+
+    def test_the_spinner_turns_only_while_its_glyph_is_shown(self) -> None:
+        glyph = widgets.label()
+        spinner = widgets.Spinner(glyph)
+        spinner.start()
+        self.assertEqual(glyph.text(), theme.SPINNER_GLYPHS[0])
+        spinner.tick()  # hidden: left alone
+        self.assertEqual(glyph.text(), theme.SPINNER_GLYPHS[0])
+        glyph.show()
+        spinner.tick()
+        self.assertEqual(glyph.text(), theme.SPINNER_GLYPHS[1])
+        spinner.stop()
+        self.assertFalse(spinner.running)
+        glyph.close()
 
     def test_a_stopped_hub_shows_no_settings_until_it_runs(self) -> None:
         self.window.apply(HubSnapshot(hub="stopped"))

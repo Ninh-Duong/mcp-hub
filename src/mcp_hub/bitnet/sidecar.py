@@ -193,6 +193,14 @@ class Sidecar:
         self._stopped = False
         self._task = asyncio.create_task(self._run())
 
+    async def restart(self) -> None:
+        """Start again after an install, when the first start found nothing installed (or gave up)."""
+        if self._task is not None and not self._task.done():
+            return
+        await self._terminate_process()
+        self._restarts = 0
+        await self.start()
+
     async def stop(self) -> None:
         self._stopped = True
         if self._task is not None and not self._task.done():

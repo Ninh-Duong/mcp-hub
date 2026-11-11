@@ -29,11 +29,11 @@ Bounds: rows 1-1000 (default 100), 2,000 characters per cell, 200,000 characters
 
 ## Hub result cache
 
-Shared rules: [Hub result cache](README.md#hub-result-cache). Defaults here: 60 s for `sql__check_connection`; 120 s for the catalog tools (`list_databases`, `list_tables`, `describe_table`, `find_columns`, `get_object_definition`, `search_context`, `get_object_context`); 300 s for `sql__check_schema_drift`; **none** for `sql__lookup_rows`, `sql__get_related_rows`, `sql__run_select` and `sql__explain_select`, because the data changes while an issue is investigated. Never repeat an identical data query within a task.
+Shared rules: [Hub result cache](README.md#hub-result-cache). Defaults here: 60 s for `sql__check_connection`; 600 s for catalog tools (`list_databases`, `list_tables`, `describe_table`, `find_columns`, `get_object_definition`); 120 s for offline snapshot reads (`search_context`, `get_object_context`); 300 s for `sql__check_schema_drift`; **none** for `sql__lookup_rows`, `sql__get_related_rows`, `sql__run_select` and `sql__explain_select`, because the data changes while an issue is investigated. Never repeat an identical data query within a task.
 
 ## Care
 
-- Start with `sql__check_connection`, then `sql__list_databases`. Prefer `sql__search_context` / `sql__find_columns` / `sql__describe_table` to learn the schema before reading data, then `sql__lookup_rows` or `sql__get_related_rows`; use `sql__run_select` only for what they cannot express.
+- Start with `sql__list_databases` (or use `hub__plan` SQL hints when configured; call `sql__check_connection` only after a failed call or with `connection_checks: true`). Prefer `sql__search_context` / `sql__find_columns` / `sql__describe_table` to learn the schema before reading data, then `sql__lookup_rows` or `sql__get_related_rows`; use `sql__run_select` only for what they cannot express.
 - Results are **real business data**. Do not copy personal data into tickets, pull requests or logs; quote only what the finding needs.
 - `write_capable: true` is a warning about the login, not about this MCP; it still cannot write. Ask the owner for the read-only login described in the child's `docs/readonly-login.sql`.
 - Do not use this MCP's tools in a Hub job specialist unless a `sql` role has been added deliberately: specialist tool results go to the configured model provider.

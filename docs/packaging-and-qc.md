@@ -45,7 +45,8 @@ When no uv is found, the launchers download the installer of one pinned uv relea
   2. installs Inno Setup;
   3. builds with `build_desktop.py`, including its bundle self-check;
   4. writes the installer's SHA-256;
-  5. publishes a GitHub Release with both files (`gh release create`): for a push to `master` it creates the tag at the built commit (`--target`), for a tag push it verifies the tag (`--verify-tag`).
+  5. builds the BitNet runtime with `scripts/build_bitnet_runtime.py`, which smoke-tests it and writes its manifest ([bitnet.md](bitnet.md#prebuilt-runtime));
+  6. publishes a GitHub Release with the installer, the BitNet runtime, and their `.sha256` and manifest files (`gh release create`): for a push to `master` it creates the tag at the built commit (`--target`), for a tag push it verifies the tag (`--verify-tag`).
 - **Run by hand:** it builds and checks without publishing.
 - **Permissions:** only the build job gets `contents: write`; the `plan` job only reads.
 - **One at a time:** a `concurrency` group queues runs, so two pushes in a row cannot publish the same version twice.

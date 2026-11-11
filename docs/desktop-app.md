@@ -12,7 +12,7 @@ A small frosted-glass window (Qt), installed on its own with `mcp-hub-status-set
   - **Hub:**
     - Start, Restart, and Stop the Hub (`hubctl start`, `restart`, `stop`).
     - **Track AI clients**, the activity UI saved for every start (see [Hub settings](#hub-settings)).
-    - **BitNet (local AI)**, plan requests and condense large results on this PC.
+    - **BitNet (local AI)**, plan requests and condense large results on this PC. While it is not installed the tab shows **Install BitNet**; see [BitNet install](#bitnet-install).
     - **Start Hub at sign-in** (the Hub's task, changed through the Hub's API) and **Open this app at sign-in** (the app's own entry in the user's Run key; only in the installed app).
   - **MCPs:** each child MCP on or off.
 
@@ -84,6 +84,20 @@ Writes are atomic and keep every other key as it is. Only booleans and the exten
 
 Restart and Stop disconnect AI clients for a moment, so they need a second click within `CONFIRM_MS` (4 s); the armed button turns `red` and reads `desktop.settings.confirm`.
 
+### BitNet install
+
+The app never builds or downloads anything itself: it asks the Hub (`POST /dashboard/api/bitnet/install`) and shows the `bitnet` block of `/dashboard/api/status` (owned by [bitnet.md](bitnet.md#install-from-the-desktop-app)). The Hub tab's BitNet line is a tone glyph, a caption, and at most one action:
+
+| Hub reports | Glyph | Caption | Action |
+|---|---|---|---|
+| not installed | `○` | `desktop.bitnet.state.not_installed` | **Install BitNet** (primary) |
+| install running | turning `◐◓◑◒` (`Spinner`, `SPINNER_MS`) | `desktop.bitnet.step.{prepare,runtime,model,extract}` with the percent | none |
+| install failed | `●` `red` | `desktop.bitnet.error.<code>` | **Try again** |
+| installed, BitNet saved on, not running in this Hub | `◐` | `desktop.bitnet.restartToConnect` | **Restart Hub** (no second click) |
+| installed and running | the sidecar's tone | `desktop.bitnet.state.<state>` | none |
+
+The On/Off switch shows only once BitNet is installed. While the install runs or BitNet starts, the app reads the Hub every `BUSY_POLL_INTERVAL_MS` (1 s) instead of every 5 s, so the percent and the dot move. A Hub older than this feature sends no install block; the line then shows only the sidecar state, as before.
+
 The sign-in switches run on a worker thread. **Start Hub at sign-in** calls `GET|POST /dashboard/api/settings/autostart`; the Hub runs `hubctl autostart`, which owns the scheduled task. **Open this app at sign-in** is the `mcp-hub-status` value under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, written by the app (`desktop/system.py`) and by the installer; running from source the switch is disabled with `desktop.settings.hub.autostartAppSource`.
 
 ## Architecture
@@ -106,7 +120,7 @@ The **connection file** is `%LOCALAPPDATA%\mcp-hub\connection.json`: `{"version"
 |---|---|
 | `desktop/usage.py` | Logic, no Qt. `stream_usage` (a worker thread) reads `GET /dashboard/api/activity/stream` with the bearer and forwards its snapshot and call events. It reconnects with a backoff from 1 to `STREAM_RETRY_MAX_SECONDS` (30 s). `UsageBoard` keeps the running calls and the last finished call per child; `usage()` gives a child's line and `client_usage()` the children each client uses. |
 | `desktop/connection.py` | Reads the connection file: `load_connection` accepts only a `127.0.0.1` URL and a token of at least 32 characters, and raises `ConnectionMissing` (shown as **Not installed**) otherwise. The token is never in an error or `repr`. |
-| `desktop/hub_api.py` | `HubClient`: the Hub's settings API (`read_settings`, `set_activity_ui`, `set_bitnet`, `set_server_enabled`, `read_hub_autostart`, `set_hub_autostart`) and `control` (restart or stop). It holds the app's own `HubSettings` and `ServerSwitch` dataclasses. Failures are `OSError` or `ValueError`. |
+| `desktop/hub_api.py` | `HubClient`: the Hub's settings API (`read_settings`, `set_activity_ui`, `set_bitnet`, `install_bitnet`, `set_server_enabled`, `read_hub_autostart`, `set_hub_autostart`) and `control` (restart or stop). It holds the app's own `HubSettings` and `ServerSwitch` dataclasses. Failures are `OSError` or `ValueError`. |
 | `desktop/system.py` | What the app does on Windows itself: `start_hub` (the Hub's scheduled task, no window) and its own Run-key entry (`app_autostart`, `set_app_autostart`, only when frozen). |
 | `desktop/status.py` | Logic, no Qt. It reads the URL and admin token from the connection file. It calls `GET /health`, then `GET /dashboard/api/status` with the bearer, and builds a `HubSnapshot`. `open_dashboard` sends `POST /dashboard/pair` and opens the link. Requests go only to the `127.0.0.1` URL in the connection file, bypass any configured proxy, and time out after 3 s. |
 | `desktop/i18n.py` | `Translator`: text from the `desktop.*` keys (plus the shared `connection.*` and `clients.empty` keys) in `dashboard/locales/<lang>.json`; `system_language` reads the Windows display language. |
@@ -224,6 +238,16 @@ Before the first poll the Hub row shows `desktop.checking` in the `wait` tone. W
 | `disabled` | `off` | `connection.disabled` |
 | `credentials required`, `unavailable`, any other reason | `error` | `connection.credentialsRequired`, `connection.unavailable`, or the reason as reported |
 
+Under the children, one **BitNet** row has its own dot and is not counted in `ok/total`. It is green only when llama-server answers `/health`; a Hub too old to report BitNet shows no row.
+
+| BitNet state (`status.bitnet.state`) | Tone | Detail |
+|---|---|---|
+| `ready` | `ok` | none |
+| `installing` | `wait`, turning | the download percent, else `desktop.bitnet.state.installing` |
+| `starting`, `restarting` | `wait` | `desktop.bitnet.state.<state>` |
+| `unavailable` | `error` | `desktop.bitnet.state.unavailable` |
+| `not_installed`, `off`, `stopped`, or installed but switched off | `off` | `desktop.bitnet.state.<state>` or `desktop.bitnet.state.off` |
+
 ### Child usage line
 
 | Board state for the child | Line | Role |
@@ -260,6 +284,11 @@ The app's own keys:
 - `desktop.updated`
 - `desktop.update.{available,current,button,whatsNew,downloading,installing,failed,blocked,hubNotChecked}`
 - `desktop.error.{dashboard,controlUnavailable,startTimeout,settings,autostart}`
+- `desktop.settings.hub.{bitnet,bitnetHint}`
+- `desktop.bitnet.{name,install,retry,restart,restartToConnect}`
+- `desktop.bitnet.step.{prepare,runtime,model,extract}`
+- `desktop.bitnet.error.{platform,disk,network,release,checksum,extract,cancelled,unexpected,request}`
+- `desktop.bitnet.state.{not_installed,off,installing,starting,ready,restarting,unavailable,stopped}`
 - `desktop.usage.{line,detail,now,justNow,minutesAgo}`
 
 It also uses the dashboard's `connection.*`, `clients.empty`, and `clients.recent`.

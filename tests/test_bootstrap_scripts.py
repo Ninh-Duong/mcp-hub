@@ -546,9 +546,11 @@ class DesktopPackagingTest(unittest.TestCase):
         # The decision runs first; the Windows build and the publish come after QC, in order.
         order = [workflow.index(step) for step in (
             "does not match the project version", "scripts/package_qc.py", "scripts/build_desktop.py",
-            "Get-FileHash", "gh release create",
+            "Get-FileHash", "scripts/build_bitnet_runtime.py", "gh release create",
         )]
         self.assertEqual(order, sorted(order))
+        # The BitNet runtime and its manifest go into the same Release as the installer.
+        self.assertIn('-like "bitnet-*"', workflow)
         self.assertIn("needs.plan.outputs.build == 'true'", workflow)
         self.assertIn("needs.plan.outputs.publish == 'true'", workflow)
         # A push to master creates the tag at the built commit; a tag push verifies the existing tag.
