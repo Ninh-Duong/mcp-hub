@@ -105,7 +105,7 @@ def _load_children() -> list[dict[str, Any]]:
         if not server.enabled or not SAFE_ID.fullmatch(server_id):
             continue
         repo = (HUB_ROOT.parent / server_id).resolve()
-        if repo.parent == HUB_ROOT.parent and repo.is_dir():
+        if repo.parent == HUB_ROOT.parent.resolve() and repo.is_dir():
             result.append(_repo_component(server_id, repo))
     return result
 

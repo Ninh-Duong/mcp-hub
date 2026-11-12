@@ -488,7 +488,7 @@ function Install-ReleasedStatusApp {
     Invoke-WebRequest -Uri $setup.browser_download_url -OutFile $path -UseBasicParsing
     Invoke-WebRequest -Uri $sum.browser_download_url -OutFile "$path.sha256" -UseBasicParsing
     $expected = ((Get-Content -LiteralPath "$path.sha256" -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
-    $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+    $actual = Get-Sha256Hex -Path $path
     if ($actual -ne $expected) {
         Remove-Item -LiteralPath $path -Force
         throw "The downloaded installer does not match its SHA-256; it was deleted and not run."
@@ -498,6 +498,17 @@ function Install-ReleasedStatusApp {
         Update-InstalledStatusApp -Installer $path -Executable $InstalledExe
     } else {
         Start-Process -FilePath $path -Wait
+    }
+}
+
+function Get-Sha256Hex {
+    # .NET hashing: the cmdlet-based hash is missing from some powershell.exe builds that hubctl starts (CI runner).
+    param([Parameter(Mandatory)][string]$Path)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        return ([BitConverter]::ToString($sha.ComputeHash([IO.File]::ReadAllBytes($Path))) -replace '-', '').ToLowerInvariant()
+    } finally {
+        $sha.Dispose()
     }
 }
 

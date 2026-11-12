@@ -354,7 +354,7 @@ class StatusAppRefreshTest(unittest.TestCase):
                 "[pscustomobject]@{name='mcp-hub-status-setup-2.0.0.exe.sha256'; browser_download_url='checksum'}) } }; "
                 "function Invoke-WebRequest { param($Uri, $OutFile, [switch]$UseBasicParsing) "
                 "if ($Uri -eq 'installer') { [IO.File]::WriteAllText($OutFile, 'release') } "
-                "else { (Get-FileHash -LiteralPath ($OutFile -replace '\\.sha256$', '') -Algorithm SHA256).Hash "
+                "else { Get-Sha256Hex -Path ($OutFile -replace '\\.sha256$', '') "
                 "| Set-Content -LiteralPath $OutFile } }; "
                 "function Start-Process { param($FilePath, $ArgumentList, [switch]$Wait, [switch]$PassThru) "
                 "Write-Host ('RUN=' + (Split-Path $FilePath -Leaf) + ';ARGS=' + $ArgumentList); "
@@ -369,6 +369,12 @@ class StatusAppRefreshTest(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             return result.stdout
+
+    def test_refresh_hashes_with_dotnet_not_get_filehash(self) -> None:
+        # Get-FileHash is missing from some powershell.exe builds hubctl starts; the refresh path must not need it.
+        hubctl = (HUB_ROOT / "scripts" / "hubctl.ps1").read_text(encoding="utf-8")
+        self.assertNotIn("Get-FileHash", hubctl)
+        self.assertIn("[Security.Cryptography.SHA256]::Create()", hubctl)
 
     def test_older_installed_app_runs_verified_release_silently(self) -> None:
         output = self.run_install("Install-StatusApp")
@@ -461,7 +467,7 @@ Get-Content -LiteralPath $script:installed
         failures = {
             "lookup": "function Invoke-RestMethod { throw 'offline' }",
             "download": "function Invoke-WebRequest { throw 'offline' }",
-            "checksum": "function Get-FileHash { [pscustomobject]@{ Hash = [guid]::NewGuid().ToString('N') } }",
+            "checksum": "function Get-Sha256Hex { [guid]::NewGuid().ToString('N') }",
             "installer": "function Start-Process { [pscustomobject]@{ ExitCode = 1 } }",
             "launch": "function Start-Process { throw 'launch failed' }",
             "remote": "function Get-ReleasesUrl { $null }",

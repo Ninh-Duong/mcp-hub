@@ -1,6 +1,7 @@
 """Offline tests for detached update orchestration."""
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -28,6 +29,20 @@ class UpdateRunnerTest(unittest.TestCase):
             config.ServerSwitch("disabled-child", False, None),
         )
         with patch.object(update_runner, "HUB_ROOT", hub), patch.object(update_runner, "server_switches", return_value=switches):
+            result = update_runner._load_children()
+        self.assertEqual([item["id"] for item in result], ["enabled-child"])
+
+    def test_child_discovery_accepts_unresolved_checkout_path(self) -> None:
+        # A checkout reached through a relative, short (8.3), or linked path must still find its siblings.
+        root = Path(self.temp.name) / "checkout"
+        (root / "mcp-hub").mkdir(parents=True)
+        (root / "enabled-child").mkdir()
+        switches = (config.ServerSwitch("enabled-child", True, None),)
+        previous = Path.cwd()
+        os.chdir(self.temp.name)
+        self.addCleanup(os.chdir, previous)
+        with patch.object(update_runner, "HUB_ROOT", Path("checkout") / "mcp-hub"), \
+             patch.object(update_runner, "server_switches", return_value=switches):
             result = update_runner._load_children()
         self.assertEqual([item["id"] for item in result], ["enabled-child"])
 
