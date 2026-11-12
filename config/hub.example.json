@@ -208,6 +208,11 @@
         },
         {
           "server": "mcp-pr-companion",
+          "name": "get_pr_comment",
+          "exposeAs": "pr__get_pr_comment"
+        },
+        {
+          "server": "mcp-pr-companion",
           "name": "list_my_open_prs",
           "exposeAs": "pr__list_my_open_prs"
         },
