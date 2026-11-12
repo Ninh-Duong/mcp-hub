@@ -39,6 +39,16 @@ The extension is disabled by default. The install switches it on; afterwards it 
 
 When enabled, the Hub starts the background supervisor (`Sidecar`), which ensures `llama-server.exe` is running on `127.0.0.1:8766`.
 
+## Processing stream
+
+With BitNet enabled, `GET /dashboard/api/bitnet/processing/stream` provides a transient SSE timeline independently of Track AI clients. Existing dashboard authentication allows the admin token or a paired browser session; the MCP client token is denied. The route is absent when BitNet is off, including on older Hubs without this feature.
+
+The first SSE message is `snapshot`, with `{stream_id, sequence, events}`. `events` contains at most the latest three events, oldest first. Live messages use SSE name `event` and contain one event. SSE IDs are `<stream_id>:<sequence>`. Sequences increase within one Hub process; a restart creates a new stream ID. Each subscriber has a one-item queue: overflow discards stale deltas and sends a fresh `snapshot`. Idle streams send a content-free SSE comment heartbeat every 15 seconds without advancing the sequence or history. Disconnecting removes the subscriber.
+
+Event fields are a fixed allowlist: `stream_id`, `sequence`, `at` (UTC ISO timestamp), `operation`, `state`, `source`, and optional `server_id`, `tool_name`, `duration_ms`, `error_code`. Operations are `plan`, `child_call`, `condense`, `job_plan`, and `local_summary`; states are `started`, `succeeded`, `failed`, and `fallback`. Sources are `bitnet`, `rules`, `child`, `cache`, `fallback`, and `local`. Assisted planning and condensation start as `local`; outcomes identify the actual model/rules source, or fallback. Deterministic batch packing starts and succeeds as `rules`. Local summary uses `bitnet`, and child calls identify cache hits with `cache`.
+
+Server/tool names must match configured routing metadata and contain at most 128 safe identifier characters. Duration is clamped to 0–3,600,000 milliseconds. Error codes are only `timeout`, `unavailable`, `cancelled`, `tool_error`, or `unexpected`. No prompt, task, question, arguments, results, model output, client identity, job ID, paths, URLs, or exception text is accepted. The feed uses only bounded process memory: no persistent history, audit payloads, or Activity UI storage.
+
 ## Requirements
 
 - **Operating System:** Windows 10/11 x64, with a CPU that has AVX2.

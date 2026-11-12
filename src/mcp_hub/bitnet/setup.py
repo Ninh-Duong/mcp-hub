@@ -6,13 +6,14 @@ status block, and never touches a tool call. The install itself runs on a worker
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any
 
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.routing import Route
 
 from .. import hub_settings
@@ -20,9 +21,12 @@ from ..audit import AuditLog
 from ..extensions import BITNET, DashboardExtension
 from ..settings import BitnetSettings
 from .installer import Installer, InstallError
+from .processing import ProcessingFeed
 from .sidecar import Sidecar, _read_install
 
 INSTALL_ROUTE = "/dashboard/api/bitnet/install"
+PROCESSING_ROUTE = "/dashboard/api/bitnet/processing/stream"
+PROCESSING_HEARTBEAT_SECONDS = 15
 SETUP_EXTENSION = "bitnet-setup"
 
 
@@ -36,10 +40,12 @@ class BitnetSetup:
         audit: AuditLog | None,
         *,
         sidecar: Sidecar | None = None,
+        processing_feed: ProcessingFeed | None = None,
         installer_factory: Callable[[], Installer] | None = None,
         enable: Callable[[str, bool], None] = hub_settings.set_extension,
     ) -> None:
         self.root, self.settings, self.audit, self.sidecar = root, settings, audit, sidecar
+        self.processing_feed = processing_feed
         self._new_installer = installer_factory or (lambda: Installer(root, settings))
         self._enable = enable
         self.installed = _read_install(root) is not None
@@ -124,7 +130,34 @@ class BitnetSetup:
         return JSONResponse({"started": started, **self.status_fields()}, status_code=202)
 
     def routes(self) -> tuple[Route, ...]:
-        return (Route(INSTALL_ROUTE, self.install_route, methods=["POST"]),)
+        routes = (Route(INSTALL_ROUTE, self.install_route, methods=["POST"]),)
+        if self.processing_feed is not None:
+            routes += (Route(PROCESSING_ROUTE, self.processing_stream, methods=["GET"]),)
+        return routes
+
+    async def processing_stream(self, _request: Request) -> Response:
+        return StreamingResponse(self._processing_messages(), media_type="text/event-stream", headers={
+            "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no",
+        })
+
+    async def _processing_messages(self) -> AsyncIterator[str]:
+        assert self.processing_feed is not None
+        feed = self.processing_feed
+        queue = feed.subscribe()
+        try:
+            yield _processing_message("snapshot", feed.snapshot())
+            while True:
+                try:
+                    record = await asyncio.wait_for(queue.get(), timeout=PROCESSING_HEARTBEAT_SECONDS)
+                except asyncio.TimeoutError:
+                    yield ": keep-alive\n\n"
+                    continue
+                if record.get("resync"):
+                    yield _processing_message("snapshot", feed.snapshot())
+                else:
+                    yield _processing_message("event", record)
+        finally:
+            feed.unsubscribe(queue)
 
     def dashboard_extension(self) -> DashboardExtension:
         return DashboardExtension(name=SETUP_EXTENSION, routes=self.routes(), status_fields=self.status_fields)
@@ -138,3 +171,8 @@ class BitnetSetup:
                 await asyncio.wait_for(asyncio.shield(self._task), timeout=5.0)
             except (asyncio.TimeoutError, Exception):
                 pass
+
+
+def _processing_message(event: str, record: dict[str, Any]) -> str:
+    event_id = f"{record['stream_id']}:{record['sequence']}"
+    return f"id: {event_id}\nevent: {event}\ndata: {json.dumps(record, separators=(',', ':'))}\n\n"

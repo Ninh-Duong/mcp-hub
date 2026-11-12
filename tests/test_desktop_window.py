@@ -104,7 +104,7 @@ def texts(rows) -> list[str]:
         if isinstance(widget, widgets.Row):
             parts = (widget.glyph.text(), widget.text.text(), widget.detail.text())
             found.append(" ".join(part for part in parts if part))
-        elif widget is not None:
+        elif widget is not None and not isinstance(widget, widgets.ProcessingLog):
             found.append(widget.text())
     return found
 
@@ -127,13 +127,89 @@ class StatusWindowTest(unittest.TestCase):
         self.utc = datetime(2026, 10, 31, 9, 30, tzinfo=timezone.utc)
         self.streams: list[tuple] = []
         self.stream_started = threading.Event()
+        self.processing_streams = []
+        self.processing_started = threading.Event()
         self.window = app.StatusWindow(
             i18n.Translator("en"), fetch=self.fake_fetch, open_dashboard=self.fake_open,
             launch=self.launched.append, clock=lambda: self.now, style=self.fake_style, prefs_path=self.prefs_path,
             hub_store=self.store, read_autostart=lambda: dict(self.autostart), write_autostart=self.fake_write_autostart,
             run_worker=lambda job: job(),
-            stream=self.fake_stream, now=lambda: self.utc,
+            stream=self.fake_stream, processing_stream=self.fake_processing_stream, now=lambda: self.utc,
         )
+
+    def fake_processing_stream(self, put, stop):
+        self.processing_streams.append((put, stop))
+        self.processing_started.set()
+
+    def test_processing_rows_localize_fade_and_preserve_children(self):
+        from mcp_hub.desktop import processing
+        from tests.test_desktop_processing import event, snapshot
+        child = ChildRow("mcp-server-logs", "connected", "ok")
+        self.window.apply(replace(running(child), bitnet=status.BitnetInfo(True, True, "ready")))
+        self.assertTrue(self.processing_started.wait(2))
+        self.assertIsNone(self.window._stream_stop)
+        row = self.window.child_rows[child.server_id]
+        put, _stop = self.processing_streams[-1]
+        put(("processing", processing.parse_message("snapshot", snapshot(0, events=[]))))
+        for sequence in range(1, 6):
+            put(("processing", processing.parse_message("event", event(sequence))))
+        self.window.process_results()
+        self.assertIs(self.window.child_rows[child.server_id], row)
+        panel = self.window.processing_log
+        self.assertEqual([item.sequence for item in panel.events], [5, 4, 3])
+        self.assertEqual(len(panel.rows), 3)
+        self.assertEqual([item.graphicsEffect().opacity() for item in panel.rows], [1, .65, .4])
+        index = self.window.children_list.indexOf(self.window.bitnet_row)
+        self.assertIs(self.window.children_list.itemAt(index + 1).widget(), panel)
+        english = panel.rows[0].text()
+        self.window.set_language("vi")
+        self.assertNotEqual(self.window.processing_log.rows[0].text(), english)
+        self.window.set_compact(True)
+        self.assertTrue(self.window.compact)
+        self.assertFalse(self.window.processing_log.isVisible())
+        self.window.set_compact(False)
+        self.assertEqual(len(self.window.processing_log.rows), 3)
+
+    def test_processing_absent_route_clears_rows_without_changing_footer(self):
+        from mcp_hub.desktop import processing
+        from tests.test_desktop_processing import snapshot
+        ready = replace(running(), bitnet=status.BitnetInfo(True, True, "ready"))
+        self.window.apply(ready)
+        self.assertTrue(self.processing_started.wait(2))
+        put, _stop = self.processing_streams[-1]
+        put(("processing", processing.parse_message("snapshot", snapshot())))
+        self.window.process_results()
+        self.assertEqual(len(self.window.processing_board.events), 1)
+        put(("processing_unavailable", None))
+        self.window.process_results()
+        self.assertEqual(self.window.processing_board.events, ())
+        self.assertTrue(self.window.processing_log.isHidden())
+        self.assertIsNone(self.window.message_key)
+
+    def test_processing_disable_restart_close_drops_stale_generation(self):
+        from mcp_hub.desktop import processing
+        from tests.test_desktop_processing import snapshot
+        ready = replace(running(), bitnet=status.BitnetInfo(True, True, "ready"))
+        self.window.apply(ready)
+        self.assertTrue(self.processing_started.wait(2))
+        put, stop = self.processing_streams[-1]
+        message = ("processing", processing.parse_message("snapshot", snapshot()))
+        put(message)
+        self.window.process_results()
+        self.assertEqual(len(self.window.processing_board.events), 1)
+        self.window.apply(replace(ready, bitnet=status.BitnetInfo(True, False, "off")))
+        self.assertTrue(stop.is_set())
+        put(message)
+        self.window.process_results()
+        self.assertEqual(self.window.processing_board.events, ())
+        self.window.apply(ready)
+        self.window.restart_hub()
+        self.assertIsNone(self.window._processing_stop)
+        self.assertEqual(self.window.processing_board.events, ())
+        self.window.apply(ready)
+        current = self.window._processing_stop
+        self.window.close()
+        self.assertTrue(current.is_set())
 
     def fake_stream(self, put, stop: threading.Event) -> None:
         self.streams.append((put, stop))

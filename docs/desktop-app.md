@@ -118,6 +118,7 @@ The **connection file** is `%LOCALAPPDATA%\mcp-hub\connection.json`: `{"version"
 
 | Module | Role |
 |---|---|
+| `desktop/processing.py` | Logic, no Qt. Validates the content-free processing SSE contract, opens the authenticated loopback stream, reconnects with bounded backoff, and forwards typed snapshots/events to the Qt queue. `ProcessingBoard` deduplicates by Hub stream ID and sequence and keeps three newest records in memory. |
 | `desktop/usage.py` | Logic, no Qt. `stream_usage` (a worker thread) reads `GET /dashboard/api/activity/stream` with the bearer and forwards its snapshot and call events. It reconnects with a backoff from 1 to `STREAM_RETRY_MAX_SECONDS` (30 s). `UsageBoard` keeps the running calls and the last finished call per child; `usage()` gives a child's line and `client_usage()` the children each client uses. |
 | `desktop/connection.py` | Reads the connection file: `load_connection` accepts only a `127.0.0.1` URL and a token of at least 32 characters, and raises `ConnectionMissing` (shown as **Not installed**) otherwise. The token is never in an error or `repr`. |
 | `desktop/hub_api.py` | `HubClient`: the Hub's settings API (`read_settings`, `set_activity_ui`, `set_bitnet`, `install_bitnet`, `set_server_enabled`, `read_hub_autostart`, `set_hub_autostart`) and `control` (restart or stop). It holds the app's own `HubSettings` and `ServerSwitch` dataclasses. Failures are `OSError` or `ValueError`. |
@@ -143,6 +144,10 @@ While the Hub runs with the activity UI, one more daemon thread listens to the a
 - It puts each message on the same queue, tagged with a generation number.
 - When the Hub stops, the mode turns fast, or the window closes, the app sets the thread's stop event and bumps the generation, so messages already queued are dropped.
 - The stream sends a keep-alive every 15 s, so the thread notices a stop request within that time. A read timeout of `STREAM_READ_TIMEOUT_SECONDS` (40 s) detects a dead connection.
+
+The BitNet processing reader is a separate daemon thread, started whenever the running Hub reports BitNet enabled, including when Track AI clients is off. It reads `GET /dashboard/api/bitnet/processing/stream` using the admin bearer and the existing loopback-only opener. A snapshot (also used for resync) replaces the board; event messages append in sequence order. Unknown or malformed records are ignored. Reconnect waits grow from 1 to `STREAM_RETRY_MAX_SECONDS`; HTTP 401/404 quietly clears the log once per unavailable stretch and retries with the same bounded backoff, so a restarted or upgraded Hub can recover without a footer error.
+
+The processing reader sends typed records through the existing queue. Only its current generation may update the board on the Qt thread. Disabling BitNet, removing its status row, stopping/restarting the Hub, and closing the app cancel the generation and clear the board. A new Hub stream ID resets the sequence. No processing history is written to disk, Activity UI, or the footer.
 
 ### Incremental rendering
 
@@ -217,7 +222,7 @@ These are the rules for every UI change in the app. A change that breaks one upd
   - The line stays 2 minutes after the last call, so the window grows once per burst of calls and shrinks once after it, not on every call.
 - **Client usage detail.** An AI client row's right-hand detail names the children that client uses: `blue` while it calls them, `muted` for 2 minutes after, then back to its usual detail. One board feeds both cards, so they always agree.
 - **Update card.** One card between the AI clients and the actions, shown only while an update is available and only in the full window (the mini bar never shows it). A headline names the version; a caption says which one is in use. **Update** is a secondary button, so **Open dashboard** or **Start Hub** stays the one primary action. A button that cannot act is disabled, never hidden: it waits while a download runs and while the health gate blocks (the caption then names the failing children). A failed update shows one fixed sentence in `red` and enables the button again. No version string, path, or error text from GitHub is shown.
-- **Steady.** A refresh that finds nothing new must not move, resize, or redraw anything except the footer time (see [Incremental rendering](#incremental-rendering)). Only new usage may change the height.
+- **Steady.** A refresh that finds nothing new must not move, resize, or redraw anything except the footer time (see [Incremental rendering](#incremental-rendering)). Only new usage or processing rows may change the height.
 
 ## States
 
@@ -247,6 +252,12 @@ Under the children, one **BitNet** row has its own dot and is not counted in `ok
 | `starting`, `restarting` | `wait` | `desktop.bitnet.state.<state>` |
 | `unavailable` | `error` | `desktop.bitnet.state.unavailable` |
 | `not_installed`, `off`, `stopped`, or installed but switched off | `off` | `desktop.bitnet.state.<state>` or `desktop.bitnet.state.off` |
+
+### BitNet processing log
+
+Directly beneath the BitNet status row, `ProcessingLog` shows at most three newest-first rows. Each line derives its operation, outcome, and optional source from locale keys, with optional configured server/tool IDs. It never displays prompts, arguments, results, model output, client labels, or exception text. Long lines elide and retain the safe localized line in a tooltip.
+
+Native `QPropertyAnimation` moves retained rows downward within the panel over `SPINNER_MS`. Native `QGraphicsOpacityEffect` renders the newest row at full opacity and the next two at 65% and 40%. Row heights follow the current font, spacing follows the existing theme tokens, and each theme supplies its caption color. Empty history occupies no space. A burst redraws only this panel, preserving child usage rows, the BitNet ready dot, and mini-bar state. Language changes re-render the stored event codes; compact mode hides the panel with its containing card.
 
 ### Child usage line
 
@@ -290,6 +301,10 @@ The app's own keys:
 - `desktop.bitnet.error.{platform,disk,network,release,checksum,extract,cancelled,unexpected,request}`
 - `desktop.bitnet.state.{not_installed,off,installing,starting,ready,restarting,unavailable,stopped}`
 - `desktop.usage.{line,detail,now,justNow,minutesAgo}`
+- `desktop.processing.{line,sourceLine}`
+- `desktop.processing.operation.{plan,child_call,condense,job_plan,local_summary}`
+- `desktop.processing.state.{started,succeeded,failed,fallback}`
+- `desktop.processing.source.{bitnet,rules,child,cache,fallback,local}`
 
 It also uses the dashboard's `connection.*`, `clients.empty`, and `clients.recent`.
 
@@ -350,6 +365,8 @@ The command opens the window on top of other windows and renders fixed sample da
 The tests skip with a reason only if Qt cannot load; the CI Linux job installs the system libraries Qt needs.
 
 `tests/test_desktop_usage.py` covers the SSE parser, the usage board (running and recent calls, merging, expiry, minute steps, snapshots, bad events), opening the stream with the bearer without showing it, and the worker's forwarding, backoff, and stop. `tests/test_desktop_window.py` also covers the usage lines and the client details: live updates without rebuilding rows, a hidden line giving its space back, the stream following the mode, stale messages dropped, and closing.
+
+`tests/test_desktop_processing.py` covers typed snapshot/event/resync parsing, malformed and unknown records, content-bearing field projection, stream/sequence deduplication, restart, stop, authenticated loopback opening, bounded reconnect, and quiet older-Hub behavior. Window tests cover placement, newest-three order and opacity, locale changes, compact mode, unchanged child rows, tracking independence, generation cancellation, disable/restart/close, and clearing a missing route without a footer error.
 
 `tests/test_desktop_client.py` covers the client side: bad connection files (never showing the token), `HubClient` calls with the bearer and their failures, `start_hub`, the Run-key entry, `set_app_id`, and **the import boundary** (no `mcp_hub` module outside `desktop`).
 

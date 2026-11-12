@@ -8,10 +8,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QPropertyAnimation, Qt, QTimer
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
-    QButtonGroup, QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget,
+    QButtonGroup, QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget,
 )
 
 from . import theme
@@ -223,6 +223,74 @@ class UsageRow(QWidget):
         show_elided(self.usage, text, theme.WINDOW_WIDTH - 2 * theme.SPACE_M - theme.GLYPH_COLUMN_WIDTH - theme.SPACE_S,
                     tooltip)
         self.usage.show()
+
+
+class ProcessingLog(QWidget):
+    """Three localized event rows, positioned independently so native movement cannot fight a layout."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.events = ()
+        self.rows: list[QLabel] = []
+        self.animations: list[QPropertyAnimation] = []
+        self._key = None
+        self.hide()
+
+    def show_events(self, events: tuple, t: Callable[..., str]) -> None:
+        texts = tuple(self._event_text(event, t) for event in events)
+        key = (events, texts)
+        if key == self._key:
+            return
+        self._key = key
+        positions = {event.sequence: row.pos() for event, row in zip(self.events, self.rows)}
+        for animation in self.animations:
+            animation.stop()
+            animation.deleteLater()
+        self.animations = []
+        for row in self.rows:
+            row.hide()
+            row.deleteLater()
+        self.rows = []
+        self.events = events
+        height = self.fontMetrics().height() + theme.SPACE_XS
+        self.setFixedHeight(height * len(events))
+        for index, (event, text) in enumerate(zip(events, texts)):
+            row = self._row(text, index, height)
+            target = row.pos()
+            if event.sequence in positions and positions[event.sequence] != target:
+                animation = QPropertyAnimation(row, b"pos", self)
+                animation.setDuration(theme.SPINNER_MS)
+                animation.setStartValue(positions[event.sequence])
+                animation.setEndValue(target)
+                animation.start()
+                self.animations.append(animation)
+            self.rows.append(row)
+        self.setVisible(bool(events))
+
+    def _row(self, text: str, index: int, height: int) -> QLabel:
+        row = label(role="caption")
+        row.setParent(self)
+        left = theme.GLYPH_COLUMN_WIDTH + theme.SPACE_S
+        width = theme.WINDOW_WIDTH - 2 * theme.SPACE_M - left
+        row.setGeometry(left, index * height, width, height)
+        show_elided(row, text, width)
+        opacity = QGraphicsOpacityEffect(row)
+        opacity.setOpacity((1.0, .65, .4)[index])
+        row.setGraphicsEffect(opacity)
+        row.show()
+        return row
+
+    @staticmethod
+    def _event_text(event: Any, t: Callable[..., str]) -> str:
+        text = t("desktop.processing.line", operation=t(f"desktop.processing.operation.{event.operation}"),
+                 state=t(f"desktop.processing.state.{event.state}"))
+        if event.source:
+            text = t("desktop.processing.sourceLine", text=text, source=t(f"desktop.processing.source.{event.source}"))
+        if event.server_id:
+            text += " · " + event.server_id
+        if event.tool_name:
+            text += " · " + event.tool_name
+        return text
 
 
 def dot_icon(color: str, size: int = theme.ICON_SIZE) -> QIcon:

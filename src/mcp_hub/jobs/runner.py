@@ -20,6 +20,7 @@ from ..agents.specialists import (
 )
 from ..audit import redact
 from ..extensions import DraftSummarizer, PlanAssistant, PlanContext, ResultCondenser
+from ..extensions import ObservedCondenser, ProcessingObserver, processing_step
 from ..plan_merge import fold, parse_window, roles_for_servers
 from ..result_cache import cache_key
 from ..security.dpapi import WINDOWS_ONLY_MESSAGE
@@ -179,6 +180,7 @@ class JobRunner:
         plan_assistant: PlanAssistant | None = None,
         condenser: ResultCondenser | None = None,
         summarizer: DraftSummarizer | None = None,
+        processing_observer: ProcessingObserver | None = None,
         plan_timeout_seconds: float = 3.0,
         condense_min_chars: int = 9000,
         condense_timeout_seconds: float = 8.0,
@@ -188,6 +190,7 @@ class JobRunner:
         self.plan_assistant = plan_assistant
         self.condenser = condenser
         self.summarizer = summarizer
+        self.processing_observer = processing_observer
         self.plan_timeout_seconds = plan_timeout_seconds
         self.condense_min_chars = condense_min_chars
         self.condense_timeout_seconds = condense_timeout_seconds
@@ -602,10 +605,10 @@ class JobRunner:
                 now=self.store.clock(),
             )
             call_fn = getattr(self.plan_assistant, "hints", None) or getattr(self.plan_assistant, "assist_plan", None)
-            hints = await asyncio.wait_for(
+            hints = await processing_step(self.processing_observer, "job_plan", asyncio.wait_for(
                 call_fn(context),
                 timeout=self.plan_timeout_seconds,
-            )
+            ))
             if hints and hints.source:
                 source = hints.source
         except Exception:
@@ -665,7 +668,8 @@ class JobRunner:
         if coordinator is None:
             if self.summarizer is not None:
                 payload = _findings_payload(findings)
-                draft = await self.summarizer.summarize(request["question"], payload)
+                draft = await processing_step(self.processing_observer, "local_summary",
+                                              self.summarizer.summarize(request["question"], payload), source="bitnet")
                 if draft is not None:
                     return "\n\n".join([draft, *notes]), False
             return _fallback_summary(findings, *notes, "Coordinator agent is not configured."), False
@@ -746,7 +750,7 @@ class JobRunner:
                 if len(raw_text) >= self.condense_min_chars:
                     try:
                         await asyncio.wait_for(
-                            self.condenser.condense(raw_text, request.get("question")),
+                            self._observed_condenser().condense(raw_text, request.get("question")),
                             timeout=self.condense_timeout_seconds,
                         )
                     except Exception:
@@ -768,12 +772,17 @@ class JobRunner:
             save_result=self.store.save_encrypted_result,
             call_tool=self._call_child_tool,
             tool_filter=self.policy.offers_tool,
-            condenser=self.condenser,
+            condenser=self._observed_condenser(),
             condense_min_chars=self.condense_min_chars,
             condense_timeout_seconds=self.condense_timeout_seconds,
         )
         await _db(self.store.append_event, job_id, "agent.started", agent=role)
         return await executor.run(job_id, role, _specialist_task(request))
+
+    def _observed_condenser(self) -> ResultCondenser | None:
+        if self.condenser is None or self.processing_observer is None:
+            return self.condenser
+        return ObservedCondenser(self.condenser, self.processing_observer)
 
     def _record_findings(
         self, job_id: str, outcomes: list[tuple[str, SpecialistResult | BaseException | None]],

@@ -34,12 +34,14 @@ class ServiceExtensionWiringTest(unittest.IsolatedAsyncioTestCase):
             observers=(),
             add_observer=lambda o: None,
             activity_source=None,
+            processing_observer=None,
             audit=self.audit,
         )
         self.job_runner = SimpleNamespace(
             plan_assistant=None,
             condenser=None,
             summarizer=None,
+            processing_observer=None,
             close=AsyncMock(),
         )
 
@@ -60,9 +62,11 @@ class ServiceExtensionWiringTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(self.runtime.plan_assistant, BitnetPlanAssistant)
         self.assertIsInstance(self.runtime.condenser, BitnetCondenser)
         self.assertIsInstance(self.runtime.full_results, FullResultStore)
+        self.assertIs(self.runtime.processing_observer, ext.setup.processing_feed)
         self.assertIs(self.job_runner.plan_assistant, self.runtime.plan_assistant)
         self.assertIs(self.job_runner.condenser, self.runtime.condenser)
         self.assertIsInstance(self.job_runner.summarizer, BitnetDraftSummarizer)
+        self.assertIs(self.job_runner.processing_observer, ext.setup.processing_feed)
 
     def test_no_bitnet_wires_core_condenser_and_leaves_llm_hooks_none(self) -> None:
         installed = service.install_extensions(
@@ -78,11 +82,13 @@ class ServiceExtensionWiringTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(installed[SETUP_EXTENSION], BitnetSetup)
         self.assertIsNone(installed[SETUP_EXTENSION].sidecar)
         self.assertIsNone(self.runtime.plan_assistant)
+        self.assertIsNone(self.runtime.processing_observer)
         self.assertIsInstance(self.runtime.condenser, RuleCondenser)
         self.assertIsInstance(self.runtime.full_results, FullResultStore)
         self.assertIsNone(self.job_runner.plan_assistant)
         self.assertIs(self.job_runner.condenser, self.runtime.condenser)
         self.assertIsNone(self.job_runner.summarizer)
+        self.assertIsNone(self.job_runner.processing_observer)
 
     def test_activity_ui_and_bitnet_together_both_install(self) -> None:
         installed = service.install_extensions(

@@ -12,6 +12,7 @@ from ..server import HubRuntime
 from .client import BitnetClient
 from .condense import BitnetCondenser
 from .planner import BitnetPlanAssistant
+from .processing import ProcessingFeed
 from .setup import BitnetSetup
 from .sidecar import Sidecar
 from .summarize import BitnetDraftSummarizer
@@ -39,8 +40,15 @@ def install_setup(runtime: HubRuntime, *, root: Path, audit: AuditLog | None) ->
     return BitnetSetup(root, runtime.settings.bitnet, audit)
 
 
+def _allowed_tools(runtime: HubRuntime) -> set[tuple[str, str]]:
+    routes = getattr(getattr(runtime, "config", None), "routes", ()) or ()
+    return {(r.server_id, r.tool_name) for r in routes if hasattr(r, "server_id") and hasattr(r, "tool_name")}
+
+
 def install(runtime: HubRuntime, job_runner: Any, *, root: Path, audit: AuditLog) -> BitnetExtension:
     settings = runtime.settings.bitnet
+    processing = ProcessingFeed(_allowed_tools(runtime))
+    runtime.processing_observer = processing
     client = BitnetClient(settings.port)
     runtime.plan_assistant = BitnetPlanAssistant(client, timeout=settings.plan_timeout_seconds)
     runtime.condenser = BitnetCondenser(
@@ -48,8 +56,9 @@ def install(runtime: HubRuntime, job_runner: Any, *, root: Path, audit: AuditLog
     )
     runtime.full_results = FullResultStore(settings.full_result_max_entries, settings.full_result_ttl_seconds)
     if job_runner is not None:
+        job_runner.processing_observer = processing
         job_runner.plan_assistant = runtime.plan_assistant
         job_runner.condenser = runtime.condenser
         job_runner.summarizer = BitnetDraftSummarizer(client)
     sidecar = Sidecar(root, settings, audit, log_dir=getattr(runtime, "child_log_dir", None))
-    return BitnetExtension(sidecar, BitnetSetup(root, settings, audit, sidecar=sidecar))
+    return BitnetExtension(sidecar, BitnetSetup(root, settings, audit, sidecar=sidecar, processing_feed=processing))

@@ -41,6 +41,7 @@ from .condense import RuleCondenser, condense_text_rules
 from .config import HUB_ROOT, HubConfig, ServerConfig, ToolRoute, is_sensitive_key, load_config
 from datetime import UTC, datetime
 from .extensions import ActivitySource, CallObserver, PlanAssistant, PlanContext, PlanHints, ResultCondenser, empty_activity
+from .extensions import ProcessingEvent, ProcessingObserver, emit_processing, processing_step
 from .full_results import FullResultStore
 from .plan_merge import merge_plan_arguments
 from . import policy
@@ -92,6 +93,7 @@ class HubRuntime:
     def __init__(
         self, config: HubConfig, audit: AuditLog, settings: Settings = Settings(), *,
         playbooks: Mapping[str, Playbook] | None = None, projects: Mapping[str, ProjectConfig] | None = None,
+        processing_observer: ProcessingObserver | None = None,
     ) -> None:
         self.config = config
         self.audit = audit
@@ -103,6 +105,7 @@ class HubRuntime:
         self.discovered_tool_counts: dict[str, int] = {}
         self.observers: tuple[CallObserver, ...] = ()
         self.activity_source: ActivitySource | None = None
+        self.processing_observer = processing_observer
         self.result_cache = ResultCache(max_entries=settings.cache.max_entries, max_bytes=settings.cache.max_bytes)
         # Child supervision settings; tests replace them before `connect`.
         self.child_opener: ChildOpener = open_stdio_client
@@ -351,10 +354,10 @@ class HubRuntime:
             now=datetime.now(UTC),
         )
         try:
-            hints = await asyncio.wait_for(
+            hints = await processing_step(self.processing_observer, "plan", asyncio.wait_for(
                 self.plan_assistant.hints(context),
                 self.settings.bitnet.plan_timeout_seconds,
-            )
+            ))
         except Exception:
             hints = None
         if hints is None:
@@ -489,10 +492,10 @@ class HubRuntime:
         server = route.server_id if route else "unknown"
         started = monotonic()
         try:
-            condensed = await asyncio.wait_for(
+            condensed = await processing_step(self.processing_observer, "condense", asyncio.wait_for(
                 self.condenser.condense(text, task),
                 self.settings.bitnet.condense_timeout_seconds,
-            )
+            ))
         except Exception:
             condensed = None
         duration_ms = max(0, int((monotonic() - started) * 1000))
@@ -586,12 +589,30 @@ class HubRuntime:
         packed = list(items)
         for idx, item, text in eligible:
             if len(text) > budget:
-                condensed = condense_text_rules(text, budget, task)
+                condensed = self._pack_condense(text, budget, task)
                 route = self.routes.get(item.call.tool)
                 server = route.server_id if route else "unknown"
                 new_res = self._finish_condensed(text, condensed, f"{request_id}.{item.call.index}", server, item.call.tool, 0)
                 packed[idx] = BatchItem(item.call, new_res, item.ok, item.duration_ms)
         return packed
+
+    def _pack_condense(self, text: str, budget: int, task: str | None) -> Any:
+        if self.processing_observer is None:
+            return condense_text_rules(text, budget, task)
+        started = monotonic()
+        emit_processing(self.processing_observer, ProcessingEvent("condense", "started", "rules"))
+        try:
+            result = condense_text_rules(text, budget, task)
+        except Exception:
+            emit_processing(self.processing_observer, ProcessingEvent(
+                "condense", "failed", "fallback", duration_ms=int((monotonic() - started) * 1000),
+                error_code="unexpected",
+            ))
+            raise
+        emit_processing(self.processing_observer, ProcessingEvent(
+            "condense", "succeeded", "rules", duration_ms=int((monotonic() - started) * 1000),
+        ))
+        return result
 
     def _batch_policy(
         self, plan_id: Any, calls: list[Any], fields: dict[str, Any],
@@ -631,6 +652,10 @@ class HubRuntime:
             return _error_result("This tool is not enabled in the Hub configuration.")
         tokens = self._observe_start(route, client_name, agent_role) if self.observers else None
         call = _ChildCall(route, request_id, tokens, perf_counter())
+        if self.processing_observer is not None:
+            emit_processing(self.processing_observer, ProcessingEvent(
+                "child_call", "started", "child", route.server_id, route.tool_name,
+            ))
         self.audit.write(
             "tool.call.started", request_id=request_id, feature=route.feature, server=route.server_id, tool=route.tool_name,
         )
@@ -718,6 +743,8 @@ class HubRuntime:
     ) -> None:
         """Record the end of a child call for observers and in the audit log."""
         duration_ms = round((perf_counter() - call.started) * 1000)
+        if self.processing_observer is not None:
+            self._processing_call_finished(call, state, activity_error, event, duration_ms)
         if call.tokens is not None:
             self._observe_finish(call.tokens, state, activity_error, duration_ms)
         route = call.route
@@ -725,6 +752,19 @@ class HubRuntime:
             event, level=level, request_id=call.request_id, feature=route.feature, server=route.server_id,
             tool=route.tool_name, duration_ms=duration_ms, **audit_fields,
         )
+
+    def _processing_call_finished(
+        self, call: _ChildCall, state: str, error_type: str | None, event: str, duration_ms: int,
+    ) -> None:
+        error = None if error_type is None else {
+            "CancelledError": "cancelled", "ChildUnavailable": "unavailable", "ToolError": "tool_error",
+            "TimeoutError": "timeout",
+        }.get(error_type, "unexpected")
+        emit_processing(self.processing_observer, ProcessingEvent(
+            "child_call", "succeeded" if state == "succeeded" else "failed",
+            "cache" if event == "tool.call.cached" else "child", call.route.server_id, call.route.tool_name,
+            duration_ms, error,
+        ))
 
 
 class _ChildCall(NamedTuple):

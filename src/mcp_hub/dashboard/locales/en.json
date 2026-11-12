@@ -268,5 +268,22 @@
   "desktop.bitnet.state.ready": "Ready",
   "desktop.bitnet.state.restarting": "Restarting…",
   "desktop.bitnet.state.unavailable": "Unavailable",
-  "desktop.bitnet.state.stopped": "Stopped"
+  "desktop.bitnet.state.stopped": "Stopped",
+  "desktop.processing.line": "{operation} · {state}",
+  "desktop.processing.sourceLine": "{text} · {source}",
+  "desktop.processing.operation.plan": "Planning",
+  "desktop.processing.operation.child_call": "Calling tool",
+  "desktop.processing.operation.condense": "Condensing result",
+  "desktop.processing.operation.job_plan": "Planning investigation",
+  "desktop.processing.operation.local_summary": "Local summary",
+  "desktop.processing.state.started": "started",
+  "desktop.processing.state.succeeded": "done",
+  "desktop.processing.state.failed": "failed",
+  "desktop.processing.state.fallback": "fallback",
+  "desktop.processing.source.bitnet": "BitNet",
+  "desktop.processing.source.rules": "rules",
+  "desktop.processing.source.child": "child",
+  "desktop.processing.source.cache": "cache",
+  "desktop.processing.source.fallback": "fallback",
+  "desktop.processing.source.local": "local"
 }

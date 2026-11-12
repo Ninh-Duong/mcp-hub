@@ -5,13 +5,16 @@ The core tool-call path (`server`, `http`, `dashboard/api.py` core routes) never
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
-from collections.abc import Mapping
+import re
+from collections.abc import Awaitable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from time import monotonic
+from typing import Any, Callable, Literal, Protocol, get_args
 
 from .config import PRIVATE_ROOT, ConfigError, resolved_config_path
 
@@ -23,6 +26,81 @@ KNOWN_EXTENSIONS = frozenset({ACTIVITY_UI, BITNET})
 # Dashboard status flag for each extension, always reported so the UI knows what is installed.
 STATUS_FLAGS = {ACTIVITY_UI: "activityUi", BITNET: "bitnet"}
 LAUNCH_FILE = PRIVATE_ROOT / "launch.json"
+
+ProcessingOperation = Literal["plan", "child_call", "condense", "job_plan", "local_summary"]
+ProcessingState = Literal["started", "succeeded", "failed", "fallback"]
+ProcessingSource = Literal["bitnet", "rules", "child", "cache", "fallback", "local"]
+ProcessingError = Literal["timeout", "unavailable", "cancelled", "tool_error", "unexpected"]
+
+
+@dataclass(frozen=True)
+class ProcessingEvent:
+    """Content-free orchestration metadata; observers must never receive call data."""
+
+    operation: ProcessingOperation
+    state: ProcessingState
+    source: ProcessingSource
+    server_id: str | None = None
+    tool_name: str | None = None
+    duration_ms: int | None = None
+    error_code: ProcessingError | None = None
+
+    def __post_init__(self) -> None:
+        for name, codes in (("operation", ProcessingOperation), ("state", ProcessingState),
+                            ("source", ProcessingSource), ("error_code", ProcessingError)):
+            value = getattr(self, name)
+            if value not in get_args(codes) and not (name == "error_code" and value is None):
+                raise ValueError("Invalid processing code")
+        if self.duration_ms is not None and type(self.duration_ms) is not int:
+            raise ValueError("Invalid processing duration")
+        if self.duration_ms is not None:
+            object.__setattr__(self, "duration_ms", min(3_600_000, max(0, self.duration_ms)))
+        for name in ("server_id", "tool_name"):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", value)):
+                object.__setattr__(self, name, None)
+
+
+class ProcessingObserver(Protocol):
+    """Receives fixed, content-free events; perform only bounded in-memory work."""
+
+    def processing_event(self, event: ProcessingEvent) -> None: ...
+
+
+def emit_processing(observer: ProcessingObserver | None, event: ProcessingEvent) -> None:
+    """An optional observer cannot change an operation's result or policy."""
+    if observer is not None:
+        try:
+            observer.processing_event(event)
+        except Exception:
+            pass
+
+
+async def processing_step(
+    observer: ProcessingObserver | None, operation: ProcessingOperation, action: Awaitable[Any],
+    *, source: ProcessingSource = "local",
+) -> Any:
+    """Observe an existing async stage without changing its result or exception behavior."""
+    if observer is None:
+        return await action
+    started = monotonic()
+    emit_processing(observer, ProcessingEvent(operation, "started", source))
+    try:
+        result = await action
+    except (Exception, asyncio.CancelledError) as exc:
+        error: ProcessingError = "cancelled" if isinstance(exc, asyncio.CancelledError) else (
+            "timeout" if isinstance(exc, TimeoutError) else "unexpected"
+        )
+        emit_processing(observer, ProcessingEvent(operation, "failed", "fallback",
+                        duration_ms=int((monotonic() - started) * 1000), error_code=error))
+        raise
+    outcome_source = getattr(result, "source", source) if result is not None else "fallback"
+    if outcome_source not in ("bitnet", "rules", "local"):
+        outcome_source = "fallback"
+    state = "fallback" if outcome_source == "fallback" else "succeeded"
+    emit_processing(observer, ProcessingEvent(operation, state, outcome_source,
+                    duration_ms=int((monotonic() - started) * 1000)))
+    return result
 
 
 @dataclass(frozen=True)
@@ -59,6 +137,16 @@ class Condensed:
 
 class ResultCondenser(Protocol):
     async def condense(self, text: str, task: str | None) -> Condensed | None: ...
+
+
+class ObservedCondenser:
+    """Observe specialist condensation through the same core-neutral contract."""
+
+    def __init__(self, condenser: ResultCondenser, observer: ProcessingObserver) -> None:
+        self.condenser, self.observer = condenser, observer
+
+    async def condense(self, text: str, task: str | None) -> Condensed | None:
+        return await processing_step(self.observer, "condense", self.condenser.condense(text, task))
 
 
 class DraftSummarizer(Protocol):

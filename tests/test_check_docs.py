@@ -35,6 +35,9 @@ class CheckDocsTest(unittest.TestCase):
     def test_the_repository_docs_match_the_code(self) -> None:
         self.assertEqual(self.docs.all_problems(), [])
 
+    def test_served_routes_include_the_active_bitnet_processing_stream(self) -> None:
+        self.assertIn("/dashboard/api/bitnet/processing/stream", self.docs.served_routes())
+
     def test_anchors_follow_github_slugs(self) -> None:
         self.assertEqual(self.docs.slug(" Build the installer"), "build-the-installer")
         self.assertEqual(self.docs.slug("`hub__batch` limits (v2)"), "hubbatch-limits-v2")

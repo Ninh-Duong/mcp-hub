@@ -25,13 +25,13 @@ from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtGui import QFont, QGuiApplication
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QLayout, QVBoxLayout, QWidget
 
-from . import hub_api, prefs, screenshot, status, system, theme, update, usage, win32
+from . import hub_api, prefs, screenshot, status, system, theme, update, usage, win32, processing
 from .hub_page import ChildrenPage, HubPage
 from .i18n import LANGUAGES, Translator, system_language
 from .mini import MiniBar
 from .settings import AppearancePage, SettingsPanel
 from .update_card import CHECKING, DOWNLOADING, FAILED, INSTALLING, READY, UPDATING, UpdateCard
-from .widgets import Card, Row, Spinner, UsageRow, button, dot_icon, label, set_props, show_elided
+from .widgets import Card, ProcessingLog, Row, Spinner, UsageRow, button, dot_icon, label, set_props, show_elided
 
 # Never equal to a section key, so every section draws once after a theme switch or at start.
 _NOT_DRAWN = object()
@@ -97,6 +97,7 @@ class StatusWindow(QWidget):
         write_autostart: Callable[[str, bool], dict[str, bool | None]] = set_autostart,
         run_worker: Callable[[Callable[[], None]], None] = thread_worker,
         stream: Callable[[Callable[[tuple[str, Any]], None], threading.Event], None] = usage.stream_usage,
+        processing_stream: Callable = processing.stream_processing,
         now: Callable[[], datetime] = utc_now,
         updater: update.Updater | None = None,
     ) -> None:
@@ -107,6 +108,7 @@ class StatusWindow(QWidget):
         # Hub settings (through the Hub's API) and sign-in entries: read and written on worker threads.
         self.hub_store, self.read_autostart, self.write_autostart = hub_store, read_autostart, write_autostart
         self.run_worker, self.stream, self.now = run_worker, stream, now
+        self.processing_stream = processing_stream
         # Offers a newer app version (checked at start and hourly); None runs without it (from source, in tests).
         self.updater = updater
         appearance = appearance or theme.Appearance()
@@ -147,6 +149,10 @@ class StatusWindow(QWidget):
         self.usage_board = usage.UsageBoard()
         self.child_rows: dict[str, UsageRow] = {}
         self.bitnet_row: Row | None = None
+        self.processing_log: ProcessingLog | None = None
+        self.processing_board = processing.ProcessingBoard()
+        self._processing_stop: threading.Event | None = None
+        self._processing_generation = 0
         # Compact mode: the pinned mini bar, and where the full window and the bar were last placed.
         self.compact = False
         self._full_pos: Any = None
@@ -298,6 +304,7 @@ class StatusWindow(QWidget):
             return
         self.t.set_language(language)
         self.render()
+        self._render_processing()
         self.appearance_page.sync(self.appearance, self.t.language, self.glass_available)
         self.save_timer.start()
 
@@ -328,6 +335,7 @@ class StatusWindow(QWidget):
         if self.save_timer.isActive():
             self.flush_prefs()
         self._stop_usage_stream()
+        self._stop_processing_stream()
         super().closeEvent(event)
 
     # Rendering
@@ -403,6 +411,7 @@ class StatusWindow(QWidget):
         self.clear_rows(self.children_list)
         self.child_rows = {}
         self.bitnet_row = None
+        self.processing_log = None
         # New rows have empty usage lines: draw them again in this render.
         self._keys.pop("usage", None)
         self.children_count.setText("")
@@ -432,6 +441,9 @@ class StatusWindow(QWidget):
         row.show_state(info.tone, self.t("desktop.bitnet.name"), detail)
         self.children_list.addWidget(row)
         self.bitnet_row = row
+        self.processing_log = ProcessingLog()
+        self.children_list.addWidget(self.processing_log)
+        self._render_processing()
         if info.installing:
             Spinner(row.glyph).start()
 
@@ -596,6 +608,8 @@ class StatusWindow(QWidget):
                 self._update_changed(kind, value)
             elif kind == "usage":
                 self._apply_usage(*value)
+            elif kind == "processing":
+                self._apply_processing(*value)
             elif kind == "bitnet_install":
                 self.refresh()
             else:
@@ -616,6 +630,7 @@ class StatusWindow(QWidget):
         kept = self.message_key if self.message_key in STICKY_ERROR_KEYS and snapshot.hub == "stopped" else None
         self.snapshot, self.message_key = snapshot, START_TIMEOUT_KEY if timed_out else kept
         self._sync_usage_stream()
+        self._sync_processing_stream()
         self._pace_polling(snapshot)
         self.render()
         if snapshot.hub == "running" and not was_running and not self.settings.isHidden():
@@ -754,6 +769,46 @@ class StatusWindow(QWidget):
         if self.update_release is not None and self.updater is not None:
             self.run_worker(partial(self.updater.open_notes, self.update_release))
 
+    # BitNet processing stream, independent of Track AI clients.
+
+    def _sync_processing_stream(self) -> None:
+        snapshot = self.snapshot
+        wanted = bool(snapshot and snapshot.hub == "running" and snapshot.bitnet and snapshot.bitnet.enabled)
+        if not wanted:
+            self._stop_processing_stream()
+        elif self._processing_stop is None:
+            self._processing_generation += 1
+            generation, stop = self._processing_generation, threading.Event()
+            self._processing_stop = stop
+
+            def put(message: tuple[str, Any]) -> None:
+                self.results.put(("processing", (generation, message)))
+
+            threading.Thread(target=self.processing_stream, args=(put, stop),
+                             name="mcp-hub-status-processing", daemon=True).start()
+
+    def _stop_processing_stream(self) -> None:
+        if self._processing_stop is not None:
+            self._processing_stop.set()
+            self._processing_stop = None
+            self._processing_generation += 1
+        self.processing_board.clear()
+        self._render_processing()
+
+    def _apply_processing(self, generation: int, message: tuple[str, Any]) -> None:
+        if generation != self._processing_generation or self._processing_stop is None:
+            return
+        kind, value = message
+        if kind == "processing_unavailable":
+            self.processing_board.clear()
+            self._render_processing()
+        elif self.processing_board.apply(value):
+            self._render_processing()
+
+    def _render_processing(self) -> None:
+        if self.processing_log is not None:
+            self.processing_log.show_events(self.processing_board.events, self.t)
+
     # Activity stream: who uses each child
 
     def _sync_usage_stream(self) -> None:
@@ -828,6 +883,7 @@ class StatusWindow(QWidget):
             self.apply(replace(self.snapshot or status.HubSnapshot(hub="stopped"), hub="starting"))
         else:
             self._starting_until = 0.0
+            self._stop_processing_stream()
             self.render()
         self.run_worker(job)
 
@@ -1010,6 +1066,7 @@ def run_screenshots(args: argparse.Namespace) -> int:
         write_autostart=lambda _target, _enabled: dict(screenshot.SAMPLE_AUTOSTART),
         run_worker=lambda job: job(),
         stream=lambda _put, _stop: None,
+        processing_stream=lambda _put, _stop: None,
         updater=update.Updater("0.1.1", lambda: None),
     )
     try:

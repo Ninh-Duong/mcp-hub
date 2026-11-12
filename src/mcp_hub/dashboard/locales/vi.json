@@ -268,5 +268,22 @@
   "desktop.bitnet.state.ready": "Sẵn sàng",
   "desktop.bitnet.state.restarting": "Đang khởi động lại…",
   "desktop.bitnet.state.unavailable": "Không khả dụng",
-  "desktop.bitnet.state.stopped": "Đã dừng"
+  "desktop.bitnet.state.stopped": "Đã dừng",
+  "desktop.processing.line": "{operation} · {state}",
+  "desktop.processing.sourceLine": "{text} · {source}",
+  "desktop.processing.operation.plan": "Lập kế hoạch",
+  "desktop.processing.operation.child_call": "Gọi công cụ",
+  "desktop.processing.operation.condense": "Rút gọn kết quả",
+  "desktop.processing.operation.job_plan": "Lập kế hoạch điều tra",
+  "desktop.processing.operation.local_summary": "Tóm tắt cục bộ",
+  "desktop.processing.state.started": "đang chạy",
+  "desktop.processing.state.succeeded": "hoàn tất",
+  "desktop.processing.state.failed": "thất bại",
+  "desktop.processing.state.fallback": "dự phòng",
+  "desktop.processing.source.bitnet": "BitNet",
+  "desktop.processing.source.rules": "quy tắc",
+  "desktop.processing.source.child": "MCP con",
+  "desktop.processing.source.cache": "bộ nhớ đệm",
+  "desktop.processing.source.fallback": "dự phòng",
+  "desktop.processing.source.local": "cục bộ"
 }
