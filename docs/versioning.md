@@ -51,7 +51,7 @@ On Windows, press **Update** in mcp-hub Status. It checks enabled child reposito
 |---|---|
 | **Desktop status app** | Rerun `Setup.cmd` to install or refresh from the latest stable Release, or press **Update** in the app. It keeps its folder, sign-in entry, and remembered look. |
 | **Hub and enabled child MCPs** | Press **Update** in the app. Enabled child repos update concurrently before the Hub; Hub environment sync, child preparation, restart, and health check follow. |
-| **Check or retry** | The app checks at startup and every hour while open; **Check updates** runs a check immediately. Failed components are listed with a **Retry** action. |
+| **Check or retry** | The app checks at startup and every hour while open; the ⟳ button (**Check updates**) runs a check immediately. Failed components are listed with a **Retry** action, which takes the place of **Update** while something failed. |
 
 Repositories with local edits, local-only commits, diverged history, or no upstream tracking branch are skipped and reported. The updater does not overwrite those changes. Nothing here reads or changes private files under `config/private/`.
 
@@ -68,7 +68,7 @@ The installed status app checks for updates when it starts and every hour while 
 1. **Check repositories.** The updater uses the Hub's effective config and checks only installed, enabled child repos. It skips unsafe local Git states and reports each reason.
 2. **Update and prepare.** After stopping the Hub, it updates eligible children concurrently, then updates the Hub checkout. It runs the existing locked environment sync and child preparation before restarting the Hub.
 3. **Check and report.** A smoke check runs after restart. Per-component states and sanitized progress events remain available while the Hub is stopped and after app restart. Failed components can be retried.
-4. **Update the app.** When a newer app release exists, the app downloads the installer and SHA-256, verifies the file, then runs the existing silent installer handoff after Hub work completes.
+4. **Update the app.** When a newer app release exists, the app downloads the installer and SHA-256, verifies the file, then runs the existing silent installer handoff after Hub work completes. This happens only after the user pressed **Update** or **Retry**: a check never replaces the app. The installer deletes the previous version's bundle folder before copying the new one.
 5. **Failure.** An update failure is isolated and shown with its component. Local edits are preserved. The app, Hub, and child results are retained so the failed part can be retried.
 
 **Trust.** The SHA-256 protects against a damaged or interrupted download. It is published next to the installer, so it does not protect against someone who can change the Release itself. The installer is not code-signed, so Windows SmartScreen may warn once, as it does for a manual install.

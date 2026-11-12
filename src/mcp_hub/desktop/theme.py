@@ -72,6 +72,9 @@ REFRESH_GLYPH = "⟳"
 # The loading indicator: the `wait` glyph turning a quarter each frame (desktop/widgets.py Spinner).
 SPINNER_GLYPHS = ("◐", "◓", "◑", "◒")
 SPINNER_MS = 150
+# A rolling log (BitNet processing, update progress): this many rows, newest on top, each older row fainter.
+LOG_FADE = (1.0, .65, .4)
+LOG_ROWS = len(LOG_FADE)
 
 # Spacing scale and sizes, in device-independent pixels.
 SPACE_XS, SPACE_S, SPACE_M, SPACE_L = 4, 8, 12, 16

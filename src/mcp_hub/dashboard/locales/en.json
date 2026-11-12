@@ -191,6 +191,8 @@
   "desktop.update.downloading": "Downloading the update...",
   "desktop.update.installing": "Installing. The app closes and opens again by itself.",
   "desktop.update.failed": "The update did not install. Try again, or download it from the Releases page.",
+  "desktop.update.needsAttention": "Some items need attention.",
+  "desktop.update.summary": "{done}/{total} done",
   "desktop.error.dashboard": "Could not open the dashboard. Check that the Hub is running.",
   "desktop.settings.open": "Settings",
   "desktop.settings.title": "SETTINGS",

@@ -49,6 +49,11 @@ ArchitecturesInstallIn64BitMode=x64compatible
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 Name: "startup"; Description: "Open mcp-hub Status when I sign in"; GroupDescription: "Sign-in:"
 
+[InstallDelete]
+; An update replaces the whole bundle: files of the previous version (an old mcp_hub-<version>.dist-info
+; above all, which made the app read its old version and offer the same update again) must not survive.
+Type: filesandordirs; Name: "{app}\_internal"
+
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 

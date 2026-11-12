@@ -77,11 +77,18 @@ class VersionTest(unittest.TestCase):
         self.assertGreater(update.parse_version("0.10.0"), update.parse_version("0.9.9"))  # numbers, not text
 
     def test_the_app_reads_its_version_from_the_package_metadata(self) -> None:
-        with patch.object(update.metadata, "version", return_value="0.1.1") as version:
+        dist = MagicMock(version="0.1.1")
+        with patch.object(update.metadata, "distributions", return_value=[dist]) as found:
             self.assertEqual(update.app_version(), "0.1.1")
-        version.assert_called_once_with("mcp-hub")
-        with patch.object(update.metadata, "version", side_effect=update.metadata.PackageNotFoundError):
+        found.assert_called_once_with(name="mcp-hub")
+        with patch.object(update.metadata, "distributions", return_value=[]):
             self.assertIsNone(update.app_version())
+
+    def test_stale_metadata_of_an_older_version_never_wins(self) -> None:
+        # An in-place upgrade left 0.2.0's dist-info beside 0.4.0's; the older one was found first.
+        found = [MagicMock(version=text) for text in ("0.2.0", "0.10.0", "0.4.0", "odd")]
+        with patch.object(update.metadata, "distributions", return_value=found):
+            self.assertEqual(update.app_version(), "0.10.0")
 
 
 @unittest.skipIf(QT_MISSING, QT_MISSING or "")
@@ -132,6 +139,10 @@ class ReleaseCheckScheduleTest(unittest.TestCase):
         self.assertEqual(self.hub_store.check_updates.call_count, 3)
 
 
+def keys(key: str, **values: object) -> str:
+    return key + "".join(f"[{name}={value}]" for name, value in values.items())
+
+
 class UpdateErrorDisplayTest(unittest.TestCase):
     def test_known_errors_are_mapped_and_unknown_errors_use_generic_text(self) -> None:
         status = UpdateStatus("run-1", "partial", (
@@ -139,11 +150,39 @@ class UpdateErrorDisplayTest(unittest.TestCase):
             {"id": "mcp-b", "state": "failed", "error_code": "timeout"},
             {"id": "mcp-c", "state": "failed", "error_code": "unexpected_sensitive_value"},
         ), ())
-        text = update_card._component_lines(status, lambda key: key)
-        self.assertIn("desktop.update.error.repoMissing", text)
-        self.assertIn("desktop.update.error.timeout", text)
-        self.assertIn("desktop.update.error.unknown", text)
-        self.assertNotIn("unexpected_sensitive_value", text)
+        line, full = update_card._component_summary(status, keys)
+        for text in (line, full):
+            self.assertIn("desktop.update.error.repoMissing", text)
+            self.assertIn("desktop.update.error.timeout", text)
+            self.assertIn("desktop.update.error.unknown", text)
+            self.assertNotIn("unexpected_sensitive_value", text)
+
+
+class UpdateProgressDisplayTest(unittest.TestCase):
+    def test_the_summary_counts_finished_items_and_names_only_the_others(self) -> None:
+        status = UpdateStatus("run-1", "partial", (
+            {"id": "mcp-a", "state": "complete"}, {"id": "mcp-b", "state": "skipped"},
+            {"id": "mcp-c", "state": "available"}, {"id": "mcp-hub", "state": "failed", "error_code": "worktree_dirty"},
+            {"id": "bad id!", "state": "failed"}, {"id": "mcp-d", "state": "exploded"},
+        ), ())
+        line, full = update_card._component_summary(status, keys)
+        self.assertEqual(line, "desktop.update.summary[done=2][total=4] · mcp-c: desktop.update.state.available"
+                               " · mcp-hub: desktop.update.error.worktreeDirty")
+        self.assertEqual(len(full.splitlines()), 4)  # the tooltip lists every valid component
+        self.assertIn("mcp-a: desktop.update.state.complete", full)
+        self.assertEqual(update_card._component_summary(None, keys), ("", ""))
+
+    def test_the_log_keeps_the_newest_line_per_component_newest_first(self) -> None:
+        events = tuple({"component": name, "phase": phase, "at": str(index)} for index, (name, phase) in enumerate([
+            ("mcp-hub", "check"), ("mcp-a", "check"), ("mcp-a", "check"), ("mcp-b", "fetch"),
+            ("mcp-a", "pull"), ("mcp-c", "unknown-phase"), ("mcp-hub", "smoke"),
+        ]))
+        rows = update_card._event_rows(UpdateStatus("run-1", "running", (), events), keys)
+        self.assertEqual([text for _key, text in rows], [
+            "mcp-hub: desktop.update.phase.smoke", "mcp-a: desktop.update.phase.pull", "mcp-b: desktop.update.phase.fetch",
+        ])
+        self.assertEqual(len({key for key, _text in rows}), 3)
+        self.assertEqual(update_card._event_rows(None, keys), ())
 
 
 class CheckLatestTest(unittest.TestCase):

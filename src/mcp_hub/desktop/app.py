@@ -130,6 +130,8 @@ class StatusWindow(QWidget):
         self.update_state = READY
         self.update_status: hub_api.UpdateStatus | None = hub_api.HubClient.read_saved_update()
         self._update_polling = False
+        # Set only by Update/Retry: the app replaces itself after a run the user started, never after a check.
+        self._user_update = False
         self._update_started_at = 0.0
         self.autostart: dict[str, bool | None] | None = None
         self.restart_needed = False
@@ -690,7 +692,8 @@ class StatusWindow(QWidget):
             self.update_status = value
             if value is not None and value.state in {"complete", "partial"}:
                 self.update_state = FAILED if value.state == "partial" else READY
-                if value.state in {"complete", "partial"}:
+                if self._user_update:
+                    self._user_update = False
                     self._install_desktop_update()
             else:
                 self.update_state = UPDATING
@@ -702,6 +705,7 @@ class StatusWindow(QWidget):
 
     def _start_system_update(self, retry: bool = False) -> None:
         self.update_state = UPDATING
+        self._user_update = True
         self.render()
 
         def job() -> None:
@@ -721,6 +725,7 @@ class StatusWindow(QWidget):
                 result = self.hub_store.retry_update(failed) if retry else self.hub_store.start_update()
                 self.results.put(("update_status", result))
             except (OSError, ValueError):
+                self._user_update = False  # no run started, so no later status may install
                 self.results.put(("update_state", FAILED))
                 if self.update_release:
                     self.run_worker(self._install_desktop_update)

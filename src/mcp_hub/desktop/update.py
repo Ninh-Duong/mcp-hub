@@ -70,11 +70,15 @@ def parse_version(text: str) -> Version | None:
 
 
 def app_version() -> str | None:
-    """The version this app was built from (pyproject.toml, through the package metadata), or None."""
-    try:
-        return metadata.version("mcp-hub")
-    except metadata.PackageNotFoundError:
+    """The version this app was built from (pyproject.toml, through the package metadata), or None.
+
+    An install upgraded by an older installer can still hold the previous version's metadata next to the
+    new one; the highest version is the one that runs, so it wins over whichever is found first.
+    """
+    versions = {dist.version for dist in metadata.distributions(name="mcp-hub")}
+    if not versions:
         return None
+    return max(versions, key=lambda text: (parse_version(text) is not None, parse_version(text) or (0, 0, 0)))
 
 
 def github_opener() -> urllib.request.OpenerDirector:

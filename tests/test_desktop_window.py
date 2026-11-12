@@ -94,6 +94,16 @@ class FakeStore:
         self.enabled[server_id] = enabled
 
 
+def elided(widget, text: str, width: int | None = None) -> str:
+    """`text` as show_elided cuts it for this one-line label (fonts differ by platform)."""
+    return widget.fontMetrics().elidedText(text, Qt.TextElideMode.ElideRight, width or widget.width())
+
+
+def full_text(row) -> str:
+    """A one-line log row's whole text: show_elided keeps it in the tooltip when the row is cut."""
+    return row.toolTip() or row.text()
+
+
 def texts(rows) -> list[str]:
     """Visible text of each item in a rows layout: `glyph name detail` for a Row, else the label text."""
     found: list[str] = []
@@ -1064,20 +1074,69 @@ class UpdateWindowTest(unittest.TestCase):
         self.window.process_results()
         self.assertEqual(self.installed, [self.release])
 
-    def test_partial_system_update_still_installs_app_and_keeps_failed_retry_state(self) -> None:
-        self.offer(running(ChildRow("mcp-jira-sync", "connected", "ok")))
-        failed = UpdateStatus("run-1", "partial", (
+    @staticmethod
+    def partial_run() -> UpdateStatus:
+        return UpdateStatus("run-1", "partial", (
             {"id": "mcp-jira-sync", "kind": "child", "state": "failed", "phase": "pull",
              "error_code": "worktree_dirty"},
         ), ({"component": "mcp-jira-sync", "phase": "pull"},))
+
+    def test_partial_system_update_still_installs_app_and_keeps_failed_retry_state(self) -> None:
+        self.offer(running(ChildRow("mcp-jira-sync", "connected", "ok")))
+        failed = self.partial_run()
+        self.window._user_update = True  # the user pressed Update
         self.window.update_status = failed
         self.window._update_changed("update_status", failed)
         self.assertEqual(self.installed, [self.release])
         self.assertEqual(self.window.update_status, failed)
-        self.assertIn("mcp-jira-sync", self.card().components.text())
-        self.assertIn("Local changes need attention", self.card().components.text())
-        self.assertIn("Downloading code", self.card().events.text())
+        self.assertIn("mcp-jira-sync", self.card().summary.text() + self.card().summary.toolTip())
+        self.assertIn("Local changes need attention", self.card().summary.text() + self.card().summary.toolTip())
+        self.assertEqual(full_text(self.card().log.rows[0]), "mcp-jira-sync: Downloading code")
         self.assertFalse(self.card().retry_button.isHidden())
+        self.assertTrue(self.card().update_button.isHidden())  # one main button at a time
+
+    def test_a_check_that_ends_never_installs_or_closes_the_app(self) -> None:
+        # The loop seen in the field: a startup/hourly check ended partial or complete and the app reinstalled itself.
+        self.offer(running(ChildRow("a", "connected", "ok")))
+        for state in ("partial", "complete"):
+            with self.subTest(state=state), patch.object(self.window, "close") as close:
+                self.window._update_changed("update_status", replace(self.partial_run(), state=state))
+                self.window.process_results()
+                close.assert_not_called()
+        self.assertEqual(self.installed, [])
+
+    def test_a_hub_check_that_needs_attention_is_not_shown_as_an_install_failure(self) -> None:
+        self.store.update = self.partial_run()
+        self.offer(running(ChildRow("a", "connected", "ok")))
+        self.assertEqual(self.card().note.text(), "Some items need attention.")
+        self.assertEqual(self.card().note.property("role"), "caption")
+        summary = self.card().summary
+        self.assertEqual(summary.text(), elided(summary, "0/1 done · mcp-jira-sync: Local changes need attention",
+                                                theme.WINDOW_WIDTH - 2 * theme.SPACE_M))
+        self.assertIn("mcp-jira-sync: Failed — Local changes need attention", summary.toolTip())
+
+    def test_the_progress_log_rolls_three_fading_lines(self) -> None:
+        events = tuple({"component": f"mcp-{index}", "phase": "check", "at": str(index)} for index in range(5))
+        self.store.update = UpdateStatus("run-1", "running", (), events)
+        self.offer(running(ChildRow("a", "connected", "ok")))
+        log = self.card().log
+        self.assertEqual([full_text(row) for row in log.rows],
+                         [f"mcp-{index}: Checking for updates" for index in (4, 3, 2)])
+        self.assertEqual([row.graphicsEffect().opacity() for row in log.rows], [1, .65, .4])
+        self.assertEqual(log.height(), log.row_height() * 3)
+
+    def test_the_buttons_show_their_whole_label_in_every_language(self) -> None:
+        self.store.update = self.partial_run()
+        self.offer(running(ChildRow("a", "connected", "ok")))
+        self.window.show()
+        for language in ("en", "vi"):
+            with self.subTest(language=language):
+                self.window.set_language(language)
+                QApplication.processEvents()
+                for name in ("retry_button", "notes_button"):
+                    widget = getattr(self.card(), name)
+                    self.assertFalse(widget.isHidden(), name)
+                    self.assertLessEqual(widget.fontMetrics().horizontalAdvance(widget.text()), widget.width(), name)
 
     def test_accounts_still_to_fill_in_and_disabled_children_do_not_block(self) -> None:
         self.offer(running(ChildRow("a", "credentials required", "error"), ChildRow("b", "disabled", "off"),

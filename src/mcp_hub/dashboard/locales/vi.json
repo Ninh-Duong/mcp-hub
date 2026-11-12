@@ -191,6 +191,8 @@
   "desktop.update.downloading": "Đang tải bản cập nhật...",
   "desktop.update.installing": "Đang cài. Ứng dụng sẽ tự đóng và mở lại.",
   "desktop.update.failed": "Không cài được bản cập nhật. Hãy thử lại, hoặc tải từ trang Releases.",
+  "desktop.update.needsAttention": "Một số mục cần xử lý.",
+  "desktop.update.summary": "{done}/{total} hoàn tất",
   "desktop.error.dashboard": "Không mở được dashboard. Hãy kiểm tra Hub đang chạy.",
   "desktop.settings.open": "Cài đặt",
   "desktop.settings.title": "CÀI ĐẶT",

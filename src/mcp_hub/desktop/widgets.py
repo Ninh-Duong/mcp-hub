@@ -225,24 +225,44 @@ class UsageRow(QWidget):
         self.usage.show()
 
 
-class ProcessingLog(QWidget):
-    """Three localized event rows, positioned independently so native movement cannot fight a layout."""
+class FadingLog(QWidget):
+    """A rolling log of at most theme.LOG_ROWS one-line rows: newest on top, older rows slide down and fade.
 
-    def __init__(self) -> None:
+    Rows are positioned by hand, so native movement cannot fight a layout. The height stays that of
+    LOG_ROWS rows, so a card does not grow or shrink as lines arrive.
+    """
+
+    def __init__(self, indent: int = 0) -> None:
         super().__init__()
-        self.events = ()
+        self.indent = indent
+        self.keys: tuple = ()
         self.rows: list[QLabel] = []
         self.animations: list[QPropertyAnimation] = []
-        self._key = None
+        self._shown: tuple | None = None
+        self.setFixedHeight(self.row_height() * theme.LOG_ROWS)
         self.hide()
 
-    def show_events(self, events: tuple, t: Callable[..., str]) -> None:
-        texts = tuple(self._event_text(event, t) for event in events)
-        key = (events, texts)
-        if key == self._key:
+    def row_height(self) -> int:
+        return self.fontMetrics().height() + theme.SPACE_XS
+
+    def show_lines(self, lines: tuple[tuple[Any, str], ...]) -> None:
+        """`lines` are `(key, text)`, newest first; a key that moves keeps its row and slides it."""
+        lines = tuple(lines)[:theme.LOG_ROWS]
+        if lines == self._shown:
             return
-        self._key = key
-        positions = {event.sequence: row.pos() for event, row in zip(self.events, self.rows)}
+        self._shown = lines
+        positions = dict(zip(self.keys, (row.pos() for row in self.rows)))
+        self._clear()
+        self.keys = tuple(key for key, _text in lines)
+        height = self.row_height()
+        for index, (key, text) in enumerate(lines):
+            row = self._row(text, index, height)
+            if key in positions and positions[key] != row.pos():
+                self._slide(row, positions[key])
+            self.rows.append(row)
+        self.setVisible(bool(lines))
+
+    def _clear(self) -> None:
         for animation in self.animations:
             animation.stop()
             animation.deleteLater()
@@ -251,34 +271,38 @@ class ProcessingLog(QWidget):
             row.hide()
             row.deleteLater()
         self.rows = []
-        self.events = events
-        height = self.fontMetrics().height() + theme.SPACE_XS
-        self.setFixedHeight(height * len(events))
-        for index, (event, text) in enumerate(zip(events, texts)):
-            row = self._row(text, index, height)
-            target = row.pos()
-            if event.sequence in positions and positions[event.sequence] != target:
-                animation = QPropertyAnimation(row, b"pos", self)
-                animation.setDuration(theme.SPINNER_MS)
-                animation.setStartValue(positions[event.sequence])
-                animation.setEndValue(target)
-                animation.start()
-                self.animations.append(animation)
-            self.rows.append(row)
-        self.setVisible(bool(events))
+
+    def _slide(self, row: QLabel, start: Any) -> None:
+        animation = QPropertyAnimation(row, b"pos", self)
+        animation.setDuration(theme.SPINNER_MS)
+        animation.setStartValue(start)
+        animation.setEndValue(row.pos())
+        animation.start()
+        self.animations.append(animation)
 
     def _row(self, text: str, index: int, height: int) -> QLabel:
         row = label(role="caption")
         row.setParent(self)
-        left = theme.GLYPH_COLUMN_WIDTH + theme.SPACE_S
-        width = theme.WINDOW_WIDTH - 2 * theme.SPACE_M - left
-        row.setGeometry(left, index * height, width, height)
+        width = theme.WINDOW_WIDTH - 2 * theme.SPACE_M - self.indent
+        row.setGeometry(self.indent, index * height, width, height)
         show_elided(row, text, width)
         opacity = QGraphicsOpacityEffect(row)
-        opacity.setOpacity((1.0, .65, .4)[index])
+        opacity.setOpacity(theme.LOG_FADE[index])
         row.setGraphicsEffect(opacity)
         row.show()
         return row
+
+
+class ProcessingLog(FadingLog):
+    """BitNet's processing events as a FadingLog, indented under the BitNet row."""
+
+    def __init__(self) -> None:
+        super().__init__(indent=theme.GLYPH_COLUMN_WIDTH + theme.SPACE_S)
+        self.events: tuple = ()
+
+    def show_events(self, events: tuple, t: Callable[..., str]) -> None:
+        self.events = tuple(events)[:theme.LOG_ROWS]
+        self.show_lines(tuple((event.sequence, self._event_text(event, t)) for event in self.events))
 
     @staticmethod
     def _event_text(event: Any, t: Callable[..., str]) -> str:

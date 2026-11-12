@@ -614,6 +614,12 @@ class DesktopPackagingTest(unittest.TestCase):
         self.assertIn("Exec(RemoveQuotes(Uninstaller)", iss)
         self.assertNotIn("Install {#AppVersion}", iss)
 
+    def test_installer_clears_the_previous_bundle_before_copying(self) -> None:
+        # A stale mcp_hub-<old>.dist-info made the app read its old version and reinstall itself in a loop.
+        iss = (HUB_ROOT / "packaging" / "desktop" / "installer.iss").read_text(encoding="utf-8")
+        section = iss[iss.index("[InstallDelete]"):iss.index("[Files]")]
+        self.assertIn('Type: filesandordirs; Name: "{app}\\_internal"', section)
+
     def test_installer_checks_the_system_first(self) -> None:
         iss = (HUB_ROOT / "packaging" / "desktop" / "installer.iss").read_text(encoding="utf-8")
         self.assertIn("MinVersion=10.0.17763", iss)
