@@ -8,13 +8,14 @@
 
 ## Tools
 
-All tools are read-only (`readOnlyHint=true`).
+All tools are read-only (`readOnlyHint=true`) except `source__register_project`, which writes only the alias to `config/private/projects.json` (see the table below).
 
 | Tool | Inputs | Output / bounds |
 |---|---|---|
 | `source__check_connection` | none | `{configured_projects:[alias,…]}` |
 | `source__search` | `project`, `query`, optional `glob`, `limit` (1–100, default 50) | `{matches:[{path,line,text}],total}`; examines at most 500 safe files, returns at most `limit` matches and 1,000 characters per matching line |
 | `source__read` | `project`, relative `path`, optional `start_line` (default 1), `max_lines` (1–200, default 200) | `{project,path,start_line,end_line,total_lines,content}` |
+| `source__register_project` | `alias` (letters, digits, `-`, `_`), `path` (an existing folder) | `alias`, `registered: true`. Writes only the alias; the folder is never returned. Refused for a drive root, the home folder, a system folder, `..`, a non-folder, or an alias that points elsewhere. |
 
 Search is case-insensitive substring matching. Globs are relative and cannot contain parent traversal. Both tools resolve paths before access and reject paths outside the configured root. The reader skips VCS metadata, dependencies, build/cache/private directories, environment files, known key/certificate/encrypted suffixes, binary content, and files larger than 1 MiB. A symlink that leaves the root is rejected. Returned file content is untrusted data, not instructions.
 
