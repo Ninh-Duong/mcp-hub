@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 LIGHT = {
     "ink": "#1c2635",
-    "muted": "#6b7788",
+    "muted": "#3e454e",
     "line": "#e4e9ef",
     "surface": "#ffffff",
     "canvas": "#f4f6f9",
@@ -39,7 +39,7 @@ THEMES = tuple(PALETTES)
 # blurred desktop, the card fill (the palette's surface at this alpha, 0-1), and the card edge.
 GLASS = {
     "light": {"tint_alpha": 0x55, "card_alpha": 0.55, "border": "rgba(255, 255, 255, 0.70)"},
-    "dark": {"tint_alpha": 0x70, "card_alpha": 0.45, "border": "rgba(255, 255, 255, 0.10)"},
+    "dark": {"tint_alpha": 0x70, "card_alpha": 0.82, "border": "rgba(255, 255, 255, 0.10)"},
 }
 # What the Settings sliders allow, in percent: card opacity (0 leaves only the card edge) and backdrop tint.
 CARD_OPACITY_RANGE = (0, 100)
@@ -70,7 +70,7 @@ LOG_ROWS = len(LOG_FADE)
 
 # Spacing scale and sizes, in device-independent pixels.
 SPACE_XS, SPACE_S, SPACE_M, SPACE_L = 4, 8, 12, 16
-WINDOW_WIDTH = 288
+WINDOW_WIDTH = 320
 CARD_RADIUS = 8
 BUTTON_RADIUS = 4
 GLYPH_COLUMN_WIDTH = 16
@@ -131,15 +131,23 @@ def backdrop_tint(appearance: Appearance) -> int:
     return (tint_alpha(appearance) << 24) | (blue << 16) | (green << 8) | red
 
 
+def contrast(foreground: str, background: str) -> float:
+    """WCAG contrast ratio between two `#rrggbb` colors: 1 for no contrast, 21 for black on white."""
+    def luminance(color: str) -> float:
+        def linear(channel: int) -> float:
+            value = channel / 255
+            return value / 12.92 if value <= 0.03928 else ((value + 0.055) / 1.055) ** 2.4
+
+        red, green, blue = (linear(int(color[index:index + 2], 16)) for index in (1, 3, 5))
+        return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+
+    lighter, darker = sorted((luminance(foreground), luminance(background)), reverse=True)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
 def _contrast_with_white(color: str) -> float:
     """WCAG contrast ratio between `#rrggbb` and white (primary buttons put white text on the accent)."""
-    def linear(channel: int) -> float:
-        value = channel / 255
-        return value / 12.92 if value <= 0.03928 else ((value + 0.055) / 1.055) ** 2.4
-
-    red, green, blue = (linear(int(color[index:index + 2], 16)) for index in (1, 3, 5))
-    luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
-    return 1.05 / (luminance + 0.05)
+    return contrast(color, "#ffffff")
 
 
 def accent_hex(system_accent: str | None) -> str:

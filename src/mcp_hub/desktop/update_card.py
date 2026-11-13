@@ -111,17 +111,33 @@ def _note(t: Callable[..., str], state: str, run_state: str, current: str) -> tu
     return (t("desktop.update.current", current=current) if current else t("desktop.update.hubOnly")), "caption"
 
 
+def _failed(state: str, status: UpdateStatus | None) -> bool:
+    return state == FAILED or any(item.get("state") == "failed" for item in (status.components if status else ()))
+
+
+def _running(state: str, status: UpdateStatus | None) -> bool:
+    return state in _BUSY or (status.state if status else "idle") == "running"
+
+
+def takes_primary(version: str | None, state: str, status: UpdateStatus | None, hub_running: bool) -> bool:
+    """Update is the window's one primary action only while the Hub runs, a newer app is offered, and nothing failed or runs."""
+    return hub_running and version is not None and not _failed(state, status) and not _running(state, status)
+
+
 class UpdateCard(Card):
     def __init__(self, on_check: Callable[[], None], on_update: Callable[[], None],
                  on_retry: Callable[[], None], on_notes: Callable[[], None]) -> None:
         super().__init__(theme.WINDOW_WIDTH)
-        self.title = label(role="headline", wrap=True)
+        self.title = label(role="section")
+        self.version_line = label(wrap=True)
         self.notes_button = HyperlinkButton()
         self.notes_button.clicked.connect(lambda _checked=False: on_notes())
         self.note = label(role="caption", wrap=True)
         self.summary = label(role="caption")
         self.log = FadingLog()
-        self.update_button = button(on_update, primary=True)
+        # Two buttons with one command: the primary one shows only while Update is the window's primary action.
+        self.update_button = button(on_update)
+        self.update_primary = button(on_update, primary=True)
         self.retry_button = button(on_retry)
         self.check_button = icon_button(FluentIcon.SYNC, on_check)
         links = QHBoxLayout()
@@ -129,12 +145,12 @@ class UpdateCard(Card):
         links.addStretch(1)
         buttons = QHBoxLayout()
         buttons.setSpacing(theme.SPACE_S)
-        for main in (self.update_button, self.retry_button):
+        for main in (self.update_button, self.update_primary, self.retry_button):
             main.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             buttons.addWidget(main, 1)
         buttons.addWidget(self.check_button)
         self.content.addWidget(self.title)
-        for widget in (self.note, self.summary, self.log):
+        for widget in (self.version_line, self.note, self.summary, self.log):
             self.content.addWidget(widget)
         self.content.addSpacing(theme.SPACE_XS)
         self.content.addLayout(buttons)
@@ -142,8 +158,11 @@ class UpdateCard(Card):
 
     def sync(self, t: Callable[..., str], version: str | None, current: str, state: str,
              status: UpdateStatus | None, hub_running: bool) -> None:
-        self.title.setText(t("desktop.update.available", version=version) if version else t("desktop.update.title"))
-        self.update_button.setText(t("desktop.update.button"))
+        self.title.setText(t("desktop.update.title"))
+        self.version_line.setText(t("desktop.update.available", version=version) if version else "")
+        self.version_line.setVisible(bool(version))
+        for update_button in (self.update_button, self.update_primary):
+            update_button.setText(t("desktop.update.button"))
         self.retry_button.setText(t("desktop.update.retry"))
         self.notes_button.setText(t("desktop.update.whatsNew"))
         self.check_button.setToolTip(t("desktop.update.check"))
@@ -154,7 +173,7 @@ class UpdateCard(Card):
             note = " ".join(filter(None, (note, t("desktop.update.hubNotRunning"))))
         self.note.setText(note)
         set_props(self.note, role=role)
-        self._sync_buttons(version, state, status, run_state)
+        self._sync_buttons(version, state, status, hub_running)
 
     def _sync_progress(self, t: Callable[..., str], status: UpdateStatus | None) -> None:
         line, full = _component_summary(status, t)
@@ -162,13 +181,15 @@ class UpdateCard(Card):
         self.summary.setVisible(bool(line))
         self.log.show_lines(_event_rows(status, t))
 
-    def _sync_buttons(self, version: str | None, state: str, status: UpdateStatus | None, run_state: str) -> None:
-        failed = state == FAILED or any(item.get("state") == "failed" for item in (status.components if status else ()))
-        running = state in _BUSY or run_state == "running"
+    def _sync_buttons(self, version: str | None, state: str, status: UpdateStatus | None, hub_running: bool) -> None:
+        failed, running = _failed(state, status), _running(state, status)
+        primary = takes_primary(version, state, status, hub_running)
         self.check_button.setEnabled(not running)
         # One main button at a time: Retry takes Update's place while something failed.
-        self.update_button.setVisible(not failed)
-        self.update_button.setEnabled(not running and (version is not None or status is not None))
+        for update_button in (self.update_button, self.update_primary):
+            update_button.setEnabled(not running and (version is not None or status is not None))
+        self.update_button.setVisible(not failed and not primary)
+        self.update_primary.setVisible(not failed and primary)
         self.retry_button.setVisible(failed)
         self.retry_button.setEnabled(not running and failed)
         self.notes_button.setVisible(version is not None)

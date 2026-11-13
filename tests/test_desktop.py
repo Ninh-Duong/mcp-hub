@@ -271,6 +271,42 @@ class ThemeAndI18nTest(unittest.TestCase):
                 self.assertEqual(keys - set(i18n.load_strings(language)), set())
 
 
+def _rgb(color: str) -> tuple[float, float, float]:
+    return tuple(float(int(color[index:index + 2], 16)) for index in (1, 3, 5))
+
+
+def _over(top: tuple[float, ...], bottom: tuple[float, ...], alpha: float) -> tuple[float, ...]:
+    return tuple(upper * alpha + lower * (1 - alpha) for upper, lower in zip(top, bottom))
+
+
+def card_over_desktop(look: theme.Appearance, desktop: str) -> str:
+    """The card's color as the user sees it: the card fill over the acrylic tint over the desktop."""
+    palette = theme.PALETTES[look.theme]
+    tint = _over(_rgb(palette["canvas"]), _rgb(desktop), theme.tint_alpha(look) / 255)
+    rgb = _over(_rgb(palette["surface"]), tint, theme.card_alpha(look))
+    return "#" + "".join(f"{round(channel):02x}" for channel in rgb)
+
+
+class ContrastTest(unittest.TestCase):
+    def test_contrast_is_the_wcag_ratio(self) -> None:
+        self.assertAlmostEqual(theme.contrast("#000000", "#ffffff"), 21.0, places=2)
+        self.assertAlmostEqual(theme.contrast("#ffffff", "#000000"), 21.0, places=2)  # order does not matter
+        self.assertAlmostEqual(theme.contrast("#767676", "#ffffff"), 4.54, places=2)
+        self.assertAlmostEqual(theme.contrast("#777777", "#777777"), 1.0, places=2)
+
+    def test_default_text_on_the_card_meets_aa_on_a_white_or_black_desktop(self) -> None:
+        # The worst cases: a white wallpaper and a black one, through the default acrylic tint and card opacity.
+        for name in theme.THEMES:
+            for desktop in ("#ffffff", "#000000"):
+                card = card_over_desktop(theme.Appearance(theme=name), desktop)
+                for token in ("ink", "muted"):
+                    with self.subTest(theme=name, desktop=desktop, token=token):
+                        self.assertGreaterEqual(theme.contrast(theme.PALETTES[name][token], card), 4.5)
+
+    def test_window_is_320_pixels_wide(self) -> None:
+        self.assertEqual(theme.WINDOW_WIDTH, 320)
+
+
 class PrefsTest(unittest.TestCase):
     def test_round_trip_keeps_only_known_values(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

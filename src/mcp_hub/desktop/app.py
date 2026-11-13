@@ -31,7 +31,7 @@ from .hub_page import ChildrenPage, HubPage
 from .i18n import LANGUAGES, Translator, system_language
 from .mini import MiniBar
 from .settings import AppearancePage, SettingsPanel
-from .update_card import CHECKING, DOWNLOADING, FAILED, INSTALLING, READY, UPDATING, UpdateCard
+from .update_card import CHECKING, DOWNLOADING, FAILED, INSTALLING, READY, UPDATING, UpdateCard, takes_primary
 from .widgets import Card, ProcessingLog, Row, Spinner, UsageRow, button, dot_icon, icon_button, label, set_props, show_elided
 
 # Never equal to a section key, so every section draws once after a theme switch or at start.
@@ -184,7 +184,7 @@ class StatusWindow(QWidget):
     def _build(self) -> None:
         outer = QVBoxLayout(self)
         outer.setContentsMargins(theme.SPACE_S, theme.SPACE_S, theme.SPACE_S, theme.SPACE_S)
-        outer.setSpacing(theme.SPACE_S)
+        outer.setSpacing(theme.SPACE_M)
         # The window always fits its content: no manual resize after rows come and go.
         outer.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
         self.cards: list[Card] = []
@@ -232,6 +232,12 @@ class StatusWindow(QWidget):
         self.settings_button.setCheckable(True)
         self.hub_row.layout_.addWidget(self.settings_button)
         card.content.addWidget(self.hub_row)
+        # The mode caption sits on its own line under the state word, so a long mode never cuts the state.
+        mode = QHBoxLayout()
+        mode.addSpacing(theme.GLYPH_COLUMN_WIDTH + theme.SPACE_S)
+        self.mode_label = label(role="caption", wrap=True)
+        mode.addWidget(self.mode_label, 1)
+        card.content.addLayout(mode)
 
     def _list_card(self, outer: QVBoxLayout, title_key: str, *, refresh: bool = False) -> tuple[QLabel, QVBoxLayout]:
         card = self._card(outer)
@@ -254,16 +260,20 @@ class StatusWindow(QWidget):
         card = self._card(outer)
         buttons = QHBoxLayout()
         buttons.setSpacing(theme.SPACE_S)
-        # Only one of the two is enabled at a time (see _render_actions), so the enabled one is the primary action.
+        # Only one of the two is shown at a time (see _render_actions). Open dashboard has a plain twin for
+        # the moments when an available update takes the one primary action.
         self.open_button = button(self.open_dashboard, primary=True)
+        self.open_plain_button = button(self.open_dashboard)
         self.start_button = button(self.start_hub, primary=True)
-        for widget in (self.open_button, self.start_button):
+        for widget in (self.open_button, self.open_plain_button, self.start_button):
             buttons.addWidget(widget, 1)
         card.content.addLayout(buttons)
         card.content.addSpacing(theme.SPACE_XS)
         self.footer = label(role="caption", wrap=True)
         card.content.addWidget(self.footer)
-        self._texts += [(self.open_button, "desktop.button.openDashboard"), (self.start_button, "desktop.button.startHub")]
+        self._texts += [(self.open_button, "desktop.button.openDashboard"),
+                        (self.open_plain_button, "desktop.button.openDashboard"),
+                        (self.start_button, "desktop.button.startHub")]
 
     # Appearance
 
@@ -371,7 +381,7 @@ class StatusWindow(QWidget):
             ("client_usage", (language, self._client_usage_key(activity_ui)), self._render_client_usage),
             ("update", (language, self.update_release, self.update_state, self.update_status, hub == "running"),
              self._render_update),
-            ("actions", hub, self._render_actions),
+            ("actions", (hub, self._update_takes_primary(hub)), self._render_actions),
             ("mini", (language, self._mini_state(activity_ui)), self._render_mini),
             ("settings", (language, hub, self.hub_settings, self._autostart_key(), self.restart_needed,
                           snapshot.bitnet_state if snapshot else None, snapshot.bitnet if snapshot else None),
@@ -397,13 +407,15 @@ class StatusWindow(QWidget):
         self.setWindowIcon(self._icons[key])
 
     def _render_hub(self, hub: str | None) -> None:
+        mode = ""
         if self.snapshot is None:
             self.hub_row.show_state("wait", self.t("desktop.checking"))
-            return
-        detail = ""
-        if hub == "running":
-            detail = self.t("desktop.mode.activityUi" if self.snapshot.activity_ui else "desktop.mode.fast")
-        self.hub_row.show_state(self.snapshot.tone, self.t.hub_label(self.snapshot.hub), detail)
+        else:
+            self.hub_row.show_state(self.snapshot.tone, self.t.hub_label(self.snapshot.hub))
+            if hub == "running":
+                mode = self.t("desktop.mode.activityUi" if self.snapshot.activity_ui else "desktop.mode.fast")
+        self.mode_label.setText(mode)
+        self.mode_label.setVisible(bool(mode))
 
     def clear_rows(self, rows: QVBoxLayout) -> None:
         while rows.count():
@@ -555,9 +567,20 @@ class StatusWindow(QWidget):
         self.update_card.sync(self.t, release.label if release else None, self.updater.current if self.updater else "",
                               self.update_state, self.update_status, hub == "running")
 
+    def _update_takes_primary(self, hub: str | None) -> bool:
+        release = self.update_release
+        return takes_primary(release.label if release else None, self.update_state, self.update_status, hub == "running")
+
     def _render_actions(self, hub: str | None) -> None:
-        # One action can act: Start Hub while the Hub is down, Open dashboard while it runs; the other is disabled.
-        self.open_button.setEnabled(hub == "running")
+        # Start Hub while the Hub is not running (it is only enabled when stopped); Open dashboard while it runs,
+        # plain while an update takes the one primary action. Exactly one of the two is shown.
+        running = hub == "running"
+        primary_open = running and not self._update_takes_primary(hub)
+        self.open_button.setVisible(primary_open)
+        self.open_plain_button.setVisible(running and not primary_open)
+        for open_widget in (self.open_button, self.open_plain_button):
+            open_widget.setEnabled(running)
+        self.start_button.setVisible(not running)
         self.start_button.setEnabled(hub == "stopped")
 
     def _render_footer(self) -> None:
@@ -1075,7 +1098,7 @@ def run_screenshots(args: argparse.Namespace) -> int:
         run_worker=lambda job: job(),
         stream=lambda _put, _stop: None,
         processing_stream=lambda _put, _stop: None,
-        updater=update.Updater("0.1.1", lambda: None),
+        updater=update.Updater(screenshot.SAMPLE_CURRENT, lambda: None),
     )
     try:
         saved = screenshot.capture_all(window, Path(args.screenshot), args.states, args.lang, args.theme)

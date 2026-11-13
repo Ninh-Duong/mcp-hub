@@ -35,7 +35,9 @@ _HEALTHY_CHILDREN = (
     ChildRow("mcp-pr-companion", "credentials required", "error"),
     ChildRow("mcp-read-source", "disabled", "off"),
 )
-SAMPLE_RELEASE = Release((0, 2, 0), "https://example.com/setup.exe", "https://example.com/setup.exe.sha256",
+# The running version the samples report (the app's own version), and a release newer than it.
+SAMPLE_CURRENT = "0.5.0"
+SAMPLE_RELEASE = Release((0, 5, 1), "https://example.com/setup.exe", "https://example.com/setup.exe.sha256",
                          "https://example.com/releases")
 SAMPLES = {
     "running": HubSnapshot(hub="running", children=_SAMPLE_CHILDREN, checked_at=_SAMPLE_TIME),

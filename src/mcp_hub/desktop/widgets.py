@@ -8,13 +8,14 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from PySide6.QtCore import QPropertyAnimation, QRectF, Qt, QTimer
+from PySide6.QtCore import QPropertyAnimation, QRectF, QSignalBlocker, Qt, QTimer
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget,
 )
 from qfluentwidgets import (
-    InfoBarIcon, PrimaryPushButton, PushButton, SegmentedWidget, Slider, TransparentToolButton, isDarkTheme,
+    InfoBarIcon, PrimaryPushButton, PushButton, SegmentedWidget, Slider, SwitchButton, TransparentToolButton,
+    isDarkTheme,
 )
 
 from . import theme
@@ -150,6 +151,20 @@ class Page(QWidget):
         self.content.addLayout(row)
         return caption, segmented
 
+    def switch_row(self, on_toggle: Callable[[bool], None]) -> tuple[QLabel, SwitchButton]:
+        """A caption on the left and a Fluent switch on the right; `on_toggle` gets the new value on a user change."""
+        row = QHBoxLayout()
+        row.setSpacing(theme.SPACE_XS)
+        caption = label(role="caption")
+        switch = SwitchButton(self)
+        switch.setCursor(Qt.CursorShape.PointingHandCursor)
+        switch.checkedChanged.connect(on_toggle)
+        row.addWidget(caption)
+        row.addStretch(1)
+        row.addWidget(switch)
+        self.content.addLayout(row)
+        return caption, switch
+
     def slider_row(self, bounds: tuple[int, int], choose: Callable[[int], None]) -> tuple[QLabel, QLabel, Slider]:
         header = QHBoxLayout()
         caption, value = label(role="caption"), label(role="caption")
@@ -174,6 +189,13 @@ def select_segment(segmented: SegmentedWidget, value: Any) -> None:
     segmented.setCurrentItem(str(value))
 
 
+def set_switch(switch: SwitchButton, value: bool | None, enabled: bool) -> None:
+    """Show `value` on a switch without reporting it back; `None` (unknown) shows it off and disabled."""
+    with QSignalBlocker(switch):
+        switch.setChecked(bool(value))
+    switch.setEnabled(enabled and value is not None)
+
+
 def tone_pixmap(tone: str, size: int = theme.GLYPH_COLUMN_WIDTH) -> QPixmap:
     """The shape of a tone: a Fluent icon, or for `off` an outlined ring in the muted color."""
     if tone in TONE_ICONS:
@@ -186,6 +208,11 @@ def tone_pixmap(tone: str, size: int = theme.GLYPH_COLUMN_WIDTH) -> QPixmap:
     painter.drawEllipse(QRectF(2, 2, size - 4, size - 4))
     painter.end()
     return pixmap
+
+
+def row_room() -> int:
+    """The width a Row's text and detail share: the window's inner width less the glyph column and its spacing."""
+    return theme.WINDOW_WIDTH - 2 * theme.SPACE_M - theme.GLYPH_COLUMN_WIDTH - theme.SPACE_S
 
 
 class Row(QWidget):
@@ -211,10 +238,24 @@ class Row(QWidget):
             self.layout_.addStretch(1)
 
     def show_state(self, tone: str, text: str, detail: str = "") -> None:
+        """Show a tone, its state word, and a detail, each cut with an ellipsis to the room it has.
+
+        The state word comes first in the row, so the detail gets what the state leaves; tooltips hold the full text.
+        """
         self.glyph.setPixmap(tone_pixmap(tone))
         self.glyph.setProperty("tone", tone)
-        self.text.setText(text)
-        self.detail.setText(detail)
+        self.glyph.setAccessibleName(text)
+        room = row_room()
+        show_elided(self.text, text, room - self._detail_reserve(detail))
+        shown = self.text.fontMetrics().horizontalAdvance(self.text.text())
+        show_elided(self.detail, detail, room - shown - theme.SPACE_S)
+
+    def _detail_reserve(self, detail: str) -> int:
+        """The room a non-empty detail keeps back from a long name: its own width, at most half the row."""
+        if not detail:
+            return 0
+        natural = self.detail.fontMetrics().horizontalAdvance(detail)
+        return min(natural, row_room() // 2) + theme.SPACE_S
 
 
 class Spinner:
@@ -285,8 +326,7 @@ class UsageRow(QWidget):
             self.usage.hide()
             return
         set_props(self.usage, role=role)
-        show_elided(self.usage, text, theme.WINDOW_WIDTH - 2 * theme.SPACE_M - theme.GLYPH_COLUMN_WIDTH - theme.SPACE_S,
-                    tooltip)
+        show_elided(self.usage, text, row_room(), tooltip)
         self.usage.show()
 
 

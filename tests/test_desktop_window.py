@@ -100,23 +100,37 @@ def elided(widget, text: str, width: int | None = None) -> str:
     return widget.fontMetrics().elidedText(text, Qt.TextElideMode.ElideRight, width or widget.width())
 
 
-def full_text(row) -> str:
-    """A one-line log row's whole text: show_elided keeps it in the tooltip when the row is cut."""
-    return row.toolTip() or row.text()
+def full_text(label) -> str:
+    """A label's whole text: show_elided keeps it in the tooltip when the label is cut."""
+    return label.toolTip() or label.text()
 
 
-def texts(rows) -> list[str]:
-    """Visible text of each item in a rows layout: `tone name detail` for a Row, else the label text."""
+def assert_rows_fit(test: unittest.TestCase, rows) -> None:
+    """Every Row's shown text and detail fit the row's width, whatever the font: cut text never overflows."""
+    for index in range(rows.count()):
+        widget = rows.itemAt(index).widget()
+        row = widget.row if isinstance(widget, widgets.UsageRow) else widget
+        if isinstance(row, widgets.Row):
+            used = sum(part.fontMetrics().horizontalAdvance(part.text()) for part in (row.text, row.detail))
+            test.assertLessEqual(used, widgets.row_room() + widgets.theme.SPACE_S, row.text.text())
+
+
+def texts(rows, *, whole: bool = False) -> list[str]:
+    """Visible text of each item in a rows layout: `tone name detail` for a Row, else the label text.
+
+    With `whole`, each label's full text instead of the elided one.
+    """
+    read = full_text if whole else (lambda label: label.text())
     found: list[str] = []
     for index in range(rows.count()):
         widget = rows.itemAt(index).widget()
         if isinstance(widget, widgets.UsageRow):
             widget = widget.row
         if isinstance(widget, widgets.Row):
-            parts = (widget.glyph.property("tone") or "", widget.text.text(), widget.detail.text())
+            parts = (widget.glyph.property("tone") or "", read(widget.text), read(widget.detail))
             found.append(" ".join(part for part in parts if part))
         elif widget is not None and not isinstance(widget, widgets.ProcessingLog):
-            found.append(widget.text())
+            found.append(read(widget))
     return found
 
 
@@ -301,10 +315,11 @@ class StatusWindowTest(unittest.TestCase):
         self.window.apply(running(ChildRow("mcp-server-logs", "connected", "ok"), ChildRow("mcp-jira-sync", "reconnecting", "wait"),
                                   activity_ui=True, clients=("claude-code ×2",)))
         self.assertEqual(self.window.hub_row.text.text(), "Running")
-        self.assertEqual(self.window.hub_row.detail.text(), "activity UI")
+        self.assertEqual(self.window.mode_label.text(), "activity UI")
         self.assertEqual(self.window.hub_row.glyph.property("tone"), "ok")
-        self.assertEqual(texts(self.window.children_list),
+        self.assertEqual(texts(self.window.children_list, whole=True),
                          ["ok mcp-server-logs", "wait mcp-jira-sync Reconnecting"])
+        assert_rows_fit(self, self.window.children_list)  # cut text never overflows, whatever the font
         self.assertEqual(self.window.children_count.text(), "1/2")
         self.assertEqual(texts(self.window.clients_list), ["ok claude-code ×2"])
         self.assertEqual(self.window.clients_count.text(), "1")
@@ -318,7 +333,7 @@ class StatusWindowTest(unittest.TestCase):
     def test_fast_mode_and_empty_lists_show_notes(self) -> None:
         self.window.apply(running())
         self.assertEqual(texts(self.window.children_list), ["No child MCPs detected."])
-        self.assertEqual(self.window.hub_row.detail.text(), "fast mode")
+        self.assertEqual(self.window.mode_label.text(), "fast mode")
         self.assertIn("Track AI clients", texts(self.window.clients_list)[0])
         self.window.apply(running(activity_ui=True))
         self.assertEqual(texts(self.window.clients_list), ["No AI clients connected yet"])
@@ -515,9 +530,9 @@ class StatusWindowTest(unittest.TestCase):
         self.assertEqual(self.window.settings.tab, "hub")
         self.assertTrue(self.window.appearance_page.isHidden())
         self.assertFalse(page.isHidden())
-        self.assertTrue(checked(page.tracking_segments, False))
-        self.assertTrue(checked(page.bitnet_segments, False))
-        self.assertTrue(checked(page.autostart_segments["app"], True))
+        self.assertFalse(page.tracking_switch.isChecked())
+        self.assertFalse(page.bitnet_switch.isChecked())
+        self.assertTrue(page.autostart_switches["app"].isChecked())
         self.assertTrue(page.loading.isHidden())
         self.assertFalse(page.start_button.isEnabled())
         self.assertTrue(page.stop_button.isEnabled())
@@ -527,10 +542,10 @@ class StatusWindowTest(unittest.TestCase):
         self.window.apply(running())
         self.window.show_tab("hub")
         self.window.process_results()
-        pick(self.window.hub_page.tracking_segments, True)
+        self.window.hub_page.tracking_switch.toggleChecked()
         self.window.process_results()
         self.assertTrue(self.store.activity_ui)
-        self.assertTrue(checked(self.window.hub_page.tracking_segments, True))
+        self.assertTrue(self.window.hub_page.tracking_switch.isChecked())
         self.assertFalse(self.window.settings.pending.isHidden())
         restart = self.window.settings.restart_button
         restart.click()
@@ -548,11 +563,11 @@ class StatusWindowTest(unittest.TestCase):
         self.window.show_tab("hub")
         self.window.process_results()
         page = self.window.hub_page
-        self.assertTrue(checked(page.bitnet_segments, False))
-        pick(page.bitnet_segments, True)
+        self.assertFalse(page.bitnet_switch.isChecked())
+        page.bitnet_switch.toggleChecked()
         self.window.process_results()
         self.assertTrue(self.store.bitnet)
-        self.assertTrue(checked(page.bitnet_segments, True))
+        self.assertTrue(page.bitnet_switch.isChecked())
         self.assertTrue(self.window.restart_needed)
 
         # Status caption mapping
@@ -570,7 +585,7 @@ class StatusWindowTest(unittest.TestCase):
         self.window.process_results()
         self.assertEqual(page.bitnet_status.text(), "Not installed")
         self.assertEqual(page.bitnet_action.text(), "Install BitNet")
-        self.assertTrue(page.bitnet_segments.isHidden())  # On/Off only once installed
+        self.assertTrue(page.bitnet_switch.isHidden())  # On/Off only once installed
         page.bitnet_action.click()
         self.window.process_results()
         self.assertEqual(self.store.installs, 1)
@@ -587,7 +602,7 @@ class StatusWindowTest(unittest.TestCase):
         self.window.apply(replace(running(), bitnet=info(installed=True, state="off", restart_needed=True)))
         self.assertFalse(page.bitnet_spinner.running)
         self.assertEqual(page.bitnet_status.text(), "Installed. Restart the Hub to connect BitNet.")
-        self.assertFalse(page.bitnet_segments.isHidden())
+        self.assertFalse(page.bitnet_switch.isHidden())
         page.bitnet_action.click()
         self.assertEqual(self.launched[-1], ["restart"])
 
@@ -655,7 +670,7 @@ class StatusWindowTest(unittest.TestCase):
         page = self.window.hub_page
         self.assertFalse(page.needs_hub.isHidden())
         self.assertTrue(page.loading.isHidden())
-        self.assertFalse(enabled(page.tracking_segments, True))
+        self.assertFalse(page.tracking_switch.isEnabled())
         self.assertTrue(page.start_button.isEnabled())
         page.start_button.click()
         self.assertEqual(self.launched, [["start"]])
@@ -663,7 +678,7 @@ class StatusWindowTest(unittest.TestCase):
         self.window.process_results()
         self.assertEqual(self.store.reads, 1)
         self.assertTrue(page.needs_hub.isHidden())
-        self.assertTrue(enabled(page.tracking_segments, False))
+        self.assertTrue(page.tracking_switch.isEnabled())
 
     def test_running_from_source_has_no_app_sign_in_switch(self) -> None:
         self.autostart = {"hub": None, "app": None}
@@ -671,8 +686,8 @@ class StatusWindowTest(unittest.TestCase):
         self.window.process_results()
         page = self.window.hub_page
         self.assertFalse(page.app_hint.isHidden())
-        self.assertFalse(enabled(page.autostart_segments["app"], True))
-        self.assertFalse(enabled(page.autostart_segments["hub"], True))
+        self.assertFalse(page.autostart_switches["app"].isEnabled())
+        self.assertFalse(page.autostart_switches["hub"].isEnabled())
 
     def test_stop_needs_a_second_click(self) -> None:
         self.window.apply(running())
@@ -693,14 +708,14 @@ class StatusWindowTest(unittest.TestCase):
         self.window.process_results()
         page = self.window.mcps_page
         self.assertEqual(list(page.switches), ["mcp-server-logs", "mcp-jira-sync"])
-        segmented, reason = page.switches["mcp-jira-sync"]
-        self.assertTrue(checked(segmented, False))
+        switch, reason = page.switches["mcp-jira-sync"]
+        self.assertFalse(switch.isChecked())
         self.assertTrue(reason.isHidden())
         self.assertFalse(page.switches["mcp-server-logs"][1].isHidden())
-        pick(segmented, True)
+        switch.toggleChecked()
         self.window.process_results()
         self.assertTrue(self.store.enabled["mcp-jira-sync"])
-        self.assertTrue(checked(page.switches["mcp-jira-sync"][0], True))
+        self.assertTrue(page.switches["mcp-jira-sync"][0].isChecked())
         self.assertTrue(self.window.restart_needed)
         self.window.apply(HubSnapshot(hub="stopped"))
         self.assertFalse(self.window.restart_needed)
@@ -710,10 +725,10 @@ class StatusWindowTest(unittest.TestCase):
         self.window.apply(running())
         self.window.show_tab("mcps")
         self.window.process_results()
-        self.assertFalse(enabled(self.window.mcps_page.switches["mcp-server-logs"][0], True))
+        self.assertFalse(self.window.mcps_page.switches["mcp-server-logs"][0].isEnabled())
         self.assertIn("MCP_HUB_CONFIG", self.window.mcps_page.note.text())
-        self.assertFalse(enabled(self.window.hub_page.tracking_segments, True))
-        self.assertFalse(enabled(self.window.hub_page.bitnet_segments, True))
+        self.assertFalse(self.window.hub_page.tracking_switch.isEnabled())
+        self.assertFalse(self.window.hub_page.bitnet_switch.isEnabled())
 
     def test_settings_errors_are_reported_in_the_footer(self) -> None:
         self.store.fail = True
@@ -729,10 +744,10 @@ class StatusWindowTest(unittest.TestCase):
     def test_autostart_switches_call_hubctl(self) -> None:
         self.window.show_tab("hub")
         self.window.process_results()
-        pick(self.window.hub_page.autostart_segments["hub"], False)
+        self.window.hub_page.autostart_switches["hub"].toggleChecked()
         self.window.process_results()
         self.assertEqual(self.autostart_calls, [("hub", False)])
-        self.assertTrue(checked(self.window.hub_page.autostart_segments["hub"], False))
+        self.assertFalse(self.window.hub_page.autostart_switches["hub"].isChecked())
         self.window.set_autostart("hub", False)  # unchanged: hubctl is not run again
         self.assertEqual(self.autostart_calls, [("hub", False)])
 
@@ -804,8 +819,9 @@ class StatusWindowTest(unittest.TestCase):
     def test_connected_children_need_no_word_but_other_states_keep_theirs(self) -> None:
         self.window.apply(running(ChildRow("mcp-server-logs", "connected", "ok"), ChildRow("mcp-jira-sync", "reconnecting", "wait"),
                                   ChildRow("mcp-read-source", "disabled", "off")))
-        self.assertEqual(texts(self.window.children_list),
+        self.assertEqual(texts(self.window.children_list, whole=True),
                          ["ok mcp-server-logs", "wait mcp-jira-sync Reconnecting", "off mcp-read-source Disabled"])
+        assert_rows_fit(self, self.window.children_list)  # cut text never overflows, whatever the font
 
     def test_clear_glass_style_is_applied_saved_and_reset(self) -> None:
         self.glass = True
@@ -1058,7 +1074,10 @@ class UpdateWindowTest(unittest.TestCase):
         self.assertFalse(self.card().isHidden())
         self.offer(running(ChildRow("mcp-jira-sync", "connected", "ok")))
         self.assertFalse(self.card().isHidden())
-        self.assertEqual(self.card().title.text(), "Version 0.2.0 is available")
+        self.assertEqual(self.card().title.text(), "UPDATES")
+        self.assertEqual(self.card().version_line.text(), "Version 0.2.0 is available")
+        self.assertFalse(self.card().update_primary.isHidden())  # the Hub runs: Update is the one primary action
+        self.assertTrue(self.card().update_button.isHidden())
         self.assertEqual(self.card().note.text(), "You have 0.1.1.")
         self.assertEqual((self.card().update_button.text(), self.card().notes_button.text()), ("Update", "What's new"))
         self.assertTrue(self.card().update_button.isEnabled())
@@ -1075,7 +1094,8 @@ class UpdateWindowTest(unittest.TestCase):
         self.offer(running(ChildRow("a", "connected", "ok")))
         vi = i18n.load_strings("vi")
         self.window.set_language("vi")
-        self.assertEqual(self.card().title.text(), vi["desktop.update.available"].replace("{version}", "0.2.0"))
+        self.assertEqual(self.card().title.text(), vi["desktop.update.title"])
+        self.assertEqual(self.card().version_line.text(), vi["desktop.update.available"].replace("{version}", "0.2.0"))
         self.assertEqual(self.card().update_button.text(), vi["desktop.update.button"])
         self.assertNotEqual(self.card().update_button.text(), "Update")
         self.window.set_language("en")
@@ -1235,7 +1255,7 @@ class UpdateWindowTest(unittest.TestCase):
         self.assertFalse(self.card().isHidden())
         self.window.preview_update(None)
         self.assertFalse(self.card().isHidden())
-        self.assertEqual(self.card().title.text(), "Updates")
+        self.assertEqual(self.card().title.text(), "UPDATES")
 
 
 @unittest.skipIf(QT_MISSING, QT_MISSING or "")
@@ -1472,9 +1492,14 @@ class FluentWidgetsTest(unittest.TestCase):
                 self.assertIsInstance(widget, TransparentToolButton)
 
     def test_the_hub_actions_are_fluent_primary_buttons(self) -> None:
-        self.assertIsInstance(self.window.open_button, PrimaryPushButton)
+        self.window.apply(HubSnapshot(hub="stopped"))  # Start Hub is the one shown action
         self.assertIsInstance(self.window.start_button, PrimaryPushButton)
-        self.assertIsInstance(self.window.update_card.update_button, PrimaryPushButton)
+        self.assertFalse(self.window.start_button.isHidden())
+        self.assertTrue(self.window.open_button.isHidden())
+        self.window.apply(running())  # Open dashboard replaces it
+        self.assertIsInstance(self.window.open_button, PrimaryPushButton)
+        self.assertFalse(self.window.open_button.isHidden())
+        self.assertTrue(self.window.start_button.isHidden())
         self.assertIsInstance(self.window.update_card.notes_button, HyperlinkButton)
 
 if __name__ == "__main__":
