@@ -15,7 +15,7 @@ from mcp_hub.config import HubConfig, ToolRoute
 from mcp_hub.extensions import Condensed, PlanContext, PlanHints
 from mcp_hub.full_results import FullResultStore
 from mcp_hub.server import FULL_RESULT_TOOL, HubRuntime
-from mcp_hub.settings import Settings
+from mcp_hub.settings import PolicySettings, Settings
 
 
 class FakeCondenser:
@@ -273,7 +273,7 @@ class ServerPlanAssistTest(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.audit.close)
         route = ToolRoute("feature", "logs-server", "query", "logs__query")
         self.config = HubConfig(self.root / "hub.json", {}, (route,))
-        settings = Settings()
+        settings = Settings(policy=PolicySettings(confirm_playbook="off"))
         self.runtime = HubRuntime(self.config, self.audit, settings=settings)
         from mcp_hub.policy import CallFacts
         self.runtime.routes["logs__query"] = route

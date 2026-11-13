@@ -10,7 +10,7 @@ The user's input after the command is normally `<server-id> <task>`. For a cross
 
 1. **Parse.** If the request is a cross-system issue investigation, or the first word is `investigate`, use the job workflow in step 4. Otherwise the first word is the child's server ID (e.g. `mcp-server-logs`, `mcp-jira-sync`) and the rest is the task, in any language. If the input is empty or the ID is unknown, list the connected server IDs with one example each, then ask.
 2. **Check the Hub.** Hub tools are named `<prefix>__<tool>`, and each description starts with `[<feature> via <server-id>]`. If there are none, tell the user that mcp-hub is not connected or not reloaded, and stop.
-3. **Plan first.** Before any child tool, call `hub__plan`.
+3. **Plan first.** Before any child tool, call `hub__plan`. If it returns playbook choices and a `confirm_token`, ask the user which one to use, then call `hub__plan` again with that choice and token. If a child reports a configuration error, stop and report it.
    - **Pick the playbook by the user's input:**
      - an rcid or request ID → `rcid-bug`;
      - a Jira key → `jira-ticket-bug`;

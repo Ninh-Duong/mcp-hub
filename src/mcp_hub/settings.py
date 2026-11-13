@@ -76,6 +76,10 @@ class PolicySettings:
     mode: str = "enforce"
     # Plans kept in memory; the least recently used is dropped, and a call naming it must plan again.
     max_plans: int = 256
+    # Playbook confirmation (docs/usage-policy.md): always asks before every plan; ambiguous asks unless exactly one
+    # playbook matches the task; off never asks. A confirmation token lives confirm_token_seconds and is used once.
+    confirm_playbook: str = "always"
+    confirm_token_seconds: float = 600.0
     # Connection checks: allowed only after a failed call, or when the plan says the user asked for checks.
     # Listing OpenObserve organizations is discovery, not a check; playbooks pass the project's targets instead.
     health_check_tools: tuple[str, ...] = (
@@ -129,7 +133,7 @@ _MINIMUMS = {
 }
 _MAXIMUMS = {("http", "port"): 65535, ("bitnet", "port"): 65535}
 # Text settings and the values each accepts.
-_CHOICES = {("policy", "mode"): ("enforce", "warn", "off")}
+_CHOICES = {("policy", "mode"): ("enforce", "warn", "off"), ("policy", "confirm_playbook"): ("always", "ambiguous", "off")}
 
 
 def load_settings(config_path: str | Path | None = None) -> Settings:

@@ -1,6 +1,6 @@
 # Rules for agents using mcp-hub
 
-Version: 2026-11-08. A copy with an older version, or without this line, is stale; refresh it (connecting-a-client.md, prompt C).
+Version: 2026-11-13. A copy with an older version, or without this line, is stale; refresh it (connecting-a-client.md, prompt C).
 
 These rules apply in any workspace where the `mcp-hub` MCP server is connected. The Hub also sends them as its server instructions. Step 7 of `docs/connecting-a-client.md` in the mcp-hub repo installs them as an always-on client rule. This file has no machine paths or relative links, so it can be copied as-is.
 
@@ -17,6 +17,8 @@ These rules apply in any workspace where the `mcp-hub` MCP server is connected. 
 
   `hub__plan` lists every playbook with when to use it. The playbook returns the steps to follow and the project's log targets (organization, stream, request-ID field). Use exactly those targets; never list organizations or streams to find them. If the plan is refused because a project has no log targets, ask the user to add them. Do not search without them.
 - **Without a matching playbook, call `hub__plan` with your own plan before any child tool.** Give `task`, the child `servers` the task needs, the `env` the user named, and the planned `steps`. List in `writes` only the write tools the user asked for. Set `connection_checks: true` only when the user asked to check connections.
+- **Confirm the playbook with the user.** When `hub__plan` answers with a list of playbooks and a `confirm_token` instead of a plan, ask the user which one fits. Then call `hub__plan` again with the same task, the chosen playbook (or none), and that token. Never choose a playbook for the user, and never reuse a token.
+- **Stop on a configuration error.** When a child reports an unknown project or a missing setting, stop and report it to the user. Do not search the disk, a clone, or another tool to get around it.
 - **Read what it returns:** a `hub_plan_id`, the allowed tools, and each child's rules (its contract). Follow those rules.
 - **Pass `hub_plan_id` with every call of the task,** including `hub__batch`, where it goes beside `calls`.
 - **The Hub refuses calls outside the plan:** another child, a tool the playbook does not list, a `limit` above the playbook's, another environment, organization, stream, or project, an omitted `env`, an undeclared write, a connection check before any failure, an identical repeat, and a third attempt at a failed call. A refusal starts with `Policy:` and says what to do. Fix the call, or call `hub__plan` again if the user's request needs a wider plan. Never plan wider than the user asked to get around a refusal.

@@ -38,6 +38,7 @@ def write_private_config(private: Path) -> Path:
     hub_path.write_text(json.dumps({
         "version": 1,
         "servers": {"fake-child": {"enabled": True, "configFile": str(child_path)}},
+        "settings": {"policy": {"confirmPlaybook": "off"}},
         "features": {"fake-feature": {
             "enabled": True,
             "tools": [{"server": "fake-child", "name": "echo_unicode", "exposeAs": "fake__echo_unicode"}],

@@ -8,6 +8,7 @@ A playbook is a recipe for one kind of task: which mcp-hub tools to call, in whi
 | [jira-ticket-bug](jira-ticket-bug.md) | The user gives a Jira issue for a bug. |
 | [service-errors](service-errors.md) | The user names a service, without an rcid. |
 | [pr-review](pr-review.md) | The user gives a pull request. |
+| [source-search](source-search.md) | The user asks to search or count code in a registered repository. |
 
 ## Writing a playbook
 
@@ -20,7 +21,7 @@ Create `docs/playbooks/<id>.md`. The `id` must match the file name and use lower
 | `servers` | yes | `[a, b]`: the child server IDs the playbook uses. A plan may name only these. |
 | `tools` | yes | `[a, b]`: the only Hub tools the plan may call. `hub__batch` is allowed when every call inside it is listed here. |
 | `max_limit` | no | The largest `limit` argument any call may pass. |
-| `needs` | no | `[logs]`: the plan must name a project and an environment with log targets in `config/private/projects.json`. |
+| `needs` | no | `[logs]`: the plan must name a project and an environment with log targets in `config/private/projects.json`. `[source]`: the plan must name a project registered for source search. |
 | `includes` | no | `[a, b]`: other playbooks whose servers, tools, and steps are added. Included playbooks cannot include others. |
 
 A list value may continue on indented lines.

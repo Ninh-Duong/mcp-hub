@@ -6,13 +6,13 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from mcp.types import CallToolRequestParams, CallToolResult, TextContent, Tool
 
-from mcp_hub import policy
+from mcp_hub import plan_confirm, policy
 from mcp_hub.config import ConfigError, HubConfig, ServerConfig, ToolRoute
-from mcp_hub.playbooks import load_playbooks, parse_playbook
+from mcp_hub.playbooks import Playbook, load_playbooks, parse_playbook
 from mcp_hub.policy import CallFacts, PlanBook, PlanCatalog, PolicyRefused
 from mcp_hub.projects import LogTarget, ProjectConfig
 from mcp_hub.server import HubRuntime
@@ -182,7 +182,7 @@ class RuntimeGateTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         root = Path(tempfile.mkdtemp())
         servers = {sid: ServerConfig(sid, "python", (), root, {}, ()) for sid in ("logs-child", "jira-child")}
-        settings = Settings(policy=PolicySettings(mode=self.mode, health_check_tools=("logs__check",)))
+        settings = Settings(policy=PolicySettings(mode=self.mode, health_check_tools=("logs__check",), confirm_playbook="off"))
         self.audit = MagicMock()
         self.runtime = HubRuntime(HubConfig(root / "hub.json", servers, ROUTES), self.audit, settings)
         self.logs, self.jira = RecordingClient(), RecordingClient()
@@ -205,6 +205,47 @@ class RuntimeGateTest(unittest.IsolatedAsyncioTestCase):
 
     def events(self, name: str) -> list[dict]:
         return [c.kwargs for c in self.audit.write.call_args_list if c.args[0] == name]
+
+
+class ConfirmGateTest(RuntimeGateTest):
+    """With `always` (the default), a plan waits for the user's choice of playbook and a single-use token."""
+
+    async def asyncSetUp(self) -> None:
+        await super().asyncSetUp()
+        self.runtime.settings = Settings(policy=PolicySettings(mode="enforce", confirm_playbook="always"))
+        self.runtime.confirm_tokens = plan_confirm.ConfirmTokens(600)
+
+    async def test_a_plan_without_a_token_is_offered_and_not_stored(self) -> None:
+        result = await self.call("hub__plan", plan_args())
+        self.assertFalse(result.is_error)
+        self.assertIn("confirm_token:", result.content[0].text)
+        self.assertNotIn("hub_plan_id", result.content[0].text)
+        self.assertEqual(len(self.events("hub.plan.confirm_requested")), 1)
+        self.assertEqual(self.events("hub.plan.created"), [])
+
+    async def test_the_offered_token_creates_the_plan_once(self) -> None:
+        offer = await self.call("hub__plan", plan_args())
+        token = re.search(r"confirm_token: (\S+?)\.?$", offer.content[0].text, re.M)[1]
+        result = await self.call("hub__plan", plan_args(confirm_token=token))
+        self.assertFalse(result.is_error, result.content[0].text)
+        self.assertRegex(result.content[0].text, r'hub_plan_id="')
+        again = await self.call("hub__plan", plan_args(confirm_token=token))
+        self.assertTrue(again.is_error)
+        self.assertIn("Policy:", again.content[0].text)
+        self.assertEqual(len(self.events("hub.plan.confirm_refused")), 1)
+
+    async def test_a_token_is_refused_for_a_different_task(self) -> None:
+        offer = await self.call("hub__plan", plan_args())
+        token = re.search(r"confirm_token: (\S+?)\.?$", offer.content[0].text, re.M)[1]
+        result = await self.call("hub__plan", plan_args(task="another task", confirm_token=token))
+        self.assertTrue(result.is_error)
+
+    async def test_the_planner_is_skipped_once_a_playbook_is_chosen(self) -> None:
+        self.runtime.plan_assistant = MagicMock()
+        self.runtime.plan_assistant.hints = AsyncMock(return_value=None)
+        _args, assist = await self.runtime._assist_plan({"task": "Find the failed order", "playbook": "find-request"})
+        self.assertEqual(assist, "off")
+        self.runtime.plan_assistant.hints.assert_not_called()
 
 
 class EnforceGateTest(RuntimeGateTest):
@@ -374,6 +415,16 @@ class PlaybookPlanTest(unittest.TestCase):
         self.assertIn("- find-request: The user gives an rcid.", tool.description)
         self.assertEqual(tool.input_schema["properties"]["playbook"]["enum"], ["find-request"])
         self.assertNotIn("enum", policy.plan_tool().input_schema["properties"]["playbook"])
+
+
+class NeedsRegistrationTest(unittest.TestCase):
+    def test_a_source_playbook_on_an_unregistered_project_names_the_alias(self) -> None:
+        source = Playbook("source-search", "Search code.", ("logs-child",), ("query",), None, ("source",), (), "")
+        catalog = PlanCatalog(FACTS, {"source-search": source}, {})
+        with self.assertRaises(policy.NeedsRegistration) as raised:
+            policy.parse_plan(plan_args(playbook="source-search", project="wec.be"), catalog, "p")
+        self.assertEqual(raised.exception.alias, "wec.be")
+        self.assertIsInstance(raised.exception, PolicyRefused)
 
 
 class PlaybookRuntimeTest(RuntimeGateTest):

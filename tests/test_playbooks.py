@@ -79,7 +79,7 @@ class LoadPlaybooksTest(unittest.TestCase):
 class RepositoryPlaybooksTest(unittest.TestCase):
     def test_the_shipped_playbooks_load_and_name_only_allowlisted_tools(self) -> None:
         playbooks = load_playbooks()
-        self.assertEqual(set(playbooks), {"rcid-bug", "jira-ticket-bug", "service-errors", "pr-review"})
+        self.assertEqual(set(playbooks), {"rcid-bug", "jira-ticket-bug", "service-errors", "pr-review", "source-search"})
         example = json.loads((HUB_ROOT / "config" / "hub.example.json").read_text(encoding="utf-8"))
         allowlisted = {tool["exposeAs"]: tool["server"] for feature in example["features"].values()
                        for tool in feature["tools"]}

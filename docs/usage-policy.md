@@ -31,6 +31,10 @@ The Hub therefore enforces the rules it can check. Before any child tool runs, a
 
 The plan travels as an argument, not as MCP session state, because current MCP protocol versions give the server no lasting session identity per client.
 
+## Playbook confirmation
+
+With `policy.confirmPlaybook` set to `always` (the default), `hub__plan` without a `confirm_token` plans nothing: it returns the playbooks that fit the task, each with what it is for, a choice of no playbook, and a `confirm_token`. The agent asks the user which one to use, then calls `hub__plan` again with the same task, the chosen playbook (or none), and the token. A token is single use, bound to that task text and the offered choices, and expires after `policy.confirmTokenSeconds`. A refused token is a `Policy:` error, and the agent asks the user again. A chosen playbook skips the BitNet planner. `ambiguous` offers only when no single playbook matches the task; `off` never offers.
+
 ## Playbooks
 
 A plan can name a playbook (`docs/playbooks/<id>.md`, [list](playbooks/README.md)): a recipe for one kind of input, such as an rcid, a Jira key, a service, or a PR. The `hub__plan` description lists each playbook with its `when` line, so every client can choose one.

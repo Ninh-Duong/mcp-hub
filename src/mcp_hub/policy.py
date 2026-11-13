@@ -53,6 +53,18 @@ class PolicyRefused(ValueError):
     """An invalid plan; the message is safe to show to the client."""
 
 
+class NeedsRegistration(PolicyRefused):
+    """A playbook searches a project that is not registered yet; `alias` is the name the plan asked for."""
+
+    def __init__(self, alias: str) -> None:
+        super().__init__(
+            f"Project {alias} is not registered for source search. Ask the user whether to add it. If they agree, "
+            "plan without a playbook with writes: [source__register_project] and call it with the alias and the "
+            "folder the user named; do not search it by another means."
+        )
+        self.alias = alias
+
+
 class Violation(NamedTuple):
     rule: str
     message: str
@@ -112,6 +124,8 @@ _PLAN_SCHEMA: dict[str, Any] = {
         "project": {"type": "string", "description": "The project alias (see hub__list_projects); log playbooks need it."},
         "since": {"type": "string", "format": "date-time", "description": "UTC window for log/SQL time filters."},
         "until": {"type": "string", "format": "date-time", "description": "UTC window for log/SQL time filters."},
+        "confirm_token": {"type": "string",
+                          "description": "The token from the offer of playbooks, sent with the playbook the user chose."},
     },
     "required": ["task"],
     "additionalProperties": False,
@@ -241,11 +255,14 @@ def _scope(
     env = _text(env, "env") if env is not None else None
     alias = arguments.get("project")
     needs_logs = playbook is not None and "logs" in playbook.needs
+    needs_source = playbook is not None and "source" in playbook.needs
     if alias is None:
-        if needs_logs:
+        if needs_logs or needs_source:
             raise PolicyRefused(f"Playbook {playbook.id} needs 'project': one of {', '.join(catalog.projects) or 'none'}.")
         return None, env, None, None
     project = catalog.projects.get(_text(alias, "project"))
+    if project is None and needs_source:
+        raise NeedsRegistration(_text(alias, "project"))
     if project is None:
         raise PolicyRefused(f"'project' must be one of: {', '.join(catalog.projects) or 'none (none registered)'}.")
     env = env or project.default_env

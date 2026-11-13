@@ -27,7 +27,7 @@ from pathlib import Path
 from .config import HUB_ROOT, ConfigError
 
 PLAYBOOK_DIR = HUB_ROOT / "docs" / "playbooks"
-NEEDS = frozenset({"logs"})
+NEEDS = frozenset({"logs", "source"})
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 _LIST_KEYS = ("servers", "tools", "needs", "includes")
 

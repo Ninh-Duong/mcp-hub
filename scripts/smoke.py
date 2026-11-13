@@ -77,6 +77,8 @@ def _has_project_aliases(result: CallToolResult) -> bool:
 
 # The plan ID in the Hub's `hub__plan` answer.
 _PLAN_ID_RE = re.compile(r'hub_plan_id="([^"]+)"')
+# The token in the Hub's offer of playbooks (plan_confirm.offer_text).
+_TOKEN_RE = re.compile(r"confirm_token: (\S+?)\.?$", re.M)
 # What a child answers when the user has not filled in its account yet: a warning, not a failure.
 _NOT_SET_MARKERS = ("not configured", "no bitbucket credentials")
 
@@ -109,16 +111,23 @@ async def _plan_checks(client: Client, server_ids: list[str]) -> dict[str, str]:
     """
     if not server_ids:
         return {}
+    arguments = {
+        "task": "Smoke test: check that each child MCP answers.",
+        "servers": server_ids,
+        "steps": ["One read-only connection check per child."],
+        "connection_checks": True,
+    }
     try:
-        plan = await client.call_tool("hub__plan", {
-            "task": "Smoke test: check that each child MCP answers.",
-            "servers": server_ids,
-            "steps": ["One read-only connection check per child."],
-            "connection_checks": True,
-        })
+        # The Hub offers playbooks first (policy.confirmPlaybook); the smoke test declares no playbook, so it
+        # confirms "no playbook" with the offered token and then plans.
+        offer = await client.call_tool("hub__plan", arguments)
+        token = next((m[1] for text in _texts(offer) if (m := _TOKEN_RE.search(text))), None)
+        if token is not None:
+            arguments = {**arguments, "confirm_token": token}
+            offer = await client.call_tool("hub__plan", arguments)
     except Exception:
         return {}
-    found = next((m for text in _texts(plan) if (m := _PLAN_ID_RE.search(text))), None)
+    found = next((m for text in _texts(offer) if (m := _PLAN_ID_RE.search(text))), None)
     return {"hub_plan_id": found[1]} if found else {}
 
 

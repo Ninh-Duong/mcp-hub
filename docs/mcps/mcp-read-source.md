@@ -26,4 +26,6 @@ Shared rules: [Hub result cache](README.md#hub-result-cache). Defaults here: 120
 
 See [the shared-service runbook](../operations/shared-agent-hub.md#2-configure-projects-and-agents). The source repository has its own `README.md`, `AGENTS.md`, lockfile, and tests. Run `uv run --locked python -m unittest discover tests` there. From the Hub, `uv run python scripts/smoke.py` checks that the child tool is reachable without requiring a registered project root (it shows `WARN` until the user registers one).
 
+`source__register_project` is the only write tool. The Hub exposes it only when the user adds it to the `source` feature in the private Hub config, and a plan may use it only with `writes` and the user's confirmation. The Hub's `projects.json` must also list the alias (the `source-search` playbook checks the Hub's project list, not the child's), so a registration needs both places.
+
 The Hub's job-side source specialist can call only `source__*` tools. Adding or changing another child is covered by [adding a child MCP](../adding-a-child-mcp.md).

@@ -88,6 +88,9 @@ The BitNet [processing stream](bitnet.md#processing-stream) is transient metadat
 | `tool.call.failed` | ERROR | Exception, timeout (`error_type=TimeoutError`), the child has no live session (`error_type=ChildUnavailable`; answered immediately), or a child error result (`error_type=ToolError`, `error_summary` redacted). An exception group is logged by its first leaf exception. |
 | `tool.call.denied` | WARNING | A client called a tool that isn't allowlisted (`tool`, redacted and cut to 128 characters), sent a `hub__batch` that was refused (`reason`), or broke its plan (`reason=policy:<rule>`, rules in [usage-policy.md](usage-policy.md)). |
 | `tool.call.policy_warned` | WARNING | With `settings.policy.mode` set to `warn`: a call broke its plan and ran anyway (`reason=policy:<rule>`). |
+| `hub.plan.confirm_requested` | INFO | `hub__plan` came without a playbook choice, so the Hub offered the playbooks and a token: `mode`, `options` (count). Never the task text. |
+| `hub.plan.confirm_refused` | WARNING | A `confirm_token` was refused (unknown, used, expired, another task, or a choice that was not offered): `mode`. |
+| `hub.plan.needs_registration` | WARNING | A playbook that searches source was asked for a project that is not registered: `playbook`. Never the alias or path. |
 | `hub.plan.created` | INFO | A client declared a plan with `hub__plan`: `plan_id`, `servers`, `env_set`, `writes`, `steps` (count), `connection_checks`, `mode`, `playbook`, and `project_set`. Never the task text, the steps, the project alias, or its log targets. |
 | `tool.call.cached` | INFO | A read-only call with a `cacheSeconds` TTL was answered from the Hub result cache (or joined an identical call in flight); the child was not called. Includes `duration_ms`. |
 | `tool.call.interrupted` | WARNING | The call was cancelled before the child answered. |
