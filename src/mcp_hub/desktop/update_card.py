@@ -9,10 +9,11 @@ from collections.abc import Callable
 import re
 
 from PySide6.QtWidgets import QHBoxLayout, QSizePolicy
+from qfluentwidgets import FluentIcon, HyperlinkButton
 
 from . import theme
 from .hub_api import UpdateStatus
-from .widgets import Card, FadingLog, button, label, set_props, show_elided
+from .widgets import Card, FadingLog, button, icon_button, label, set_props, show_elided
 
 READY, CHECKING, UPDATING, DOWNLOADING, INSTALLING, FAILED = (
     "ready", "checking", "updating", "downloading", "installing", "failed",
@@ -115,29 +116,29 @@ class UpdateCard(Card):
                  on_retry: Callable[[], None], on_notes: Callable[[], None]) -> None:
         super().__init__(theme.WINDOW_WIDTH)
         self.title = label(role="headline", wrap=True)
-        self.notes_button = button(on_notes, small=True)
+        self.notes_button = HyperlinkButton()
+        self.notes_button.clicked.connect(lambda _checked=False: on_notes())
         self.note = label(role="caption", wrap=True)
         self.summary = label(role="caption")
         self.log = FadingLog()
-        self.update_button = button(on_update)
+        self.update_button = button(on_update, primary=True)
         self.retry_button = button(on_retry)
-        self.check_button = button(on_check, small=True)
-        self.check_button.setText(theme.REFRESH_GLYPH)
-        heading = QHBoxLayout()
-        heading.setSpacing(theme.SPACE_S)
-        heading.addWidget(self.title, 1)
-        heading.addWidget(self.notes_button)
+        self.check_button = icon_button(FluentIcon.SYNC, on_check)
+        links = QHBoxLayout()
+        links.addWidget(self.notes_button)
+        links.addStretch(1)
         buttons = QHBoxLayout()
         buttons.setSpacing(theme.SPACE_S)
         for main in (self.update_button, self.retry_button):
             main.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             buttons.addWidget(main, 1)
         buttons.addWidget(self.check_button)
-        self.content.addLayout(heading)
+        self.content.addWidget(self.title)
         for widget in (self.note, self.summary, self.log):
             self.content.addWidget(widget)
         self.content.addSpacing(theme.SPACE_XS)
         self.content.addLayout(buttons)
+        self.content.addLayout(links)
 
     def sync(self, t: Callable[..., str], version: str | None, current: str, state: str,
              status: UpdateStatus | None, hub_running: bool) -> None:

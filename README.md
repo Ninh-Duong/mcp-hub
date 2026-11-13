@@ -79,4 +79,6 @@ Ask your AI client, naming the tool:
 
 ## License
 
-MIT; see [LICENSE](LICENSE).
+The Hub and its code are MIT; see [LICENSE](LICENSE).
+
+The desktop status app (`src/mcp_hub/desktop`, `packaging/desktop`) and its installer are GPL-3.0-only, because they use PySide6-Fluent-Widgets (GPL-3.0); see [src/mcp_hub/desktop/LICENSE](src/mcp_hub/desktop/LICENSE). The other libraries and their licenses are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

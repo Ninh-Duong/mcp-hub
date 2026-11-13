@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcp-hub"
-version = "0.4.1"
+version = "0.5.0"
 description = "Local config-driven MCP gateway for AI agents"
 requires-python = ">=3.12"
 # One locked environment serves the Hub and the Python children that borrow its venv (config.py), and the
@@ -29,6 +29,7 @@ dependencies = [
     "cryptography>=42",
     "tree-sitter>=0.23,<1",
     "tree-sitter-c-sharp>=0.23,<1",
+    "pyside6-fluent-widgets>=1.11.3",
 ]
 
 [dependency-groups]

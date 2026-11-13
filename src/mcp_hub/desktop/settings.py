@@ -9,11 +9,11 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from PySide6.QtCore import QSignalBlocker, Qt
-from PySide6.QtWidgets import QPushButton
+from qfluentwidgets import SegmentedWidget
 
 from . import theme
 from .i18n import LANGUAGES, Translator
-from .widgets import Card, ConfirmButton, Page, label, set_props
+from .widgets import Card, ConfirmButton, Page, button, label, segment, select_segment
 
 TABS = ("appearance", "hub", "mcps")
 _SEGMENT_KEYS = {
@@ -21,6 +21,12 @@ _SEGMENT_KEYS = {
     "glass": {True: "desktop.settings.on", False: "desktop.settings.off"},
     "glass_style": {"frosted": "desktop.settings.frosted", "clear": "desktop.settings.clear"},
 }
+_GLASS = (True, False)
+
+
+def _set_enabled(segmented: SegmentedWidget, values: tuple, enabled: bool) -> None:
+    for value in values:
+        segment(segmented, value).setEnabled(enabled)
 
 
 class AppearancePage(Page):
@@ -34,19 +40,17 @@ class AppearancePage(Page):
         on_reset: Callable[[], None],
     ) -> None:
         super().__init__()
-        self.theme_label, self.theme_buttons = self.segment_row(theme.THEMES, lambda value: on_change(theme=value))
-        self.language_label, self.language_buttons = self.segment_row(LANGUAGES, on_language)
-        self.glass_label, self.glass_buttons = self.segment_row((True, False), lambda value: on_change(glass=value))
-        self.style_label, self.style_buttons = self.segment_row(
+        self.theme_label, self.theme_segments = self.segment_row(theme.THEMES, lambda value: on_change(theme=value))
+        self.language_label, self.language_segments = self.segment_row(LANGUAGES, on_language)
+        self.glass_label, self.glass_segments = self.segment_row(_GLASS, lambda value: on_change(glass=value))
+        self.style_label, self.style_segments = self.segment_row(
             theme.GLASS_STYLES, lambda value: on_change(glass_style=value))
         self.unavailable = label(role="caption", wrap=True)
         self.content.addWidget(self.unavailable)
         self.opacity_label, self.opacity_value, self.opacity = self.slider_row(
             theme.CARD_OPACITY_RANGE, lambda value: on_change(card_opacity=value))
         self.tint_label, self.tint_value, self.tint = self.slider_row(theme.TINT_RANGE, lambda value: on_change(tint=value))
-        self.reset_button = QPushButton()
-        self.reset_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.reset_button.clicked.connect(lambda _checked=False: on_reset())
+        self.reset_button = button(on_reset)
         self.content.addSpacing(theme.SPACE_XS)
         self.content.addWidget(self.reset_button, alignment=Qt.AlignmentFlag.AlignLeft)
 
@@ -59,25 +63,24 @@ class AppearancePage(Page):
             (self.unavailable, "desktop.settings.glassUnavailable"),
         ):
             widget.setText(t(key))
-        for name, buttons in (("theme", self.theme_buttons), ("glass", self.glass_buttons),
-                              ("glass_style", self.style_buttons)):
-            for value, button in buttons.items():
-                button.setText(t(_SEGMENT_KEYS[name][value]))
-        for code, button in self.language_buttons.items():
-            button.setText(code.upper())
+        for name, segmented, values in (("theme", self.theme_segments, theme.THEMES),
+                                        ("glass", self.glass_segments, _GLASS),
+                                        ("glass_style", self.style_segments, theme.GLASS_STYLES)):
+            for value in values:
+                segment(segmented, value).setText(t(_SEGMENT_KEYS[name][value]))
+        for code in LANGUAGES:
+            segment(self.language_segments, code).setText(code.upper())
 
     def sync(self, appearance: theme.Appearance, language: str, glass_available: bool) -> None:
         """Show the current choices without reporting them back as new changes."""
-        self.theme_buttons[appearance.theme].setChecked(True)
-        self.language_buttons[language].setChecked(True)
-        self.glass_buttons[appearance.glass].setChecked(True)
-        for button in self.glass_buttons.values():
-            button.setEnabled(glass_available)
+        select_segment(self.theme_segments, appearance.theme)
+        select_segment(self.language_segments, language)
+        select_segment(self.glass_segments, appearance.glass)
+        _set_enabled(self.glass_segments, _GLASS, glass_available)
         self.unavailable.setVisible(not glass_available)
         sliders_on = glass_available and appearance.glass
-        self.style_buttons[appearance.glass_style].setChecked(True)
-        for button in self.style_buttons.values():
-            button.setEnabled(sliders_on)
+        select_segment(self.style_segments, appearance.glass_style)
+        _set_enabled(self.style_segments, theme.GLASS_STYLES, sliders_on)
         opacity = round(theme.card_alpha(appearance) * 100)
         tint = round(theme.tint_alpha(appearance) * 100 / 255)
         for slider, value_label, value in ((self.opacity, self.opacity_value, opacity), (self.tint, self.tint_value, tint)):
@@ -102,15 +105,13 @@ class SettingsPanel(Card):
         self.pages, self.on_tab, self.tab = pages, on_tab, TABS[0]
         # The title and the tab row share one line.
         tabs = Page()
-        self.title, self.tab_buttons = tabs.segment_row(TABS, self.show_tab)
-        set_props(self.title, role="section")
+        self.title, self.tab_segments = tabs.segment_row(TABS, self.show_tab, caption=label(role="section"))
         self.content.addWidget(tabs)
         self.content.addSpacing(theme.SPACE_XS)
         for page in pages.values():
             self.content.addWidget(page)
         self.pending = label(role="caption", wrap=True)
         self.restart_button = ConfirmButton(on_restart)
-        self.restart_button.setProperty("primary", True)
         self.content.addSpacing(theme.SPACE_XS)
         self.content.addWidget(self.pending)
         self.content.addWidget(self.restart_button, alignment=Qt.AlignmentFlag.AlignLeft)
@@ -119,7 +120,7 @@ class SettingsPanel(Card):
 
     def show_tab(self, name: str) -> None:
         self.tab = name
-        self.tab_buttons[name].setChecked(True)
+        select_segment(self.tab_segments, name)
         for key, page in self.pages.items():
             page.setVisible(key == name)
         self.on_tab(name)
@@ -130,8 +131,8 @@ class SettingsPanel(Card):
 
     def retranslate(self, t: Translator) -> None:
         self.title.setText(t("desktop.settings.title"))
-        for name, button in self.tab_buttons.items():
-            button.setText(t(f"desktop.settings.tab.{name}"))
+        for name in TABS:
+            segment(self.tab_segments, name).setText(t(f"desktop.settings.tab.{name}"))
         self.pending.setText(t("desktop.settings.pending"))
         self.restart_button.set_texts(t("desktop.settings.restartNow"), t("desktop.settings.confirm"))
         for page in self.pages.values():

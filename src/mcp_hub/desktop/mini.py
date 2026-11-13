@@ -10,17 +10,22 @@ from collections.abc import Callable
 from typing import Any
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QHBoxLayout, QLabel
+from qfluentwidgets import FluentIcon
 
 from . import theme
-from .widgets import Card, button, label, set_props
+from .widgets import Card, current_palette, dot_icon, icon_button, label, tone_pixmap
 
 # (server ID, tone or "live", tooltip) for one child dot.
 ChildDot = tuple[str, str, str]
 
 
-def _glyph(tone: str) -> str:
-    return theme.LIVE_GLYPH if tone == "live" else theme.TONE_GLYPHS[tone]
+def _pixmap(tone: str) -> QPixmap:
+    """A tone's shape; `live` (an AI client calls the child) is a filled blue dot."""
+    if tone == "live":
+        return dot_icon(current_palette()["blue"], theme.GLYPH_COLUMN_WIDTH).pixmap(theme.GLYPH_COLUMN_WIDTH)
+    return tone_pixmap(tone)
 
 
 class MiniBar(Card):
@@ -34,8 +39,7 @@ class MiniBar(Card):
         self.dots_row = QHBoxLayout()
         self.dots_row.setSpacing(theme.SPACE_XS)
         self.count, self.clients = label(role="caption"), label(role="caption")
-        self.expand_button = button(on_expand, small=True)
-        self.expand_button.setText(theme.EXPAND_GLYPH)
+        self.expand_button = icon_button(FluentIcon.FULL_SCREEN, on_expand)
         row.addWidget(self.hub_dot)
         row.addWidget(self.hub_word)
         row.addLayout(self.dots_row)
@@ -71,8 +75,8 @@ class MiniBar(Card):
         self.clients.setVisible(bool(clients))
 
     def _paint(self, dot: QLabel, tone: str, tooltip: str) -> None:
-        dot.setText(_glyph(tone))
-        set_props(dot, tone=tone)
+        dot.setPixmap(_pixmap(tone))
+        dot.setProperty("tone", tone)
         dot.setToolTip(tooltip)
 
     def _rebuild(self, ids: tuple[str, ...]) -> None:

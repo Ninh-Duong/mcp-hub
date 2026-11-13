@@ -9,27 +9,28 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtWidgets import QHBoxLayout, QPushButton, QVBoxLayout
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout
+from qfluentwidgets import SegmentedWidget
 
 from . import theme
 from .hub_api import HubSettings
 from .i18n import Translator
 from .status import BitnetInfo
-from .widgets import ConfirmButton, Page, Spinner, button, label, set_props
+from .widgets import ConfirmButton, Page, Spinner, button, label, segment, select_segment, tone_pixmap
 
 _ON_OFF = (True, False)
 
 
-def _sync_segment(buttons: dict[bool, QPushButton], value: bool | None, enabled: bool) -> None:
-    for state, widget in buttons.items():
-        widget.setEnabled(enabled and value is not None)
-        if state == value:
-            widget.setChecked(True)
+def _sync_segment(segmented: SegmentedWidget, value: bool | None, enabled: bool) -> None:
+    for state in _ON_OFF:
+        segment(segmented, state).setEnabled(enabled and value is not None)
+    if value is not None:
+        select_segment(segmented, value)
 
 
-def _on_off_texts(buttons: dict[bool, QPushButton], t: Translator) -> None:
-    for state, widget in buttons.items():
-        widget.setText(t("desktop.settings.on" if state else "desktop.settings.off"))
+def _on_off_texts(segmented: SegmentedWidget, t: Translator) -> None:
+    for state in _ON_OFF:
+        segment(segmented, state).setText(t("desktop.settings.on" if state else "desktop.settings.off"))
 
 
 class HubPage(Page):
@@ -47,20 +48,20 @@ class HubPage(Page):
         super().__init__()
         self._build_control(on_start, on_restart, on_stop)
         self.content.addSpacing(theme.SPACE_XS)
-        self.tracking_label, self.tracking_buttons = self.segment_row(_ON_OFF, on_tracking)
+        self.tracking_label, self.tracking_segments = self.segment_row(_ON_OFF, on_tracking)
         self.tracking_hint = label(role="caption", wrap=True)
         self.content.addWidget(self.tracking_hint)
         self.content.addSpacing(theme.SPACE_XS)
-        self.bitnet_label, self.bitnet_buttons = self.segment_row(_ON_OFF, on_bitnet or (lambda _: None))
+        self.bitnet_label, self.bitnet_segments = self.segment_row(_ON_OFF, on_bitnet or (lambda _: None))
         self.bitnet_hint = label(role="caption", wrap=True)
         self.content.addWidget(self.bitnet_hint)
         self._build_bitnet_status(on_install_bitnet or (lambda: None), on_restart)
         self.content.addSpacing(theme.SPACE_XS)
-        self.autostart_buttons: dict[str, dict[bool, QPushButton]] = {}
+        self.autostart_segments: dict[str, SegmentedWidget] = {}
         self.autostart_labels = {}
         for target in ("hub", "app"):
-            caption, buttons = self.segment_row(_ON_OFF, lambda value, chosen=target: on_autostart(chosen, value))
-            self.autostart_labels[target], self.autostart_buttons[target] = caption, buttons
+            caption, segmented = self.segment_row(_ON_OFF, lambda value, chosen=target: on_autostart(chosen, value))
+            self.autostart_labels[target], self.autostart_segments[target] = caption, segmented
         self.app_hint = label(role="caption", wrap=True)
         self.content.addWidget(self.app_hint)
         self.loading = label(role="caption")
@@ -76,24 +77,23 @@ class HubPage(Page):
         row = QHBoxLayout()
         row.setSpacing(theme.SPACE_XS)
         self.control_label = label(role="caption")
-        self.start_button = button(on_start, small=True)
+        self.start_button = button(on_start)
         self.restart_button, self.stop_button = ConfirmButton(on_restart), ConfirmButton(on_stop)
         row.addWidget(self.control_label)
         row.addStretch(1)
         for widget in (self.start_button, self.restart_button, self.stop_button):
-            widget.setProperty("small", True)
             row.addWidget(widget)
         self.content.addLayout(row)
 
     def _build_bitnet_status(self, on_install: Callable[[], None], on_restart: Callable[[], None]) -> None:
-        """A tone glyph (turning while it installs), what BitNet is doing, and the one action it needs now."""
+        """A tone icon (turning while it installs), what BitNet is doing, and the one action it needs now."""
         row = QHBoxLayout()
         row.setSpacing(theme.SPACE_S)
-        self.bitnet_glyph = label()
+        self.bitnet_glyph = QLabel()
         self.bitnet_glyph.setFixedWidth(theme.GLYPH_COLUMN_WIDTH)
         self.bitnet_spinner = Spinner(self.bitnet_glyph)
         self.bitnet_status = label(role="caption", wrap=True)
-        self.bitnet_action = button(self._bitnet_pressed, small=True)
+        self.bitnet_action = button(self._bitnet_pressed, primary=True)
         self._actions = {"install": on_install, "restart": on_restart}
         self.bitnet_action_kind: str | None = None
         row.addWidget(self.bitnet_glyph)
@@ -133,8 +133,7 @@ class HubPage(Page):
             self.bitnet_spinner.start()
         else:
             self.bitnet_spinner.stop()
-            self.bitnet_glyph.setText(theme.TONE_GLYPHS[tone])
-        set_props(self.bitnet_glyph, tone=tone)
+            self.bitnet_glyph.setPixmap(tone_pixmap(tone))
         self.bitnet_status.setText(text)
         self.bitnet_action_kind = "install" if action == "retry" else action
         labels = {"install": "desktop.bitnet.install", "retry": "desktop.bitnet.retry", "restart": "desktop.bitnet.restart"}
@@ -142,7 +141,6 @@ class HubPage(Page):
         self.bitnet_action.setEnabled(action is not None)
         if action is not None:
             self.bitnet_action.setText(self._t(labels[action]))
-            set_props(self.bitnet_action, primary=True)
 
     def retranslate(self, t: Translator) -> None:
         self._t = t
@@ -160,8 +158,8 @@ class HubPage(Page):
         self.app_hint.setText(t("desktop.settings.hub.autostartAppSource"))
         self.loading.setText(t("desktop.settings.loading"))
         self.needs_hub.setText(t("desktop.settings.needsHub"))
-        for buttons in (self.tracking_buttons, self.bitnet_buttons, *self.autostart_buttons.values()):
-            _on_off_texts(buttons, t)
+        for segmented in (self.tracking_segments, self.bitnet_segments, *self.autostart_segments.values()):
+            _on_off_texts(segmented, t)
 
     def sync(
         self,
@@ -177,18 +175,17 @@ class HubPage(Page):
         self.stop_button.setEnabled(hub == "running")
         tracking = settings.activity_ui if settings is not None else None
         editable = bool(settings and settings.editable)
-        _sync_segment(self.tracking_buttons, tracking, editable)
+        _sync_segment(self.tracking_segments, tracking, editable)
         bitnet = settings.bitnet if settings is not None else None
-        _sync_segment(self.bitnet_buttons, bitnet, editable)
+        _sync_segment(self.bitnet_segments, bitnet, editable)
         self._sync_bitnet(hub == "running", bitnet, bitnet_state, bitnet_info)
-        for target, buttons in self.autostart_buttons.items():
-            _sync_segment(buttons, autostart.get(target) if autostart else None, True)
+        for target, segmented in self.autostart_segments.items():
+            _sync_segment(segmented, autostart.get(target) if autostart else None, True)
         running = hub == "running"
         # Running from source there is no installed app to open at sign-in.
         self.app_hint.setVisible(autostart is not None and autostart.get("app") is None)
         self.loading.setVisible(autostart is None or (running and settings is None))
         self.needs_hub.setVisible(hub is not None and not running)
-
 
     def _sync_bitnet(self, running: bool, saved: bool | None, state: str | None, info: BitnetInfo | None) -> None:
         """The On/Off switch shows once BitNet is installed (or the Hub is too old to say)."""
@@ -196,8 +193,7 @@ class HubPage(Page):
         self._bitnet = info if running else None
         switch_visible = self._bitnet is None or self._bitnet.installed
         self.bitnet_label.setVisible(switch_visible)
-        for widget in self.bitnet_buttons.values():
-            widget.setVisible(switch_visible)
+        self.bitnet_segments.setVisible(switch_visible)
         self._update_bitnet_status_text()
 
 
@@ -213,7 +209,7 @@ class ChildrenPage(Page):
         self.content.addLayout(self.rows)
         self.note = label(role="caption", wrap=True)
         self.content.addWidget(self.note)
-        self.switches: dict[str, tuple[dict[bool, QPushButton], object]] = {}
+        self.switches: dict[str, tuple[SegmentedWidget, QLabel]] = {}
         self.settings: HubSettings | None = None
         self.running = True
 
@@ -227,8 +223,8 @@ class ChildrenPage(Page):
         if ids != tuple(self.switches):
             self._rebuild(ids)
         for switch in settings.servers if settings else ():
-            buttons, reason = self.switches[switch.server_id]
-            _sync_segment(buttons, switch.enabled, settings.editable)
+            segmented, reason = self.switches[switch.server_id]
+            _sync_segment(segmented, switch.enabled, settings.editable)
             reason.setVisible(switch.reason is not None)
         self._apply_texts()
 
@@ -241,18 +237,18 @@ class ChildrenPage(Page):
         self.switches = {}
         for server_id in ids:
             row = Page()
-            caption, buttons = row.segment_row(_ON_OFF, lambda value, chosen=server_id: self.on_toggle(chosen, value))
+            caption, segmented = row.segment_row(_ON_OFF, lambda value, chosen=server_id: self.on_toggle(chosen, value))
             caption.setText(server_id)
             reason = label(role="caption", wrap=True)
             row.content.addWidget(reason)
             self.rows.addWidget(row)
-            self.switches[server_id] = (buttons, reason)
+            self.switches[server_id] = (segmented, reason)
 
     def _apply_texts(self) -> None:
         if self.t is None:
             return
-        for buttons, reason in self.switches.values():
-            _on_off_texts(buttons, self.t)
+        for segmented, reason in self.switches.values():
+            _on_off_texts(segmented, self.t)
             reason.setText(self.t("desktop.settings.mcps.credentials"))
         if not self.running:
             note = "desktop.settings.needsHub"

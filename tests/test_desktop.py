@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
 import tempfile
@@ -146,7 +147,6 @@ class StatusSnapshotTest(unittest.TestCase):
                          ["ok", "wait", "wait", "off", "error", "error", "error", "error"])
         self.assertEqual(set(status.HUB_TONES.values()) | {status.child_tone(s) for s in states}, set(status.TONES))
         self.assertEqual(set(theme.TONE_TOKENS), set(status.TONES))
-        self.assertEqual(set(theme.TONE_GLYPHS), set(status.TONES))
 
 
 class OpenDashboardTest(unittest.TestCase):
@@ -192,7 +192,6 @@ class ThemeAndI18nTest(unittest.TestCase):
         self.assertEqual(set(theme.LIGHT), set(theme.DARK))
         self.assertEqual(set(theme.GLASS), set(theme.THEMES))
         self.assertEqual(set(theme.TONE_TOKENS), set(status.TONES))
-        self.assertEqual(set(theme.TONE_GLYPHS), set(status.TONES))
         self.assertEqual(theme.tone_color(theme.DARK, "error"), theme.DARK["red"])
 
     def test_stylesheet_is_frosted_only_with_glass(self) -> None:
@@ -207,10 +206,24 @@ class ThemeAndI18nTest(unittest.TestCase):
                 self.assertEqual(theme.stylesheet(theme.Appearance(theme=name, glass=False), glass_active=True), opaque)
                 self.assertIn(f"QWidget#window {{ background: {palette['canvas']}; }}", opaque)
                 self.assertIn(f"QFrame#card {{ background: {palette['surface']};", opaque)
-                for tone, token in theme.TONE_TOKENS.items():
-                    self.assertIn(f'QLabel[tone="{tone}"] {{ color: {palette[token]};', opaque)
-                self.assertIn('QPushButton[primary="true"]', opaque)
-                self.assertIn("QSlider::handle:horizontal", opaque)
+                # Buttons, sliders, and icons are Fluent widgets: the stylesheet no longer paints them.
+                self.assertNotIn("QPushButton", opaque)
+                self.assertNotIn("QSlider", opaque)
+
+    @unittest.skipUnless(importlib.util.find_spec("qfluentwidgets"), "Fluent widgets are not installed")
+    def test_fluent_follows_the_theme_and_the_windows_accent(self) -> None:
+        with patch("qfluentwidgets.setTheme") as set_theme, patch("qfluentwidgets.setThemeColor") as set_color:
+            theme.apply_fluent(theme.Appearance(theme="dark"), "#0078d4")
+            theme.apply_fluent(theme.Appearance(theme="light"), None)
+        self.assertEqual([call.args[0].value for call in set_theme.call_args_list], ["Dark", "Light"])
+        self.assertEqual([call.args[0] for call in set_color.call_args_list], ["#0078d4", theme.LIGHT["blue"]])
+
+    def test_the_accent_must_be_a_hex_color_readable_with_white_text(self) -> None:
+        self.assertEqual(theme.accent_hex("#0078d4"), "#0078d4")
+        # A pale accent (the one a Windows user may pick) keeps the fallback: white on it is too faint.
+        for value in (None, "", "blue", "#abc", "#abcdefg", "#db9ee5", "#ffffff", "#zzzzzz"):
+            with self.subTest(value=value):
+                self.assertEqual(theme.accent_hex(value), theme.LIGHT["blue"])
 
     def test_user_overrides_change_the_card_and_tint(self) -> None:
         look = theme.Appearance(theme="dark", card_opacity=80, tint=10)

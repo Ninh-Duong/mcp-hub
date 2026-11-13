@@ -1,24 +1,37 @@
-"""Small Qt building blocks of the desktop app: frosted cards, status rows, Settings pages, and the dot icon.
+"""Building blocks of the desktop app: frosted cards, status rows, Settings pages, rolling logs, and icons.
 
-Colors and sizes come from the window stylesheet (theme.stylesheet) through object names and the
-`role` / `tone` / `primary` / `small` properties, never from code here.
+Text and buttons come from qfluentwidgets (Fluent 2 look); the frosted cards and their colors come from the window
+stylesheet (theme.stylesheet) through object names and the `role` / `tone` properties.
 """
 from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any
 
-from PySide6.QtCore import QPropertyAnimation, Qt, QTimer
-from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
+from PySide6.QtCore import QPropertyAnimation, QRectF, Qt, QTimer
+from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
-    QButtonGroup, QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget,
+    QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget,
+)
+from qfluentwidgets import (
+    InfoBarIcon, PrimaryPushButton, PushButton, SegmentedWidget, Slider, TransparentToolButton, isDarkTheme,
 )
 
 from . import theme
 
+# The tone icons: a shape per tone, drawn by qfluentwidgets. `off` is painted (see tone_pixmap).
+TONE_ICONS = {"ok": InfoBarIcon.SUCCESS, "wait": InfoBarIcon.WARNING, "error": InfoBarIcon.ERROR}
+# A destructive button after its first click (Restart, Stop), same red in both themes.
+ARMED_RED = "#c42b1c"
+
+
+def current_palette() -> dict[str, str]:
+    """The palette of the theme Fluent is using now, so painted icons match the widgets around them."""
+    return theme.PALETTES["dark" if isDarkTheme() else "light"]
+
 
 def set_props(widget: QWidget, **properties: object) -> None:
-    """Set stylesheet properties and re-apply the style so the matching rules take effect."""
+    """Set dynamic properties and re-apply the style so the matching stylesheet rules take effect."""
     for name, value in properties.items():
         widget.setProperty(name, value)
     widget.style().unpolish(widget)
@@ -26,6 +39,11 @@ def set_props(widget: QWidget, **properties: object) -> None:
 
 
 def label(text: str = "", *, role: str | None = None, wrap: bool = False) -> QLabel:
+    """A label whose type and color come from its `role` in the window stylesheet.
+
+    Labels stay plain QLabel: qfluentwidgets restyles every label it owns on each role change, which made
+    the window's status updates several times slower.
+    """
     widget = QLabel(text)
     if role:
         widget.setProperty("role", role)
@@ -33,15 +51,25 @@ def label(text: str = "", *, role: str | None = None, wrap: bool = False) -> QLa
     return widget
 
 
-def button(command: Callable[[], None], *, small: bool = False) -> QPushButton:
-    widget = QPushButton()
+def button(command: Callable[[], None], *, primary: bool = False) -> PushButton:
+    """A Fluent push button; `primary` is the one blue action of a view (system accent)."""
+    widget = PrimaryPushButton() if primary else PushButton()
     widget.setCursor(Qt.CursorShape.PointingHandCursor)
-    widget.setProperty("small", small)
     widget.clicked.connect(lambda _checked=False: command())
     return widget
 
 
-class ConfirmButton(QPushButton):
+def icon_button(icon: Any, command: Callable[[], None], tooltip: str = "") -> TransparentToolButton:
+    """A Fluent icon-only button; `tooltip` is the text of its locale key, so it is always readable."""
+    widget = TransparentToolButton()
+    widget.setIcon(icon)
+    widget.setCursor(Qt.CursorShape.PointingHandCursor)
+    widget.setToolTip(tooltip)
+    widget.clicked.connect(lambda _checked=False: command())
+    return widget
+
+
+class ConfirmButton(PushButton):
     """Runs its command on a second click within theme.CONFIRM_MS; for actions that disconnect AI clients."""
 
     def __init__(self, command: Callable[[], None]) -> None:
@@ -64,18 +92,23 @@ class ConfirmButton(QPushButton):
             return
         self.armed = True
         self.setText(self.confirm_text)
-        set_props(self, armed=True)
+        self.setProperty("armed", True)
+        self.setStyleSheet(f"PushButton {{ background: {ARMED_RED}; color: #ffffff; }}")
         self.timer.start()
 
     def disarm(self) -> None:
         self.timer.stop()
         self.armed = False
         self.setText(self.label_text)
-        set_props(self, armed=False)
+        self.setProperty("armed", False)
+        self.setStyleSheet("")
 
 
 class Card(QFrame):
-    """A rounded panel styled by the `QFrame#card` rule; frosted when the window has glass."""
+    """A rounded panel styled by the `QFrame#card` rule; frosted when the window has glass.
+
+    Not qfluentwidgets' SimpleCardWidget: that paints an opaque background, which would hide the glass.
+    """
 
     def __init__(self, width: int | None) -> None:
         super().__init__()
@@ -99,34 +132,31 @@ class Page(QWidget):
     def retranslate(self, t: Callable[..., str]) -> None:
         """Set every text in the current language; pages override it."""
 
-    def segment_row(self, values: tuple[Any, ...], choose: Callable[[Any], None]) -> tuple[QLabel, dict[Any, QPushButton]]:
-        """Checkable buttons of which one is on; `choose` gets the clicked value."""
+    def segment_row(self, values: tuple[Any, ...], choose: Callable[[Any], None],
+                    caption: QLabel | None = None) -> tuple[QLabel, SegmentedWidget]:
+        """A Fluent segmented control with one segment per value (its route key is `str(value)`); `choose` gets the value.
+
+        `caption` is the label on the left (a caption by default).
+        """
         row = QHBoxLayout()
         row.setSpacing(theme.SPACE_XS)
-        caption = label(role="caption")
+        caption = caption or label(role="caption")
         row.addWidget(caption)
         row.addStretch(1)
-        group = QButtonGroup(self)
-        buttons: dict[Any, QPushButton] = {}
+        segmented = SegmentedWidget(self)
         for value in values:
-            widget = QPushButton()
-            widget.setCheckable(True)
-            widget.setProperty("segment", True)
-            widget.setCursor(Qt.CursorShape.PointingHandCursor)
-            widget.clicked.connect(lambda _checked=False, chosen=value: choose(chosen))
-            group.addButton(widget)
-            row.addWidget(widget)
-            buttons[value] = widget
+            segmented.addItem(str(value), "", onClick=lambda _checked=False, chosen=value: choose(chosen))
+        row.addWidget(segmented)
         self.content.addLayout(row)
-        return caption, buttons
+        return caption, segmented
 
-    def slider_row(self, bounds: tuple[int, int], choose: Callable[[int], None]) -> tuple[QLabel, QLabel, QSlider]:
+    def slider_row(self, bounds: tuple[int, int], choose: Callable[[int], None]) -> tuple[QLabel, QLabel, Slider]:
         header = QHBoxLayout()
         caption, value = label(role="caption"), label(role="caption")
         header.addWidget(caption)
         header.addStretch(1)
         header.addWidget(value)
-        slider = QSlider(Qt.Orientation.Horizontal)
+        slider = Slider(Qt.Orientation.Horizontal)
         slider.setRange(*bounds)
         slider.setCursor(Qt.CursorShape.PointingHandCursor)
         slider.valueChanged.connect(choose)
@@ -135,15 +165,38 @@ class Page(QWidget):
         return caption, value, slider
 
 
+def segment(segmented: SegmentedWidget, value: Any) -> Any:
+    """The segment item of one value: set its text, enable it, or hover it."""
+    return segmented.widget(str(value))
+
+
+def select_segment(segmented: SegmentedWidget, value: Any) -> None:
+    segmented.setCurrentItem(str(value))
+
+
+def tone_pixmap(tone: str, size: int = theme.GLYPH_COLUMN_WIDTH) -> QPixmap:
+    """The shape of a tone: a Fluent icon, or for `off` an outlined ring in the muted color."""
+    if tone in TONE_ICONS:
+        return TONE_ICONS[tone].icon().pixmap(size, size)
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(QPen(QColor(current_palette()["muted"]), 1.5))
+    painter.drawEllipse(QRectF(2, 2, size - 4, size - 4))
+    painter.end()
+    return pixmap
+
+
 class Row(QWidget):
-    """A tone glyph in a fixed column, a name, and a detail (right-aligned, or right after the name)."""
+    """A tone icon in a fixed column, a name, and a detail (right-aligned, or right after the name)."""
 
     def __init__(self, *, role: str | None = None, detail_right: bool = True) -> None:
         super().__init__()
         self.layout_ = QHBoxLayout(self)
         self.layout_.setContentsMargins(0, 0, 0, 0)
         self.layout_.setSpacing(theme.SPACE_S)
-        self.glyph = label(role=role)
+        self.glyph = QLabel()
         self.glyph.setFixedWidth(theme.GLYPH_COLUMN_WIDTH)
         self.glyph.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.text = label(role=role)
@@ -158,14 +211,14 @@ class Row(QWidget):
             self.layout_.addStretch(1)
 
     def show_state(self, tone: str, text: str, detail: str = "") -> None:
-        self.glyph.setText(theme.TONE_GLYPHS[tone])
-        set_props(self.glyph, tone=tone)
+        self.glyph.setPixmap(tone_pixmap(tone))
+        self.glyph.setProperty("tone", tone)
         self.text.setText(text)
         self.detail.setText(detail)
 
 
 class Spinner:
-    """Turns a glyph label through theme.SPINNER_GLYPHS while something runs; a hidden label is left alone."""
+    """Turns the `wait` icon a quarter each frame while something runs; a hidden label is left alone."""
 
     def __init__(self, glyph: QLabel) -> None:
         self.glyph = glyph
@@ -185,10 +238,22 @@ class Spinner:
         self.timer.stop()
 
     def tick(self) -> None:
-        if not self.glyph.isVisible() and self.glyph.text():
+        if not self.glyph.isVisible() and self.frame:  # hidden after it has run: leave it alone
             return
-        self.glyph.setText(theme.SPINNER_GLYPHS[self.frame % len(theme.SPINNER_GLYPHS)])
+        self.glyph.setPixmap(arc_pixmap(self.frame))
         self.frame += 1
+
+
+def arc_pixmap(frame: int, size: int = theme.GLYPH_COLUMN_WIDTH) -> QPixmap:
+    """A quarter arc turned to the frame's quarter turn: the busy indicator in the `wait` color."""
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(QPen(QColor(current_palette()["amber"]), 2))
+    painter.drawArc(QRectF(2, 2, size - 4, size - 4), (frame % 4) * 90 * 16, 90 * 16)
+    painter.end()
+    return pixmap
 
 
 def show_elided(widget: QLabel, text: str, width: int, tooltip: str = "") -> None:

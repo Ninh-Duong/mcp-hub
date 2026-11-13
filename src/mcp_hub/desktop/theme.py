@@ -3,6 +3,7 @@
 LIGHT mirrors the `:root` tokens of `dashboard/style.css`; tests/test_desktop.py fails if they drift.
 DARK uses the same token names, so the stylesheet reads colors from one palette dict.
 Sizes are Qt device-independent pixels and points; Qt scales them with the screen.
+Buttons, sliders, switches, and icons are qfluentwidgets widgets; apply_fluent sets their theme and accent.
 """
 from __future__ import annotations
 
@@ -57,20 +58,11 @@ class Appearance:
     tint: int | None = None
     glass_style: str = "frosted"
 
-# The four status tones: a palette color plus a glyph, so the state never relies on color alone.
+
+# The four status tones: a palette color and a shape (widgets.tone_icon), so the state never relies on color alone.
 TONE_TOKENS = {"ok": "green", "wait": "amber", "off": "muted", "error": "red"}
-TONE_GLYPHS = {"ok": "●", "wait": "◐", "off": "○", "error": "●"}
-SETTINGS_GLYPH = "⚙"
-# Shrink to the pinned mini bar, and grow back to the full window.
-COMPACT_GLYPH = "⤡"
-# A child dot in the mini bar while an AI client calls it (`live`, blue).
-LIVE_GLYPH = "◉"
-EXPAND_GLYPH = "⤢"
-# Leads the line under a child that says which AI client uses it.
+# The usage line under a child keeps its text arrow; every other glyph is an icon.
 USAGE_GLYPH = "↳"
-REFRESH_GLYPH = "⟳"
-# The loading indicator: the `wait` glyph turning a quarter each frame (desktop/widgets.py Spinner).
-SPINNER_GLYPHS = ("◐", "◓", "◑", "◒")
 SPINNER_MS = 150
 # A rolling log (BitNet processing, update progress): this many rows, newest on top, each older row fainter.
 LOG_FADE = (1.0, .65, .4)
@@ -79,15 +71,13 @@ LOG_ROWS = len(LOG_FADE)
 # Spacing scale and sizes, in device-independent pixels.
 SPACE_XS, SPACE_S, SPACE_M, SPACE_L = 4, 8, 12, 16
 WINDOW_WIDTH = 288
-CARD_RADIUS = 12
-BUTTON_RADIUS = 8
+CARD_RADIUS = 8
+BUTTON_RADIUS = 4
 GLYPH_COLUMN_WIDTH = 16
 ICON_SIZE = 32
 
 FONT_FAMILIES = ["Segoe UI Variable Text", "Segoe UI"] if sys.platform == "win32" else []
-# The tone glyphs come from a symbol font, so all four render at the same size.
-SYMBOL_FONT = "Segoe UI Symbol" if sys.platform == "win32" else ""
-FONT_POINTS = {"headline": 11, "section": 8, "body": 10, "caption": 9}
+FONT_POINTS = {"headline": 12, "section": 8, "body": 10, "caption": 9}
 
 POLL_INTERVAL_MS = 5000
 # While BitNet installs, the Hub is read this often so the percent moves.
@@ -102,6 +92,8 @@ CONFIRM_MS = 4000
 # A child's "used by" line stays this long after its last call; the activity stream retries up to this delay.
 RECENT_SECONDS = 120
 STREAM_RETRY_MAX_SECONDS = 30
+# The accent used when Windows does not report one (or on a platform without it).
+FALLBACK_ACCENT = "blue"
 
 
 def tone_color(palette: dict[str, str], tone: str) -> str:
@@ -139,14 +131,55 @@ def backdrop_tint(appearance: Appearance) -> int:
     return (tint_alpha(appearance) << 24) | (blue << 16) | (green << 8) | red
 
 
+def _contrast_with_white(color: str) -> float:
+    """WCAG contrast ratio between `#rrggbb` and white (primary buttons put white text on the accent)."""
+    def linear(channel: int) -> float:
+        value = channel / 255
+        return value / 12.92 if value <= 0.03928 else ((value + 0.055) / 1.055) ** 2.4
+
+    red, green, blue = (linear(int(color[index:index + 2], 16)) for index in (1, 3, 5))
+    luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+    return 1.05 / (luminance + 0.05)
+
+
+def accent_hex(system_accent: str | None) -> str:
+    """The Windows accent as `#rrggbb` when white text on it is readable (3:1), else the fallback.
+
+    A pale accent (for example a light pink) would make the primary button's white text unreadable.
+    """
+    if system_accent and len(system_accent) == 7 and system_accent.startswith("#"):
+        try:
+            if _contrast_with_white(system_accent) >= 3:
+                return system_accent
+        except ValueError:
+            pass
+    return PALETTES["light"][FALLBACK_ACCENT]
+
+
+# The last (theme, accent) given to Fluent: setting it restyles every Fluent widget, so it is set only on a change.
+_fluent_applied: list[tuple[str, str]] = []
+
+
+def apply_fluent(appearance: Appearance, system_accent: str | None) -> None:
+    """Theme the Fluent widgets: their light or dark theme, and the Windows accent for primary buttons and switches."""
+    from qfluentwidgets import Theme, setTheme, setThemeColor  # imported here: the palettes stay usable without Qt
+
+    state = (appearance.theme, accent_hex(system_accent))
+    if _fluent_applied and _fluent_applied[-1] == state:
+        return
+    _fluent_applied[:] = [state]
+    setTheme(Theme.DARK if appearance.theme == "dark" else Theme.LIGHT)
+    setThemeColor(state[1])
+
+
 def stylesheet(appearance: Appearance, glass_active: bool) -> str:
-    """One Qt stylesheet for the whole window. With glass, the window is see-through and cards are frosted."""
+    """One Qt stylesheet for the window and its cards. With glass, the window is see-through and cards are frosted."""
     palette, frost = PALETTES[appearance.theme], GLASS[appearance.theme]
     glass = appearance.glass and glass_active
     window_bg = "transparent" if glass else palette["canvas"]
     card_bg = rgba(palette["surface"], card_alpha(appearance)) if glass else palette["surface"]
     card_border = frost["border"] if glass else palette["line"]
-    return _base_rules(palette, window_bg, card_bg, card_border) + _button_rules(palette) + _slider_rules(palette)
+    return _base_rules(palette, window_bg, card_bg, card_border)
 
 
 def _base_rules(palette: dict[str, str], window_bg: str, card_bg: str, card_border: str) -> str:
@@ -160,42 +193,4 @@ QLabel[role="section"] {{ color: {palette["muted"]}; font-size: {points["section
 QLabel[role="caption"] {{ color: {palette["muted"]}; font-size: {points["caption"]}pt; }}
 QLabel[role="error"] {{ color: {palette["red"]}; font-size: {points["caption"]}pt; }}
 QLabel[role="live"] {{ color: {palette["blue"]}; font-size: {points["caption"]}pt; }}
-""" + "".join(
-        f'QLabel[tone="{tone}"] {{ color: {palette[token]};{_symbol_font()} }}\n'
-        for tone, token in (*TONE_TOKENS.items(), ("live", "blue"))
-    )
-
-
-def _symbol_font() -> str:
-    return f' font-family: "{SYMBOL_FONT}";' if SYMBOL_FONT else ""
-
-
-def _button_rules(palette: dict[str, str]) -> str:
-    ink, blue, red = palette["ink"], palette["blue"], palette["red"]
-    return f"""
-QPushButton {{ background: {rgba(ink, 0.07)}; color: {ink}; border: none; border-radius: {BUTTON_RADIUS}px;
-    padding: {SPACE_XS + 1}px {SPACE_M}px; font-size: {FONT_POINTS["body"]}pt; }}
-QPushButton:hover {{ background: {rgba(ink, 0.13)}; }}
-QPushButton:pressed {{ background: {rgba(ink, 0.19)}; }}
-QPushButton:disabled {{ background: {rgba(ink, 0.03)}; color: {palette["muted"]}; }}
-QPushButton[primary="true"] {{ background: {blue}; color: #ffffff; }}
-QPushButton[primary="true"]:hover {{ background: {rgba(blue, 0.85)}; }}
-QPushButton[primary="true"]:pressed {{ background: {rgba(blue, 0.70)}; }}
-QPushButton[primary="true"]:disabled {{ background: {rgba(blue, 0.40)}; color: {rgba("#ffffff", 0.75)}; }}
-QPushButton[small="true"] {{ padding: 2px {SPACE_S}px; font-size: {FONT_POINTS["caption"]}pt; }}
-QPushButton:checked {{ background: {blue}; color: #ffffff; }}
-QPushButton[segment="true"] {{ padding: 2px {SPACE_M}px; font-size: {FONT_POINTS["caption"]}pt; }}
-QPushButton[armed="true"] {{ background: {red}; color: #ffffff; }}
-"""
-
-
-def _slider_rules(palette: dict[str, str]) -> str:
-    ink, blue = palette["ink"], palette["blue"]
-    return f"""
-QSlider::groove:horizontal {{ height: 4px; background: {rgba(ink, 0.15)}; border-radius: 2px; }}
-QSlider::sub-page:horizontal {{ background: {blue}; border-radius: 2px; }}
-QSlider::sub-page:horizontal:disabled {{ background: {rgba(ink, 0.25)}; }}
-QSlider::handle:horizontal {{ background: {palette["surface"]}; border: 1px solid {palette["line"]};
-    width: 14px; height: 14px; margin: -6px 0; border-radius: 8px; }}
-QSlider::handle:horizontal:hover {{ border-color: {blue}; }}
 """

@@ -32,6 +32,8 @@ PrivilegesRequired=lowest
 OutputDir={#OutputDir}
 OutputBaseFilename=mcp-hub-status-setup-{#AppVersion}
 SetupIconFile={#IconFile}
+; GPL-3.0-only: setup shows the license before installing (see THIRD-PARTY-NOTICES.md for the libraries).
+LicenseFile=..\..\src\mcp_hub\desktop\LICENSE
 UninstallDisplayIcon={app}\{#AppExe}
 UninstallDisplayName=mcp-hub Status
 Compression=lzma2
@@ -56,6 +58,7 @@ Type: filesandordirs; Name: "{app}\_internal"
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\..\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 ; The same AppUserModelID as the running app (win32.APP_USER_MODEL_ID), so the taskbar groups them.

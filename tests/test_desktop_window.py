@@ -19,6 +19,7 @@ try:
     from PySide6.QtWidgets import QApplication
 
     from mcp_hub.desktop import app, hub_page, mini, screenshot, settings, update_card, widgets
+    from qfluentwidgets import HyperlinkButton, PrimaryPushButton, TransparentToolButton
     QT_MISSING = None
 except ImportError as exc:  # Qt's system libraries are missing (for example a bare Linux host)
     QT_MISSING = f"Qt is unavailable: {exc}"
@@ -105,18 +106,32 @@ def full_text(row) -> str:
 
 
 def texts(rows) -> list[str]:
-    """Visible text of each item in a rows layout: `glyph name detail` for a Row, else the label text."""
+    """Visible text of each item in a rows layout: `tone name detail` for a Row, else the label text."""
     found: list[str] = []
     for index in range(rows.count()):
         widget = rows.itemAt(index).widget()
         if isinstance(widget, widgets.UsageRow):
             widget = widget.row
         if isinstance(widget, widgets.Row):
-            parts = (widget.glyph.text(), widget.text.text(), widget.detail.text())
+            parts = (widget.glyph.property("tone") or "", widget.text.text(), widget.detail.text())
             found.append(" ".join(part for part in parts if part))
         elif widget is not None and not isinstance(widget, widgets.ProcessingLog):
             found.append(widget.text())
     return found
+
+
+def checked(segmented, value) -> bool:
+    """Whether `value` is the selected segment of a SegmentedWidget."""
+    return segmented.currentRouteKey() == str(value)
+
+
+def pick(segmented, value) -> None:
+    """Click one segment, as the user does."""
+    widgets.segment(segmented, value).click()
+
+
+def enabled(segmented, value) -> bool:
+    return widgets.segment(segmented, value).isEnabled()
 
 
 @unittest.skipIf(QT_MISSING, QT_MISSING or "")
@@ -289,12 +304,12 @@ class StatusWindowTest(unittest.TestCase):
         self.assertEqual(self.window.hub_row.detail.text(), "activity UI")
         self.assertEqual(self.window.hub_row.glyph.property("tone"), "ok")
         self.assertEqual(texts(self.window.children_list),
-                         ["● mcp-server-logs", "◐ mcp-jira-sync Reconnecting"])
+                         ["ok mcp-server-logs", "wait mcp-jira-sync Reconnecting"])
         self.assertEqual(self.window.children_count.text(), "1/2")
-        self.assertEqual(texts(self.window.clients_list), ["● claude-code ×2"])
+        self.assertEqual(texts(self.window.clients_list), ["ok claude-code ×2"])
         self.assertEqual(self.window.clients_count.text(), "1")
-        self.assertTrue(self.window.open_button.property("primary"))
-        self.assertFalse(self.window.start_button.property("primary"))
+        self.assertTrue(self.window.open_button.isEnabled())
+        self.assertFalse(self.window.start_button.isEnabled())
         self.assertTrue(self.window.open_button.isEnabled())
         self.assertFalse(self.window.start_button.isEnabled())
         self.assertEqual(self.window.footer.text(), "Updated 10:42:05")
@@ -308,7 +323,7 @@ class StatusWindowTest(unittest.TestCase):
         self.window.apply(running(activity_ui=True))
         self.assertEqual(texts(self.window.clients_list), ["No AI clients connected yet"])
         self.window.apply(running(activity_ui=True, clients=("claude-code",), recent=("codex",)))
-        self.assertEqual(texts(self.window.clients_list), ["● claude-code", "○ codex Recently active"])
+        self.assertEqual(texts(self.window.clients_list), ["ok claude-code", "off codex Recently active"])
         self.assertEqual(self.window.clients_count.text(), "1")
 
     def test_an_unchanged_poll_redraws_nothing(self) -> None:
@@ -323,7 +338,8 @@ class StatusWindowTest(unittest.TestCase):
     def test_stopped_hub_makes_start_the_primary_action(self) -> None:
         self.window.apply(HubSnapshot(hub="stopped"))
         self.assertEqual(self.window.hub_row.glyph.property("tone"), "error")
-        self.assertTrue(self.window.start_button.property("primary"))
+        self.assertTrue(self.window.start_button.isEnabled())
+        self.assertFalse(self.window.open_button.isEnabled())
         self.assertTrue(self.window.start_button.isEnabled())
         self.assertEqual(texts(self.window.children_list), ["Shown when the Hub is running."])
 
@@ -397,9 +413,9 @@ class StatusWindowTest(unittest.TestCase):
         self.window.settings_button.click()
         self.assertFalse(self.window.settings.isHidden())
         self.assertTrue(self.window.settings_button.isChecked())
-        self.window.appearance_page.language_buttons["vi"].click()
+        pick(self.window.appearance_page.language_segments, "vi")
         self.assertEqual(self.window.t.language, "vi")
-        self.window.appearance_page.theme_buttons["dark"].click()
+        pick(self.window.appearance_page.theme_segments, "dark")
         self.assertEqual(self.window.theme_name, "dark")
         self.window.settings_button.click()
         self.assertTrue(self.window.settings.isHidden())
@@ -410,13 +426,13 @@ class StatusWindowTest(unittest.TestCase):
         vi = i18n.load_strings("vi")
         self.assertEqual(self.window.open_button.text(), vi["desktop.button.openDashboard"])
         self.assertEqual(self.window.appearance_page.reset_button.text(), vi["desktop.settings.reset"])
-        self.assertTrue(self.window.appearance_page.language_buttons["vi"].isChecked())
+        self.assertTrue(checked(self.window.appearance_page.language_segments, "vi"))
         self.assertTrue(self.window.save_timer.isActive())
         self.window.flush_prefs()
         self.assertFalse(self.window.save_timer.isActive())
         self.assertEqual(prefs.load_prefs(self.prefs_path), {"theme": "light", "language": "vi", "glass": True, "glass_style": "frosted", "compact": False})
         self.window.set_language("en")
-        self.assertTrue(self.window.appearance_page.language_buttons["en"].isChecked())
+        self.assertTrue(checked(self.window.appearance_page.language_segments, "en"))
 
     def test_theme_switch_restyles_without_rebuilding_and_is_remembered(self) -> None:
         self.window.apply(running(ChildRow("mcp-server-logs", "connected", "ok")))
@@ -426,10 +442,10 @@ class StatusWindowTest(unittest.TestCase):
         self.assertEqual(self.window.theme_name, "dark")
         self.assertEqual(self.window.styleSheet(), theme.stylesheet(dark, glass_active=False))
         self.assertEqual(self.styled[-1], (True, theme.backdrop_tint(dark), True))
-        self.assertTrue(self.window.appearance_page.theme_buttons["dark"].isChecked())
+        self.assertTrue(checked(self.window.appearance_page.theme_segments, "dark"))
         self.assertEqual(self.window.cards, cards)
         self.assertEqual(set(self.window._icons), {("light", "wait"), ("light", "ok"), ("dark", "ok")})
-        self.assertEqual(texts(self.window.children_list), ["● mcp-server-logs"])
+        self.assertEqual(texts(self.window.children_list), ["ok mcp-server-logs"])
         self.window.flush_prefs()
         self.assertEqual(prefs.load_prefs(self.prefs_path), {"theme": "dark", "language": "en", "glass": True, "glass_style": "frosted", "compact": False})
         self.window.set_theme("neon")
@@ -463,14 +479,14 @@ class StatusWindowTest(unittest.TestCase):
     def test_glass_switch_turns_the_blur_off_and_disables_the_sliders(self) -> None:
         self.glass = True
         self.window.apply_theme()
-        self.window.appearance_page.glass_buttons[False].click()
+        pick(self.window.appearance_page.glass_segments, False)
         self.assertFalse(self.window.glass)
         self.assertEqual(self.styled[-1][2], False)
         self.assertEqual(self.window.styleSheet(), theme.stylesheet(theme.Appearance(glass=False), glass_active=False))
         self.assertFalse(self.window.appearance_page.opacity.isEnabled())
         self.assertFalse(self.window.appearance_page.tint.isEnabled())
         self.assertTrue(self.window.glass_available)
-        self.window.appearance_page.glass_buttons[True].click()
+        pick(self.window.appearance_page.glass_segments, True)
         self.assertTrue(self.window.glass)
 
     def test_unavailable_glass_disables_its_controls(self) -> None:
@@ -478,7 +494,7 @@ class StatusWindowTest(unittest.TestCase):
         self.window.apply_theme()
         self.assertFalse(self.window.glass_available)
         self.assertFalse(self.window.appearance_page.unavailable.isHidden())
-        self.assertFalse(self.window.appearance_page.glass_buttons[True].isEnabled())
+        self.assertFalse(enabled(self.window.appearance_page.glass_segments, True))
         self.assertFalse(self.window.appearance_page.opacity.isEnabled())
 
     def test_reset_restores_the_theme_defaults_but_keeps_theme_and_language(self) -> None:
@@ -499,9 +515,9 @@ class StatusWindowTest(unittest.TestCase):
         self.assertEqual(self.window.settings.tab, "hub")
         self.assertTrue(self.window.appearance_page.isHidden())
         self.assertFalse(page.isHidden())
-        self.assertTrue(page.tracking_buttons[False].isChecked())
-        self.assertTrue(page.bitnet_buttons[False].isChecked())
-        self.assertTrue(page.autostart_buttons["app"][True].isChecked())
+        self.assertTrue(checked(page.tracking_segments, False))
+        self.assertTrue(checked(page.bitnet_segments, False))
+        self.assertTrue(checked(page.autostart_segments["app"], True))
         self.assertTrue(page.loading.isHidden())
         self.assertFalse(page.start_button.isEnabled())
         self.assertTrue(page.stop_button.isEnabled())
@@ -511,10 +527,10 @@ class StatusWindowTest(unittest.TestCase):
         self.window.apply(running())
         self.window.show_tab("hub")
         self.window.process_results()
-        self.window.hub_page.tracking_buttons[True].click()
+        pick(self.window.hub_page.tracking_segments, True)
         self.window.process_results()
         self.assertTrue(self.store.activity_ui)
-        self.assertTrue(self.window.hub_page.tracking_buttons[True].isChecked())
+        self.assertTrue(checked(self.window.hub_page.tracking_segments, True))
         self.assertFalse(self.window.settings.pending.isHidden())
         restart = self.window.settings.restart_button
         restart.click()
@@ -532,11 +548,11 @@ class StatusWindowTest(unittest.TestCase):
         self.window.show_tab("hub")
         self.window.process_results()
         page = self.window.hub_page
-        self.assertTrue(page.bitnet_buttons[False].isChecked())
-        page.bitnet_buttons[True].click()
+        self.assertTrue(checked(page.bitnet_segments, False))
+        pick(page.bitnet_segments, True)
         self.window.process_results()
         self.assertTrue(self.store.bitnet)
-        self.assertTrue(page.bitnet_buttons[True].isChecked())
+        self.assertTrue(checked(page.bitnet_segments, True))
         self.assertTrue(self.window.restart_needed)
 
         # Status caption mapping
@@ -554,7 +570,7 @@ class StatusWindowTest(unittest.TestCase):
         self.window.process_results()
         self.assertEqual(page.bitnet_status.text(), "Not installed")
         self.assertEqual(page.bitnet_action.text(), "Install BitNet")
-        self.assertTrue(page.bitnet_buttons[True].isHidden())  # On/Off only once installed
+        self.assertTrue(page.bitnet_segments.isHidden())  # On/Off only once installed
         page.bitnet_action.click()
         self.window.process_results()
         self.assertEqual(self.store.installs, 1)
@@ -571,7 +587,7 @@ class StatusWindowTest(unittest.TestCase):
         self.window.apply(replace(running(), bitnet=info(installed=True, state="off", restart_needed=True)))
         self.assertFalse(page.bitnet_spinner.running)
         self.assertEqual(page.bitnet_status.text(), "Installed. Restart the Hub to connect BitNet.")
-        self.assertFalse(page.bitnet_buttons[True].isHidden())
+        self.assertFalse(page.bitnet_segments.isHidden())
         page.bitnet_action.click()
         self.assertEqual(self.launched[-1], ["restart"])
 
@@ -595,30 +611,35 @@ class StatusWindowTest(unittest.TestCase):
     def test_bitnet_has_its_own_dot_under_the_children_and_is_not_counted(self) -> None:
         info, logs = status.BitnetInfo, ChildRow("mcp-server-logs", "connected", "ok")
         self.window.apply(replace(running(logs), bitnet=info(installed=True, enabled=True, state="ready")))
-        self.assertEqual(texts(self.window.children_list), ["● mcp-server-logs", "● BitNet"])
+        self.assertEqual(texts(self.window.children_list), ["ok mcp-server-logs", "ok BitNet"])
         self.assertEqual(self.window.children_count.text(), "1/1")
         self.window.apply(replace(running(logs), bitnet=info(installed=True, enabled=True, state="unavailable")))
-        self.assertEqual(texts(self.window.children_list)[-1], "● BitNet Unavailable")
+        self.assertEqual(texts(self.window.children_list)[-1], "error BitNet Unavailable")
         self.assertEqual(self.window.bitnet_row.glyph.property("tone"), "error")
         self.window.apply(replace(running(logs), bitnet=info(state="installing", installing=True, step="model", progress=7)))
-        self.assertEqual(texts(self.window.children_list)[-1], "◐ BitNet 7%")
+        self.assertEqual(texts(self.window.children_list)[-1], "wait BitNet 7%")
         self.window.apply(replace(running(logs), bitnet=info()))
-        self.assertEqual(texts(self.window.children_list)[-1], "○ BitNet Not installed")
+        self.assertEqual(texts(self.window.children_list)[-1], "off BitNet Not installed")
         self.window.apply(replace(running(logs), bitnet=info(installed=True, state="off")))
-        self.assertEqual(texts(self.window.children_list)[-1], "○ BitNet Off")
+        self.assertEqual(texts(self.window.children_list)[-1], "off BitNet Off")
         self.window.apply(running(logs))  # a Hub too old to report BitNet
-        self.assertEqual(texts(self.window.children_list), ["● mcp-server-logs"])
+        self.assertEqual(texts(self.window.children_list), ["ok mcp-server-logs"])
 
     def test_the_spinner_turns_only_while_its_glyph_is_shown(self) -> None:
-        glyph = widgets.label()
+        from PySide6.QtWidgets import QLabel
+
+        def frame(glyph) -> object:
+            return glyph.pixmap().toImage()
+
+        glyph = QLabel()
         spinner = widgets.Spinner(glyph)
         spinner.start()
-        self.assertEqual(glyph.text(), theme.SPINNER_GLYPHS[0])
-        spinner.tick()  # hidden: left alone
-        self.assertEqual(glyph.text(), theme.SPINNER_GLYPHS[0])
+        first = frame(glyph)
+        spinner.tick()  # hidden after it ran: left alone
+        self.assertEqual(frame(glyph), first)
         glyph.show()
         spinner.tick()
-        self.assertEqual(glyph.text(), theme.SPINNER_GLYPHS[1])
+        self.assertNotEqual(frame(glyph), first)
         spinner.stop()
         self.assertFalse(spinner.running)
         glyph.close()
@@ -634,7 +655,7 @@ class StatusWindowTest(unittest.TestCase):
         page = self.window.hub_page
         self.assertFalse(page.needs_hub.isHidden())
         self.assertTrue(page.loading.isHidden())
-        self.assertFalse(page.tracking_buttons[True].isEnabled())
+        self.assertFalse(enabled(page.tracking_segments, True))
         self.assertTrue(page.start_button.isEnabled())
         page.start_button.click()
         self.assertEqual(self.launched, [["start"]])
@@ -642,7 +663,7 @@ class StatusWindowTest(unittest.TestCase):
         self.window.process_results()
         self.assertEqual(self.store.reads, 1)
         self.assertTrue(page.needs_hub.isHidden())
-        self.assertTrue(page.tracking_buttons[False].isEnabled())
+        self.assertTrue(enabled(page.tracking_segments, False))
 
     def test_running_from_source_has_no_app_sign_in_switch(self) -> None:
         self.autostart = {"hub": None, "app": None}
@@ -650,8 +671,8 @@ class StatusWindowTest(unittest.TestCase):
         self.window.process_results()
         page = self.window.hub_page
         self.assertFalse(page.app_hint.isHidden())
-        self.assertFalse(page.autostart_buttons["app"][True].isEnabled())
-        self.assertFalse(page.autostart_buttons["hub"][True].isEnabled())
+        self.assertFalse(enabled(page.autostart_segments["app"], True))
+        self.assertFalse(enabled(page.autostart_segments["hub"], True))
 
     def test_stop_needs_a_second_click(self) -> None:
         self.window.apply(running())
@@ -672,14 +693,14 @@ class StatusWindowTest(unittest.TestCase):
         self.window.process_results()
         page = self.window.mcps_page
         self.assertEqual(list(page.switches), ["mcp-server-logs", "mcp-jira-sync"])
-        buttons, reason = page.switches["mcp-jira-sync"]
-        self.assertTrue(buttons[False].isChecked())
+        segmented, reason = page.switches["mcp-jira-sync"]
+        self.assertTrue(checked(segmented, False))
         self.assertTrue(reason.isHidden())
         self.assertFalse(page.switches["mcp-server-logs"][1].isHidden())
-        buttons[True].click()
+        pick(segmented, True)
         self.window.process_results()
         self.assertTrue(self.store.enabled["mcp-jira-sync"])
-        self.assertTrue(page.switches["mcp-jira-sync"][0][True].isChecked())
+        self.assertTrue(checked(page.switches["mcp-jira-sync"][0], True))
         self.assertTrue(self.window.restart_needed)
         self.window.apply(HubSnapshot(hub="stopped"))
         self.assertFalse(self.window.restart_needed)
@@ -689,10 +710,10 @@ class StatusWindowTest(unittest.TestCase):
         self.window.apply(running())
         self.window.show_tab("mcps")
         self.window.process_results()
-        self.assertFalse(self.window.mcps_page.switches["mcp-server-logs"][0][True].isEnabled())
+        self.assertFalse(enabled(self.window.mcps_page.switches["mcp-server-logs"][0], True))
         self.assertIn("MCP_HUB_CONFIG", self.window.mcps_page.note.text())
-        self.assertFalse(self.window.hub_page.tracking_buttons[True].isEnabled())
-        self.assertFalse(self.window.hub_page.bitnet_buttons[True].isEnabled())
+        self.assertFalse(enabled(self.window.hub_page.tracking_segments, True))
+        self.assertFalse(enabled(self.window.hub_page.bitnet_segments, True))
 
     def test_settings_errors_are_reported_in_the_footer(self) -> None:
         self.store.fail = True
@@ -708,10 +729,10 @@ class StatusWindowTest(unittest.TestCase):
     def test_autostart_switches_call_hubctl(self) -> None:
         self.window.show_tab("hub")
         self.window.process_results()
-        self.window.hub_page.autostart_buttons["hub"][False].click()
+        pick(self.window.hub_page.autostart_segments["hub"], False)
         self.window.process_results()
         self.assertEqual(self.autostart_calls, [("hub", False)])
-        self.assertTrue(self.window.hub_page.autostart_buttons["hub"][False].isChecked())
+        self.assertTrue(checked(self.window.hub_page.autostart_segments["hub"], False))
         self.window.set_autostart("hub", False)  # unchanged: hubctl is not run again
         self.assertEqual(self.autostart_calls, [("hub", False)])
 
@@ -784,15 +805,15 @@ class StatusWindowTest(unittest.TestCase):
         self.window.apply(running(ChildRow("mcp-server-logs", "connected", "ok"), ChildRow("mcp-jira-sync", "reconnecting", "wait"),
                                   ChildRow("mcp-read-source", "disabled", "off")))
         self.assertEqual(texts(self.window.children_list),
-                         ["● mcp-server-logs", "◐ mcp-jira-sync Reconnecting", "○ mcp-read-source Disabled"])
+                         ["ok mcp-server-logs", "wait mcp-jira-sync Reconnecting", "off mcp-read-source Disabled"])
 
     def test_clear_glass_style_is_applied_saved_and_reset(self) -> None:
         self.glass = True
         self.window.apply_theme()
-        self.window.appearance_page.style_buttons["clear"].click()
+        pick(self.window.appearance_page.style_segments, "clear")
         self.assertEqual(self.window.appearance.glass_style, "clear")
         self.assertTrue(self.clear_styles[-1])
-        self.assertTrue(self.window.appearance_page.style_buttons["clear"].isChecked())
+        self.assertTrue(checked(self.window.appearance_page.style_segments, "clear"))
         self.window.flush_prefs()
         self.assertEqual(prefs.load_prefs(self.prefs_path)["glass_style"], "clear")
         self.window.appearance_page.opacity.setValue(0)
@@ -801,7 +822,7 @@ class StatusWindowTest(unittest.TestCase):
         self.assertEqual(self.window.appearance.glass_style, "frosted")
         self.assertFalse(self.clear_styles[-1])
         self.window.set_appearance(glass=False)
-        self.assertFalse(self.window.appearance_page.style_buttons["clear"].isEnabled())
+        self.assertFalse(enabled(self.window.appearance_page.style_segments, "clear"))
 
     def test_compact_mode_pins_the_mini_bar_and_comes_back(self) -> None:
         self.start_usage()
@@ -823,8 +844,7 @@ class StatusWindowTest(unittest.TestCase):
         put = self.streams[-1][0]
         put(("usage_event", {"server_id": "mcp-jira-sync", "call_id": 1, "state": "started", "client": "Codex"}))
         self.window.process_results()
-        self.assertEqual((bar.dots["mcp-jira-sync"].text(), bar.dots["mcp-jira-sync"].property("tone")),
-                         (theme.LIVE_GLYPH, "live"))
+        self.assertEqual(bar.dots["mcp-jira-sync"].property("tone"), "live")
         self.assertEqual(bar.dots["mcp-jira-sync"].toolTip(), "mcp-jira-sync · Codex · using now")
         self.assertEqual(bar.clients.text(), "0 AI")
         self.window.move(150, 160)
@@ -919,9 +939,9 @@ class SettingsPanelTest(unittest.TestCase):
         self.panel.deleteLater()
 
     def test_controls_report_choices_through_the_callbacks(self) -> None:
-        self.panel.theme_buttons["dark"].click()
-        self.panel.language_buttons["vi"].click()
-        self.panel.glass_buttons[False].click()
+        pick(self.panel.theme_segments, "dark")
+        pick(self.panel.language_segments, "vi")
+        pick(self.panel.glass_segments, False)
         self.panel.opacity.setValue(70)
         self.panel.tint.setValue(5)
         self.panel.reset_button.click()
@@ -933,12 +953,12 @@ class SettingsPanelTest(unittest.TestCase):
         self.panel.retranslate(i18n.Translator("vi"))
         self.panel.sync(theme.Appearance(theme="dark", card_opacity=60, tint=30), "vi", glass_available=True)
         self.assertEqual(self.changes, [])
-        self.assertTrue(self.panel.theme_buttons["dark"].isChecked())
-        self.assertTrue(self.panel.language_buttons["vi"].isChecked())
+        self.assertTrue(checked(self.panel.theme_segments, "dark"))
+        self.assertTrue(checked(self.panel.language_segments, "vi"))
         self.assertEqual((self.panel.opacity.value(), self.panel.opacity_value.text()), (60, "60%"))
         self.assertEqual(self.panel.tint.value(), 30)
-        self.assertEqual(self.panel.language_buttons["en"].text(), "EN")
-        self.assertEqual(self.panel.theme_buttons["dark"].text(), i18n.load_strings("vi")["desktop.settings.themeDark"])
+        self.assertEqual(widgets.segment(self.panel.language_segments, "en").text(), "EN")
+        self.assertEqual(widgets.segment(self.panel.theme_segments, "dark").text(), i18n.load_strings("vi")["desktop.settings.themeDark"])
 
     def test_tabs_show_one_page_and_report_the_open_tab(self) -> None:
         opened: list[str] = []
@@ -947,8 +967,8 @@ class SettingsPanelTest(unittest.TestCase):
         panel = settings.SettingsPanel(theme.WINDOW_WIDTH, pages, on_tab=opened.append, on_restart=lambda: restarts.append(True))
         try:
             panel.retranslate(i18n.Translator("vi"))
-            self.assertEqual(panel.tab_buttons["mcps"].text(), "MCP con")
-            panel.tab_buttons["mcps"].click()
+            self.assertEqual(widgets.segment(panel.tab_segments, "mcps").text(), "MCP con")
+            pick(panel.tab_segments, "mcps")
             self.assertEqual(opened, ["appearance", "mcps"])
             self.assertTrue(pages["appearance"].isHidden())
             self.assertFalse(pages["mcps"].isHidden())
@@ -1136,7 +1156,8 @@ class UpdateWindowTest(unittest.TestCase):
                 for name in ("retry_button", "notes_button"):
                     widget = getattr(self.card(), name)
                     self.assertFalse(widget.isHidden(), name)
-                    self.assertLessEqual(widget.fontMetrics().horizontalAdvance(widget.text()), widget.width(), name)
+                    # The layout gives each button at least what its whole label needs, in every language.
+                    self.assertGreaterEqual(widget.width(), widget.sizeHint().width(), name)
 
     def test_accounts_still_to_fill_in_and_disabled_children_do_not_block(self) -> None:
         self.offer(running(ChildRow("a", "credentials required", "error"), ChildRow("b", "disabled", "off"),
@@ -1410,6 +1431,51 @@ class DefaultActionsTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 app.set_autostart("everything", True)
 
+
+
+@unittest.skipIf(QT_MISSING, QT_MISSING or "")
+class FluentWidgetsTest(unittest.TestCase):
+    """The Fluent conversion: each tone has its own shape, icon-only buttons are named, primary buttons are Fluent's."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.window = app.StatusWindow(
+            i18n.Translator("en"), fetch=lambda: HubSnapshot(hub="stopped"), open_dashboard=lambda: None,
+            launch=lambda _arguments: None, style=lambda *_a, **_k: False, prefs_path=Path(self.tmp.name) / "desktop.json",
+            hub_store=FakeStore(), read_autostart=lambda: {"hub": True, "app": True},
+            write_autostart=lambda _target, _enabled: {"hub": True, "app": True}, run_worker=lambda job: job(),
+            stream=lambda _put, _stop: None,
+        )
+
+    def tearDown(self) -> None:
+        self.window.poll_timer.stop()
+        self.window.update_timer.stop()
+        self.window.update_check_timer.stop()
+        self.window.drain_timer.stop()
+        self.window.close()
+        self.window.deleteLater()
+        self.tmp.cleanup()
+
+    def test_each_tone_has_its_own_shape(self) -> None:
+        shapes = {tone: widgets.tone_pixmap(tone).toImage() for tone in ("ok", "wait", "off", "error")}
+        for first, second in (("ok", "wait"), ("ok", "off"), ("ok", "error"), ("wait", "off"), ("wait", "error"), ("off", "error")):
+            with self.subTest(first=first, second=second):
+                self.assertNotEqual(shapes[first], shapes[second])
+
+    def test_icon_only_buttons_are_named_by_a_tooltip(self) -> None:
+        self.window.apply(running())
+        for name, widget in (("settings", self.window.settings_button), ("compact", self.window.compact_button),
+                             ("refresh", self.window.refresh_button), ("expand", self.window.mini.expand_button),
+                             ("check", self.window.update_card.check_button)):
+            with self.subTest(button=name):
+                self.assertTrue(widget.toolTip())
+                self.assertIsInstance(widget, TransparentToolButton)
+
+    def test_the_hub_actions_are_fluent_primary_buttons(self) -> None:
+        self.assertIsInstance(self.window.open_button, PrimaryPushButton)
+        self.assertIsInstance(self.window.start_button, PrimaryPushButton)
+        self.assertIsInstance(self.window.update_card.update_button, PrimaryPushButton)
+        self.assertIsInstance(self.window.update_card.notes_button, HyperlinkButton)
 
 if __name__ == "__main__":
     unittest.main()

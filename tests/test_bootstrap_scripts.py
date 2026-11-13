@@ -614,6 +614,23 @@ class DesktopPackagingTest(unittest.TestCase):
         self.assertIn("Exec(RemoveQuotes(Uninstaller)", iss)
         self.assertNotIn("Install {#AppVersion}", iss)
 
+    def test_installer_shows_the_gpl_license_and_ships_the_notices(self) -> None:
+        # The desktop app is GPL-3.0-only because it links PyQt-Fluent-Widgets (GPL-3.0); the Hub stays MIT.
+        iss = (HUB_ROOT / "packaging" / "desktop" / "installer.iss").read_text(encoding="utf-8")
+        self.assertIn(r"LicenseFile=..\..\src\mcp_hub\desktop\LICENSE", iss)
+        self.assertIn('Source: "..\\..\\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"', iss)
+        license_text = (HUB_ROOT / "src" / "mcp_hub" / "desktop" / "LICENSE").read_text(encoding="utf-8")
+        self.assertTrue(license_text.startswith("                    GNU GENERAL PUBLIC LICENSE\n"))
+        self.assertIn("Version 3, 29 June 2007", license_text)
+
+    def test_readme_names_the_hub_and_the_app_licenses(self) -> None:
+        readme = (HUB_ROOT / "README.md").read_text(encoding="utf-8")
+        section = readme[readme.index("## License"):]
+        self.assertIn("MIT", section)
+        self.assertIn("GPL-3.0-only", section)
+        self.assertIn("src/mcp_hub/desktop", section)
+        self.assertIn("THIRD-PARTY-NOTICES.md", section)
+
     def test_installer_clears_the_previous_bundle_before_copying(self) -> None:
         # A stale mcp_hub-<old>.dist-info made the app read its old version and reinstall itself in a loop.
         iss = (HUB_ROOT / "packaging" / "desktop" / "installer.iss").read_text(encoding="utf-8")

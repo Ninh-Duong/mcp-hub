@@ -1,11 +1,11 @@
 # Desktop status app
 
-A small frosted-glass window (Qt), installed on its own with `mcp-hub-status-setup-<version>.exe`. It reads Hub state over HTTP and reads its own preferences and the sanitized update state file under user app data. It shows whether the Hub and child MCPs are working, and, when enabled, which AI clients use them. Its Settings card holds the Hub's everyday options. It checks for updates on launch and every hour and offers **Check updates** and **Update** actions ([Updates](#updates), [versioning.md](versioning.md)). This file is the reference for the app. Any change to the app follows it, and a change to the app's behavior or design updates it.
+A small frosted-glass window (Qt), installed on its own with `mcp-hub-status-setup-<version>.exe`. The app and its installer are GPL-3.0-only, because the app uses PySide6-Fluent-Widgets (GPL-3.0); the Hub stays MIT. See [src/mcp_hub/desktop/LICENSE](../src/mcp_hub/desktop/LICENSE) and [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md). It reads Hub state over HTTP and reads its own preferences and the sanitized update state file under user app data. It shows whether the Hub and child MCPs are working, and, when enabled, which AI clients use them. Its Settings card holds the Hub's everyday options. It checks for updates on launch and every hour and offers **Check updates** and **Update** actions ([Updates](#updates), [versioning.md](versioning.md)). This file is the reference for the app. Any change to the app follows it, and a change to the app's behavior or design updates it.
 
 ## Purpose and scope
 
 - **Status.** The window shows the Hub state, the Hub mode (fast or activity UI), one row per child MCP, and, with the activity UI, the live AI clients plus those active in the last 30 minutes. With the activity UI, a child in use gets a short line saying which AI client is using it now, or used it in the last 2 minutes, and each AI client row shows the children it uses (see [Child usage line](#child-usage-line)).
-- **Main actions.** **Start Hub** runs `hubctl start` in the background, without a window. **Open dashboard** pairs a browser session and opens `/dashboard/`, as `hubctl open` does. The ⟳ button polls at once.
+- **Main actions.** **Start Hub** runs `hubctl start` in the background, without a window. **Open dashboard** pairs a browser session and opens `/dashboard/`, as `hubctl open` does. The ⟳ button beside the Child MCPs count polls at once.
 - **Mini bar (⤡).** The ⤡ button in the Hub card shrinks the app to a one-line bar that stays above other windows: one dot per child (blue `◉` while an AI client calls it), the connected count, and the AI-client count; while the Hub is not running, the Hub's dot and state word instead. Drag it anywhere; ⤢ brings the full window back. The app reopens in the mode and at the place it was left (see [Design keywords](#design-keywords)).
 - **Settings (⚙).** The ⚙ button in the Hub card opens the Settings card. It has three tabs:
   - **Appearance:** theme (Light/Dark), language (EN/VI), frosted glass on or off, card opacity (20–100 %), and background tint (0–90 %). These are remembered in the app's own `%APPDATA%\mcp-hub-status\desktop.json`. **Reset to defaults** turns glass on and restores the theme's tuned opacity and tint, keeping the theme and language. Without a saved choice, the app follows the Windows app theme and display language.
@@ -86,11 +86,11 @@ Restart and Stop disconnect AI clients for a moment, so they need a second click
 
 ### BitNet install
 
-The app never builds or downloads anything itself: it asks the Hub (`POST /dashboard/api/bitnet/install`) and shows the `bitnet` block of `/dashboard/api/status` (owned by [bitnet.md](bitnet.md#install-from-the-desktop-app)). The Hub tab's BitNet line is a tone glyph, a caption, and at most one action:
+The app never builds or downloads anything itself: it asks the Hub (`POST /dashboard/api/bitnet/install`) and shows the `bitnet` block of `/dashboard/api/status` (owned by [bitnet.md](bitnet.md#install-from-the-desktop-app)). The Hub tab's BitNet line is a tone icon, a caption, and at most one action:
 
 | Hub reports | Glyph | Caption | Action |
 |---|---|---|---|
-| not installed | `○` | `desktop.bitnet.state.not_installed` | **Install BitNet** (primary) |
+| not installed | off icon | `desktop.bitnet.state.not_installed` | **Install BitNet** (primary) |
 | install running | turning `◐◓◑◒` (`Spinner`, `SPINNER_MS`) | `desktop.bitnet.step.{prepare,runtime,model,extract}` with the percent | none |
 | install failed | `●` `red` | `desktop.bitnet.error.<code>` | **Try again** |
 | installed, BitNet saved on, not running in this Hub | `◐` | `desktop.bitnet.restartToConnect` | **Restart Hub** (no second click) |
@@ -125,8 +125,8 @@ The **connection file** is `%LOCALAPPDATA%\mcp-hub\connection.json`: `{"version"
 | `desktop/system.py` | What the app does on Windows itself: `start_hub` (the Hub's scheduled task, no window) and its own Run-key entry (`app_autostart`, `set_app_autostart`, only when frozen). |
 | `desktop/status.py` | Logic, no Qt. It reads the URL and admin token from the connection file. It calls `GET /health`, then `GET /dashboard/api/status` with the bearer, and builds a `HubSnapshot`. `open_dashboard` sends `POST /dashboard/pair` and opens the link. Requests go only to the `127.0.0.1` URL in the connection file, bypass any configured proxy, and time out after 3 s. |
 | `desktop/i18n.py` | `Translator`: text from the `desktop.*` keys (plus the shared `connection.*` and `clients.empty` keys) in `dashboard/locales/<lang>.json`; `system_language` reads the Windows display language. |
-| `desktop/theme.py` | Every design token: the `LIGHT` and `DARK` palettes, the `GLASS` values per theme, tone tokens and glyphs, spacing, sizes, fonts, timings. `stylesheet(theme, glass)` builds the one Qt stylesheet; `backdrop_tint(theme)` gives the acrylic tint. |
-| `desktop/widgets.py` | `Card` (the frosted panel, styled by `QFrame#card`), `Row` (tone glyph, name, detail), `Page` (a Settings tab, with segment and slider rows), `ConfirmButton` (two-step confirm), `button`, `label`, `set_props` (stylesheet properties), and `dot_icon`. |
+| `desktop/theme.py` | Every design token: the `LIGHT` and `DARK` palettes, the `GLASS` values per theme, tone tokens, spacing, sizes, fonts, timings. `stylesheet(theme, glass)` builds the Qt stylesheet of the window and its frosted cards; `apply_fluent(look, accent)` themes the Fluent controls; `backdrop_tint(theme)` gives the acrylic tint. |
+| `desktop/widgets.py` | `Card` (the frosted panel, styled by `QFrame#card`), `Row` (tone icon, name, detail), `Page` (a Settings tab, with segmented and slider rows), `ConfirmButton` (two-step confirm), `button` (Fluent push button), `icon_button` (Fluent icon-only button), `label` (plain label with a role), `tone_pixmap` and `arc_pixmap` (the tone icons and the busy arc), `set_props` (dynamic properties), and `dot_icon`. |
 | `desktop/mini.py` | `MiniBar`, the pinned one-line bar of compact mode: dots updated in place, drag to move (`startSystemMove`). |
 | `desktop/settings.py` | `SettingsPanel`, the Settings card (title, tab row, one visible page, restart notice), and `AppearancePage`. Pages report choices through callbacks and show the current ones through `sync`; `StatusWindow` applies and saves them. |
 | `desktop/hub_page.py` | `HubPage` (Hub control, Track AI clients, BitNet switch, the two sign-in switches) and `ChildrenPage` (one On/Off row per child). Both show `desktop.settings.needsHub` while the Hub is not running. |
@@ -153,7 +153,7 @@ The processing reader sends typed records through the existing queue. Only its c
 
 `render()` splits the window into sections: texts, Hub row, children, usage, clients, client usage, actions, settings, icon. The children and clients sections rebuild rows only when the child states or the client list change; the usage and client usage sections only set text on the existing rows. Each section has a key built from the data it shows, and a section is redrawn only when its key changed. A poll that reports the same state therefore changes only the footer time. Never rebuild rows or reset the icon on every poll: that made the first version flicker.
 
-The outer layout uses `QLayout.SetFixedSize`, so the window follows its content without a manual resize. A theme switch applies one new stylesheet and redraws each section once (glyph tones, icon); it never rebuilds widgets.
+The outer layout uses `QLayout.SetFixedSize`, so the window follows its content without a manual resize. A theme switch applies one new stylesheet, and the Fluent theme when it changes, then redraws each section once (tone icons, taskbar icon); it never rebuilds widgets.
 
 ### Glass
 
@@ -183,39 +183,40 @@ The title bar stays native (theme-colored, not blurred), for moving the window, 
 These are the rules for every UI change in the app. A change that breaks one updates this section first.
 
 - **Calm, glanceable.** The state is readable in one second. Color signals state only and is never decoration. A connected child shows no state word (the green dot and the count say it); every other child state keeps its word.
-- **Four status tones.** Every state maps to exactly one tone. Do not add a tone without updating this list, `status.TONES`, `theme.TONE_TOKENS`, and `theme.TONE_GLYPHS`.
+- **Four status tones.** Every state maps to exactly one tone. Do not add a tone without updating this list, `status.TONES`, `theme.TONE_TOKENS`, and `widgets.TONE_ICONS` (or `tone_pixmap` for `off`).
 
-  | Tone | Color token | Glyph | Meaning |
+  | Tone | Color token | Icon | Meaning |
   |---|---|---|---|
-  | `ok` | `green` | ● | Working |
-  | `wait` | `amber` | ◐ | In progress, or checking |
-  | `off` | `muted` | ○ | Turned off or not set up, not a failure |
-  | `error` | `red` | ● | Needs attention |
+  | `ok` | `green` | Fluent success (`InfoBarIcon.SUCCESS`) | Working |
+  | `wait` | `amber` | Fluent warning (`InfoBarIcon.WARNING`), or a turning arc while busy | In progress, or checking |
+  | `off` | `muted` | Outlined ring, painted in the muted color | Turned off or not set up, not a failure |
+  | `error` | `red` | Fluent error (`InfoBarIcon.ERROR`) | Needs attention |
 
-- **Shape + color + text.** A tone always comes with its glyph and a state word, so it stays readable without color vision. Glyphs sit in a fixed-width column (`GLYPH_COLUMN_WIDTH`, 16 px), so names line up whatever the glyph.
+- **Shape + color + text.** A tone always comes with its icon and a state word, so it stays readable without color vision; each tone has its own shape. Icons sit in a fixed-width column (`GLYPH_COLUMN_WIDTH`, 16 px), so names line up whatever the icon.
 - **Status icon.** The window and taskbar icon is a dot in the Hub's tone, so the state is visible while the window is in the background. It changes only when the tone changes.
-- **Frosted glass.** A narrow window (`WINDOW_WIDTH` 288 px) holds four rounded cards (`CARD_RADIUS` 12): Hub, Child MCPs, AI clients, actions. Cards are translucent `surface` (`GLASS[theme]["card_alpha"]`) with a light 1 px edge, over the blur of whatever is behind the window (Frosted or Clear style). Text and glyphs are always fully opaque. The window fits its content and cannot be resized or maximized. The native title bar stays.
+- **Frosted glass.** A narrow window (`WINDOW_WIDTH` 288 px) holds four rounded cards (`CARD_RADIUS` 8): Hub, Child MCPs, AI clients, actions. Cards are translucent `surface` (`GLASS[theme]["card_alpha"]`) with a light 1 px edge, over the blur of whatever is behind the window (Frosted or Clear style). Text and icons are always fully opaque. The window fits its content and cannot be resized or maximized. The native title bar stays.
 - **Cards carry all content.** Every label, button, and note sits inside a card; the space between cards is pure glass. A list card has a small uppercase `muted` heading, with a count on the right: `2/4` connected children, or the number of live clients.
-- **Two themes, one token set.** `LIGHT` mirrors the `:root` tokens of `dashboard/style.css`, and a test fails if they drift apart. `DARK` uses the same token names, with dark surfaces and brighter tone colors. Each theme has its own `GLASS` defaults: the light theme uses a lighter tint and a white edge, the dark theme a deeper tint and a faint edge. The user's opacity and tint (`theme.Appearance`) override them; `None` means the theme default, so switching themes keeps each theme's tuning until the user moves a slider. Colors reach widgets only through `theme.stylesheet` and the `role` / `tone` / `primary` / `small` properties; code never sets a color on a widget.
+- **Two themes, one token set.** `LIGHT` mirrors the `:root` tokens of `dashboard/style.css`, and a test fails if they drift apart. `DARK` uses the same token names, with dark surfaces and brighter tone colors. Each theme has its own `GLASS` defaults: the light theme uses a lighter tint and a white edge, the dark theme a deeper tint and a faint edge. The user's opacity and tint (`theme.Appearance`) override them; `None` means the theme default, so switching themes keeps each theme's tuning until the user moves a slider. Colors reach widgets only through `theme.stylesheet` (the `role` and `tone` properties) and the Fluent theme (`theme.apply_fluent`); code never sets a color on a widget, except the painted tone icons, which take the palette of the current theme.
 - **Spacing scale.** 4 / 8 / 12 / 16 px (`SPACE_XS` … `SPACE_L`), in Qt device-independent pixels (Qt scales them with the screen). No other spacing values.
-- **Typography.** `Segoe UI Variable Text` (then `Segoe UI`) on Windows, the Qt default elsewhere, in four styles: headline 11 semibold (the Hub state), section heading 8 bold, body 10, caption 9 in `muted`. Tone glyphs use `Segoe UI Symbol`, so ● ◐ ○ render at one size.
-- **One primary action.** The main view has exactly one `blue` button (`primary` property): **Start Hub** while the Hub is not running, **Open dashboard** while it runs. The Settings card adds a second one, **Restart Hub**, only while saved changes wait for a restart. Other buttons are secondary: a faint `ink` tint. A button that cannot act is disabled, never hidden. Small controls (⚙, ⟳, the Hub control buttons) use the `small` property.
-- **Responsive controls.** Every button has hover, pressed, and disabled states from the stylesheet, a pointing-hand cursor, and `BUTTON_RADIUS` 8 corners.
+- **Typography.** `Segoe UI Variable Text` (then `Segoe UI`) on Windows, the Qt default elsewhere, in four styles set by the stylesheet roles: headline 12 semibold (the Hub state), section heading 8 bold, body 10, caption 9 in `muted`. Labels stay plain `QLabel`s: Fluent's label classes restyle on every role change, which made the window several times slower. Fluent's own type is used by its controls only.
+- **Accent.** Primary buttons and switches use the Windows accent (the Qt palette's accent) when white text on it reads at 3:1 or better; otherwise `blue`, so a pale accent never makes a button label unreadable.
+- **One primary action.** The main view has one primary button (Fluent `PrimaryPushButton`, in the accent): **Start Hub** while the Hub is not running, **Open dashboard** while it runs. Only the enabled one acts, so the other is disabled and looks faded. The Settings card's **Restart Hub** and the other buttons are plain Fluent `PushButton`s. A button that cannot act is disabled, never hidden. Icon-only buttons (⚙, ⤡, ⤢, ⟳) are Fluent `TransparentToolButton`s, each with a tooltip in the current language.
+- **Responsive controls.** Fluent controls have hover, pressed, and disabled states, and a pointing-hand cursor. A Fluent button is as wide as its label needs, so a row of buttons must leave room for the longest label in both languages (a test checks the update card).
 - **Settings card.** The card is inline, right below the Hub card, never a second window, and the window grows to fit it.
   - The title and the tab row (Appearance | Hub | MCPs) share the first line. One tab shows at a time, so the card stays short.
-  - Each row is a caption on the left and a control on the right. Choices are segmented buttons (`segment` property; the checked one is `blue`). Amounts are sliders with their value in percent.
+  - Each row is a caption on the left and a control on the right. Choices are a Fluent `SegmentedWidget` (one segment per value; its route key is `str(value)`; the selected one has Fluent's indicator). Amounts are Fluent sliders with their value in percent.
   - A control that cannot act is disabled: the sliders while glass is off, glass where it is unavailable (with a caption), values still loading (with `desktop.settings.loading`), and every Hub setting with `MCP_HUB_CONFIG` set.
   - Appearance changes apply live; a save follows `PREFS_SAVE_DELAY_MS` after the last change, or on close. Hub settings are saved at once and apply at the next start.
 - **Confirm before disconnecting clients.** Restart and Stop need a second click within `CONFIRM_MS`; the armed button is `red`. Nothing else in the app interrupts AI clients.
-- **Bilingual by data.** Every visible string comes from a locale key. The only literal glyphs are the tone, settings, refresh, and usage (`↳`) glyphs in `theme.py`, and the language codes (`EN`, `VI`).
+- **Bilingual by data.** Every visible string, tooltip included, comes from a locale key. The only text glyph is the usage arrow (`↳`) in `theme.py`; every other symbol is an icon. The language codes (`EN`, `VI`) are text.
 - **Never block, never leak.** Network work runs off the Qt thread. The app shows only state names and client names; never the token, private paths, or raw error text. A failed action shows one fixed sentence in the footer.
 - **Mini bar.** Compact mode is one rounded card with no title bar, always on top, and dragged by its body.
-  - While the Hub runs, left to right: one dot per child in its tone (`LIVE_GLYPH` ◉ in `blue` while an AI client calls it), the `ok/total` count, `desktop.mini.clients` with the activity UI, and the ⤢ button. There is no separate Hub dot, so the number of dots always matches the count.
-  - While the Hub is not running, the bar shows the Hub's tone dot and its state word (e.g. `◐ Starting…`) instead of child dots.
+  - While the Hub runs, left to right: one dot per child in its tone (a filled `blue` dot while an AI client calls it), the `ok/total` count, `desktop.mini.clients` with the activity UI, and the ⤢ button. There is no separate Hub dot, so the number of dots always matches the count.
+  - While the Hub is not running, the bar shows the Hub's tone dot and its state word (e.g. the `wait` icon and `Starting…`) instead of child dots.
   - Names and details are in tooltips (`desktop.mini.dot`), never on the bar.
   - Dots are updated in place and rebuilt only when the children change.
   - Switching modes recreates the native window, so the style is applied again.
-- **Child usage line.** A short, caption-size line under the child's name, `↳ {clients} · {when}`, indented past the glyph column. It exists only while there is usage: an idle child is a single row, so the list keeps an even rhythm.
+- **Child usage line.** A short, caption-size line under the child's name, `↳ {clients} · {when}`, indented past the icon column. It exists only while there is usage: an idle child is a single row, so the list keeps an even rhythm.
   - It is `blue` (`role="live"`) with `desktop.usage.now` while calls run, then `muted` with "just now" / "N min ago" for `RECENT_SECONDS` (2 min). Whole minutes keep the text from changing more than once a minute.
   - Several clients merge as `Codex ×2, Antigravity`.
   - The tool name is not on the line; the tooltip (`desktop.usage.detail`) carries it when all running calls use one tool.
@@ -346,7 +347,7 @@ The command opens the window on top of other windows and renders fixed sample da
 
 `tests/test_desktop_window.py` covers the window on Qt's `offscreen` platform (`QT_QPA_PLATFORM=offscreen`), so no window opens and the tests run on every OS, CI included:
 
-- rows and counts, tone properties, and the primary button;
+- rows and counts, tone properties, and the primary buttons;
 - starting/stopped transitions and footer errors;
 - the buttons, the ⚙ toggle, and the Settings controls:
   - the theme and language segments;

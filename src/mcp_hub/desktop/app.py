@@ -24,6 +24,7 @@ from typing import Any
 from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtGui import QFont, QGuiApplication
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QLayout, QVBoxLayout, QWidget
+from qfluentwidgets import FluentIcon
 
 from . import hub_api, prefs, screenshot, status, system, theme, update, usage, win32, processing
 from .hub_page import ChildrenPage, HubPage
@@ -31,7 +32,7 @@ from .i18n import LANGUAGES, Translator, system_language
 from .mini import MiniBar
 from .settings import AppearancePage, SettingsPanel
 from .update_card import CHECKING, DOWNLOADING, FAILED, INSTALLING, READY, UPDATING, UpdateCard
-from .widgets import Card, ProcessingLog, Row, Spinner, UsageRow, button, dot_icon, label, set_props, show_elided
+from .widgets import Card, ProcessingLog, Row, Spinner, UsageRow, button, dot_icon, icon_button, label, set_props, show_elided
 
 # Never equal to a section key, so every section draws once after a theme switch or at start.
 _NOT_DRAWN = object()
@@ -191,7 +192,7 @@ class StatusWindow(QWidget):
         self._build_settings()
         self.settings.hide()
         outer.addWidget(self.settings)
-        self.children_count, self.children_list = self._list_card(outer, "desktop.section.children")
+        self.children_count, self.children_list = self._list_card(outer, "desktop.section.children", refresh=True)
         self.clients_count, self.clients_list = self._list_card(outer, "desktop.section.clients")
         # Always present in the full window so the user can check Hub/child updates too.
         self.update_card = UpdateCard(self.check_updates, self.install_update, self.retry_update, self.show_update_notes)
@@ -225,22 +226,23 @@ class StatusWindow(QWidget):
         card = self._card(outer)
         # The mode follows the state word; the settings button takes the right edge.
         self.hub_row = Row(role="headline", detail_right=False)
-        self.compact_button = button(lambda: self.set_compact(True), small=True)
-        self.compact_button.setText(theme.COMPACT_GLYPH)
+        self.compact_button = icon_button(FluentIcon.MINIMIZE, lambda: self.set_compact(True))
         self.hub_row.layout_.addWidget(self.compact_button)
-        self.settings_button = button(self.toggle_settings, small=True)
-        self.settings_button.setText(theme.SETTINGS_GLYPH)
+        self.settings_button = icon_button(FluentIcon.SETTING, self.toggle_settings)
         self.settings_button.setCheckable(True)
         self.hub_row.layout_.addWidget(self.settings_button)
         card.content.addWidget(self.hub_row)
 
-    def _list_card(self, outer: QVBoxLayout, title_key: str) -> tuple[QLabel, QVBoxLayout]:
+    def _list_card(self, outer: QVBoxLayout, title_key: str, *, refresh: bool = False) -> tuple[QLabel, QVBoxLayout]:
         card = self._card(outer)
         header = QHBoxLayout()
         title, count = label(role="section"), label(role="section")
         header.addWidget(title)
         header.addStretch(1)
         header.addWidget(count)
+        if refresh:  # re-reads the Hub and its children; beside the count, where the children are listed
+            self.refresh_button = icon_button(FluentIcon.SYNC, self.refresh)
+            header.addWidget(self.refresh_button)
         card.content.addLayout(header)
         rows = QVBoxLayout()
         rows.setSpacing(theme.SPACE_XS)
@@ -252,14 +254,11 @@ class StatusWindow(QWidget):
         card = self._card(outer)
         buttons = QHBoxLayout()
         buttons.setSpacing(theme.SPACE_S)
-        self.open_button = button(self.open_dashboard)
-        self.start_button = button(self.start_hub)
-        self.refresh_button = button(self.refresh, small=True)
-        self.refresh_button.setText(theme.REFRESH_GLYPH)
+        # Only one of the two is enabled at a time (see _render_actions), so the enabled one is the primary action.
+        self.open_button = button(self.open_dashboard, primary=True)
+        self.start_button = button(self.start_hub, primary=True)
         for widget in (self.open_button, self.start_button):
-            buttons.addWidget(widget)
-        buttons.addStretch(1)
-        buttons.addWidget(self.refresh_button)
+            buttons.addWidget(widget, 1)
         card.content.addLayout(buttons)
         card.content.addSpacing(theme.SPACE_XS)
         self.footer = label(role="caption", wrap=True)
@@ -276,8 +275,15 @@ class StatusWindow(QWidget):
         if look.glass:
             self.glass_available = result
         self.glass = result
+        theme.apply_fluent(look, self.system_accent())
         self.setStyleSheet(theme.stylesheet(look, self.glass))
         self.appearance_page.sync(look, self.t.language, self.glass_available)
+
+    @staticmethod
+    def system_accent() -> str | None:
+        """The Windows accent color as `#rrggbb`, or None where Qt does not report one."""
+        app = QApplication.instance()
+        return app.palette().accent().color().name() if app is not None else None
 
     def set_appearance(self, **changes: object) -> None:
         """Apply a Settings change at once and save it shortly after."""
@@ -377,7 +383,7 @@ class StatusWindow(QWidget):
         for widget, key in self._texts:
             widget.setText(self.t(key))
         for widget, key in ((self.settings_button, "desktop.settings.open"), (self.compact_button, "desktop.compact.on"),
-                            (self.mini.expand_button, "desktop.compact.off")):
+                            (self.mini.expand_button, "desktop.compact.off"), (self.refresh_button, "desktop.refresh")):
             widget.setToolTip(self.t(key))
             widget.setAccessibleName(self.t(key))
         self.settings.retranslate(self.t)
@@ -550,10 +556,7 @@ class StatusWindow(QWidget):
                               self.update_state, self.update_status, hub == "running")
 
     def _render_actions(self, hub: str | None) -> None:
-        # One primary action: Start Hub while the Hub is down, Open dashboard otherwise.
-        primary, secondary = (self.open_button, self.start_button) if hub == "running" else (self.start_button, self.open_button)
-        set_props(primary, primary=True)
-        set_props(secondary, primary=False)
+        # One action can act: Start Hub while the Hub is down, Open dashboard while it runs; the other is disabled.
         self.open_button.setEnabled(hub == "running")
         self.start_button.setEnabled(hub == "stopped")
 
