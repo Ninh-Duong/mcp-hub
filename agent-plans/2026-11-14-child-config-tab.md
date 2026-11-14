@@ -1,6 +1,6 @@
 # Child config tab and required-settings check
 
-Status: in-progress
+Status: in-progress (T012 pending)
 
 Cross-repo feature. The Hub and desktop app are in this repository; the four child MCP repositories each declare their own required settings. All repositories commit and push directly to `master`, and the user owns them.
 
@@ -77,12 +77,16 @@ Cross-repo feature. The Hub and desktop app are in this repository; the four chi
 - [x] T008 Locale keys in `en.json` and `vi.json`.
 - [x] T009 Docs: `child-mcp-compatibility.md`, `reference.md`, `security-and-logging.md`, `desktop-app.md`.
 - [x] T010 `package_qc.py` passes; `smoke.py` run (see the progress log).
-- [ ] T011 Child repositories: `hub-requirements.json` and tests (see the progress log).
-- [ ] T012 Set status to `done` after the child repositories are finished.
+- [x] T011 Child repositories: `hub-requirements.json` and tests (see the progress log).
+- [ ] T012 Click-through from the Child MCPs warning to the Config tab, with focus on the child's row (FR-013, not built yet).
+- [ ] T013 Set status to `done` after T012.
 
 ## Progress log
 
 - 2026-11-14 (agent Claude, mcp-hub): Hub, desktop, docs, and tests done. `package_qc.py` passes (951 unit tests). `smoke.py`: the Hub and four children pass; `mcp-server-logs` fails on its OpenObserve calls ("fetch failed") and `mcp-sqlserver` times out. Both come from reaching the external services, not from this change. The Hub audit shows no `child_config_incomplete` event, because the children do not declare requirements yet. Next: the child repositories.
+
+- 2026-11-14 (agent Claude, child repositories): `mcp-server-logs` (dc03218), `mcp-jira-sync` (64b38a2), `mcp-pr-companion` (77e5017), and `mcp-sqlserver` (0ebe49f) each ship `hub-requirements.json` and a test; each suite passes. Deviations from the first draft: `mcp-server-logs` lists `openobserve.dev.url`, `.dev.email`, `.dev.token` (not `default_env`, which is optional), and the two groups are one `anyOf`. Each child's README or hub doc notes the line. The Hub reads the requirement from the child's folder (`cwd`, else `../<id>`).
+- Open issue: `77e5017` in `mcp-pr-companion` was committed with the git identity of the machine's user (a company address, not the GitHub noreply address that the other repositories use). It is on the public `master`. Fixing it needs a rewrite of `master` (amend plus force push), which was not done without the user's go-ahead.
 
 ## Version
 
