@@ -16,6 +16,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
     from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication
 
     from mcp_hub.desktop import app, hub_page, mini, screenshot, settings, system, update_card, widgets
@@ -799,6 +800,29 @@ class StatusWindowTest(unittest.TestCase):
         self.window.apply(running(ChildRow("mcp-server-logs", "connected", "wait", incomplete=True)))
         self.window.process_results()
         self.assertIn("wait mcp-server-logs Config incomplete", texts(self.window.children_list, whole=True))
+
+    def test_clicking_the_config_warning_opens_the_config_tab_on_that_child(self) -> None:
+        self.window.apply(running(ChildRow("mcp-server-logs", "connected", "wait", incomplete=True),
+                                  ChildRow("mcp-jira-sync", "connected", "ok")))
+        self.window.process_results()
+        self.window.show_tab("config")  # builds the Config rows; they exist once the tab has been read
+        self.window.process_results()
+        self.window.show_settings(False)
+        warning = self.window.children_list.itemAt(0).widget().row
+        with patch.object(self.window.config_page.items["mcp-server-logs"][1], "setFocus") as focus:
+            QTest.mouseClick(warning, Qt.MouseButton.LeftButton)
+            self.window.process_results()
+        self.assertFalse(self.window.settings.isHidden())
+        self.assertEqual(self.window.settings.tab, "config")
+        focus.assert_called_once_with()
+
+    def test_the_warning_row_is_a_button_only_when_the_child_has_a_gap(self) -> None:
+        self.window.apply(running(ChildRow("mcp-server-logs", "connected", "wait", incomplete=True),
+                                  ChildRow("mcp-jira-sync", "connected", "ok")))
+        self.window.process_results()
+        rows = [self.window.children_list.itemAt(index).widget().row for index in range(2)]
+        self.assertEqual(rows[0].cursor().shape(), Qt.CursorShape.PointingHandCursor)
+        self.assertEqual(rows[1].cursor().shape(), Qt.CursorShape.ArrowCursor)
 
     def test_autostart_switches_call_hubctl(self) -> None:
         self.window.show_tab("hub")

@@ -92,7 +92,7 @@ Create `docs/mcps/<id>.md` from the template in [mcps/README.md](mcps/README.md)
 
 ## 5. Hand off secrets, then enable
 
-1. Ask the user to fill the child's section in `config/private/mcps/<id>.json` (and replace any `<SET_BY_USER>`), listing the key names (from `keys <id>`), or to keep the accounts in the child's own files. Never ask for the values in chat.
+1. Ask the user to fill the child's section in `config/private/mcps/<id>.json` (and replace any `<SET_BY_USER>`), listing the key names (from `keys <id>`), or to keep the accounts in the child's own files. Never ask for the values in chat. If the child declares `hub-requirements.json` (see [child-mcp-compatibility.md](child-mcp-compatibility.md#declaring-required-settings)), the desktop app's Config tab lists the keys that are still empty; you may name those keys, never their values.
 2. After the user confirms, set `"enabled": true` for the server and the feature in `hub.json`.
 3. Restart the MCP client that runs the Hub (`scripts/start.ps1` / `scripts/start.sh`, see [manual-setup.md → Run](manual-setup.md#run)). Config is read only at startup.
 

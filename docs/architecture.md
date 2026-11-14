@@ -13,11 +13,12 @@
 
 ## Module layout
 
-Dependencies flow one way: `config` → `settings` → `audit` / `extensions` / `hub_settings` → `server` (with `children`, `child_logs`, `result_cache`) → `http` → `service`. `dashboard`, `jobs`, `agents`, `bridge`, `preflight`, and `control` use only public functions and methods of those modules; `activity_ui` is imported only by `service.py`. `desktop` imports nothing from `mcp_hub` outside `mcp_hub.desktop` (a test checks it): it finds the Hub through the connection file the service writes and talks to it only through its HTTP API, so it ships as its own installer. Every module below is imported by at least one test.
+Dependencies flow one way: `child_requirements` (a leaf, importing nothing from the Hub) → `config` → `settings` → `audit` / `extensions` / `hub_settings` → `server` (with `children`, `child_logs`, `result_cache`) → `http` → `service`. `dashboard`, `jobs`, `agents`, `bridge`, `preflight`, and `control` use only public functions and methods of those modules; `activity_ui` is imported only by `service.py`. `desktop` imports nothing from `mcp_hub` outside `mcp_hub.desktop` (a test checks it): it finds the Hub through the connection file the service writes and talks to it only through its HTTP API, so it ships as its own installer. Every module below is imported by at least one test.
 
 | Layer | Module (`src/mcp_hub/`) | Responsibility |
 |---|---|---|
-| Configuration | `config.py` | Discover sibling children, merge private overrides, validate child configs, `prepare` specs, and routes; resolve paths in memory; `is_sensitive_key`; `MCP_HUB_PRIVATE_DIR` override of `PRIVATE_ROOT` |
+| Configuration | `child_requirements.py` | The `hub-requirements.json` a child declares in its own repository: parse it, and list the key paths still empty (names only, never values). Used by `config` |
+| | `config.py` | Discover sibling children, merge private overrides, validate child configs, `prepare` specs, and routes; resolve paths in memory; `is_sensitive_key`; `MCP_HUB_PRIVATE_DIR` override of `PRIVATE_ROOT` |
 | | `settings.py` | The operator tunables (`settings` in the Hub config): one frozen dataclass per group with every default, validated (unknown keys and bad values are refused) and passed to the objects that use them at start. See [settings.md](settings.md) |
 | | `projects.py` | Project aliases from `config/private/projects.json`: allowed environments, log targets, and optional SQL database hints, used by `hub__plan` and the job runner |
 | | `condense.py` | Deterministic core condenser (`RuleCondenser`): lossless JSON table compaction, task-aware field/row trimming, and line template folding |

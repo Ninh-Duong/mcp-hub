@@ -459,6 +459,8 @@ class StatusWindow(QWidget):
             else:
                 detail = "" if child.tone == "ok" else self.t.state_label(child.state)
             item.row.show_state(child.tone, child.server_id, detail)
+            if child.incomplete:
+                item.row.set_action(lambda chosen=child.server_id: self.show_config(chosen))
             self.children_list.addWidget(item)
             self.child_rows[child.server_id] = item
         self._render_bitnet_row(self.snapshot.bitnet)
@@ -1027,6 +1029,11 @@ class StatusWindow(QWidget):
         """Children the running Hub started with a settings gap (their rows carry the flag)."""
         children = self.snapshot.children if self.snapshot else ()
         return frozenset(child.server_id for child in children if child.incomplete)
+
+    def show_config(self, server_id: str) -> None:
+        """The Child MCPs warning leads here: Settings on the Config tab, with that child's row focused."""
+        self.show_tab("config")
+        self.config_page.focus_row(server_id)
 
     def set_child(self, server_id: str, enabled: bool) -> None:
         write = partial(self.hub_store.set_server_enabled, server_id, enabled)

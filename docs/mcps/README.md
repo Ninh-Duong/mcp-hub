@@ -23,6 +23,7 @@ These rules apply to every child; each contract lists only its own `cacheSeconds
 - Repository: sibling `../<repo>`.
 - Transport: local stdio process launched by the Hub (`config/private/mcps/<server-id>.json`).
 - Configuration: env `<VAR_NAME>`, ... ; private keys `<block>.<key>`, ... (values set by the user).
+- Required settings (optional): `hub-requirements.json` in the child repository lists the key paths that the desktop app's Config tab checks. See [child-mcp-compatibility.md](../child-mcp-compatibility.md#declaring-required-settings).
 
 ## Tools
 

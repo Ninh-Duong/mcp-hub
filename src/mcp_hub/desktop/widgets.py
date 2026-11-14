@@ -236,6 +236,19 @@ class Row(QWidget):
         else:
             self.layout_.addWidget(self.detail)
             self.layout_.addStretch(1)
+        self._action: Callable[[], None] | None = None
+
+    def set_action(self, action: Callable[[], None] | None) -> None:
+        """Make the whole row clickable: a left click runs `action`, and the pointer shows it can be clicked."""
+        self._action = action
+        self.setCursor(Qt.CursorShape.PointingHandCursor if action else Qt.CursorShape.ArrowCursor)
+
+    def mousePressEvent(self, event: Any) -> None:
+        if self._action is not None and event.button() == Qt.MouseButton.LeftButton:
+            self._action()
+            event.accept()
+            return
+        super().mousePressEvent(event)
 
     def show_state(self, tone: str, text: str, detail: str = "") -> None:
         """Show a tone, its state word, and a detail, each cut with an ellipsis to the room it has.

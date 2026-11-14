@@ -60,6 +60,18 @@ class ConfigPage(Page):
         self.items: dict[str, tuple[Row, TransparentToolButton]] = {}
         self.settings: HubSettings | None = None
         self.running = True
+        # A child whose row should take the keyboard focus once it exists (set by the Child MCPs warning).
+        self.pending_focus: str | None = None
+
+    def focus_row(self, server_id: str) -> None:
+        """Move the keyboard focus to the child's edit button, now if its row exists, else once it is built."""
+        self.pending_focus = server_id
+        self._apply_focus()
+
+    def _apply_focus(self) -> None:
+        if self.pending_focus in self.items:
+            self.items[self.pending_focus][1].setFocus()
+            self.pending_focus = None
 
     def retranslate(self, t: Translator) -> None:
         self.t = t
@@ -84,6 +96,7 @@ class ConfigPage(Page):
             row.show_state(status.tone, switch.server_id, self._caption(status))
             button.setEnabled(running and settings is not None and settings.editable and switch.server_id not in busy)
             button.setToolTip(self._tooltip(switch.server_id))
+        self._apply_focus()
         self._apply_texts()
 
     def _caption(self, status: ConfigStatus) -> str:

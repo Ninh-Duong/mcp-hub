@@ -80,7 +80,7 @@ How releases, numbering, and upgrades of the other parts work is in [versioning.
 
 A child MCP can declare the settings it needs in `hub-requirements.json` in its own repository (format in [child-mcp-compatibility.md](child-mcp-compatibility.md#declaring-required-settings)). The app shows the result in two places:
 
-- **Child MCPs card.** A child that started with a gap shows the warning tone and **Config incomplete**. It still runs; its tools work from its own local files.
+- **Child MCPs card.** A child that started with a gap shows the warning tone and **Config incomplete**. It still runs; its tools work from its own local files. Clicking that row opens Settings on the Config tab with the child's edit button focused.
 - **Settings → Config.** One row per child with its state: **Ready**, **Missing: <key paths>** (names only), **Ready. Restart the Hub to apply.** (the file is complete but the running Hub started with the gap), **No requirements declared**, or **Requirements file is invalid**.
 
 The edit button asks the Hub to create the child's private file from its template when it is missing (`POST /dashboard/api/settings/servers/{id}/config-file`), then opens that file in the default editor. The Hub returns only the path. The app never reads the file and never shows its path or values. With `MCP_HUB_CONFIG` set, or while the Hub is not running, the button is disabled and its tooltip says why. A press that fails shows the reason on that child's row.
@@ -257,7 +257,7 @@ Before the first poll the Hub row shows `desktop.checking` in the `wait` tone. W
 | `connecting`, `reconnecting` | `wait` | `connection.connecting`, `connection.reconnecting` |
 | `disabled` | `off` | `connection.disabled` |
 | `credentials required`, `unavailable`, any other reason | `error` | `connection.credentialsRequired`, `connection.unavailable`, or the reason as reported |
-| `connected`, but started with a required setting empty (`config_incomplete`) | `wait` | `connection.configIncomplete`, in place of the state word |
+| `connected`, but started with a required setting empty (`config_incomplete`) | `wait` | `connection.configIncomplete`, in place of the state word; the whole row is a button that opens the Config tab for that child |
 
 Under the children, one **BitNet** row has its own dot and is not counted in `ok/total`. It is green only when llama-server answers `/health`; a Hub too old to report BitNet shows no row.
 
