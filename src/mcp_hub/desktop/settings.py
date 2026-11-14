@@ -1,8 +1,8 @@
-"""The Settings card: tabs for the look of the app, the Hub, and the child MCPs.
+"""The Settings card: tabs for the look of the app, the Hub, the child MCPs, and their config files.
 
 Pages only report choices through callbacks; StatusWindow applies them, saves them, and calls each
 page's `sync` so the controls always show the current state. This module holds the card and the
-Appearance page; the Hub and MCPs pages live in hub_page.py.
+Appearance page; the Hub and MCPs pages live in hub_page.py, and the Config page in config_page.py.
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from . import theme
 from .i18n import LANGUAGES, Translator
 from .widgets import Card, ConfirmButton, Page, button, label, segment, select_segment
 
-TABS = ("appearance", "hub", "mcps")
+TABS = ("appearance", "hub", "mcps", "config")
 _SEGMENT_KEYS = {
     "theme": {"light": "desktop.settings.themeLight", "dark": "desktop.settings.themeDark"},
     "glass": {True: "desktop.settings.on", False: "desktop.settings.off"},
@@ -103,9 +103,11 @@ class SettingsPanel(Card):
     ) -> None:
         super().__init__(width)
         self.pages, self.on_tab, self.tab = pages, on_tab, TABS[0]
-        # The title and the tab row share one line.
+        self.title = label(role="section")
+        self.content.addWidget(self.title)
+        # The tab row has a line of its own: four tabs do not fit beside the title in the window's width.
         tabs = Page()
-        self.title, self.tab_segments = tabs.segment_row(TABS, self.show_tab, caption=label(role="section"))
+        _caption, self.tab_segments = tabs.segment_row(TABS, self.show_tab)
         self.content.addWidget(tabs)
         self.content.addSpacing(theme.SPACE_XS)
         for page in pages.values():

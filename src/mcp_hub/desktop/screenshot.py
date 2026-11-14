@@ -53,14 +53,17 @@ SAMPLES = {
 }
 UPDATE_STATES = ("update",)
 # The settings states show the running sample with one Settings tab open.
-SETTINGS_TABS = {"settings": "appearance", "settings-hub": "hub", "settings-mcps": "mcps"}
+SETTINGS_TABS = {"settings": "appearance", "settings-hub": "hub", "settings-mcps": "mcps", "settings-config": "config"}
 # `compact` shows the `ui` sample as the pinned mini bar.
 STATES = (*SAMPLES, *SETTINGS_TABS, "compact")
 SAMPLE_HUB_SETTINGS = HubSettings(
     activity_ui=False,
     servers=(
-        ServerSwitch("mcp-server-logs", True), ServerSwitch("mcp-jira-sync", True),
-        ServerSwitch("mcp-pr-companion", True, "credentials required"), ServerSwitch("mcp-read-source", False),
+        ServerSwitch("mcp-server-logs", True, missing=("openobserve.dev.token",), requirements="declared",
+                     config_file_exists=True),
+        ServerSwitch("mcp-jira-sync", True), ServerSwitch("mcp-read-source", False),
+        ServerSwitch("mcp-pr-companion", True, "credentials required", missing=("bitbucket.api_token",),
+                     requirements="declared", config_file_exists=True),
     ),
     editable=True,
 )

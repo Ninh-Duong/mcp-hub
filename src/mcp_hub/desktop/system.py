@@ -46,6 +46,14 @@ def start_hub(run: Callable[..., Any] = subprocess.run) -> None:
         raise OSError("The Hub task is missing; run hubctl install")
 
 
+def open_file(path: str) -> None:
+    """Open a file in the user's default editor. Raises OSError when Windows cannot (no association, or not Windows)."""
+    startfile = getattr(os, "startfile", None)
+    if startfile is None:
+        raise OSError("Opening files requires Windows")
+    startfile(path)
+
+
 def installed_exe() -> str | None:
     """The installed app's exe, or None when the app runs from source."""
     return sys.executable if getattr(sys, "frozen", False) else None

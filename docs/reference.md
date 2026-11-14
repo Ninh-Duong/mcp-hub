@@ -45,6 +45,7 @@ The shared service listens on `127.0.0.1` and `settings.http.port` (default 8765
 | POST | `/dashboard/api/bitnet/install` | admin token only | Start the BitNet install in the background (`202` with the `bitnet` status block; `409` when installed); see [bitnet.md](bitnet.md#install-from-the-desktop-app) |
 | GET | `/dashboard/api/bitnet/processing/stream` | admin token, session | BitNet only: transient processing events and last-three snapshots over SSE; see [bitnet.md](bitnet.md#processing-stream) |
 | POST | `/dashboard/api/settings/servers/{server_id}` | admin token only | `{"enabled": bool}` for one child (404 unknown, 409 with `MCP_HUB_CONFIG`) |
+| POST | `/dashboard/api/settings/servers/{server_id}/config-file` | admin token only | Create the child's private config from its template if missing; returns `{"path"}` (404 unknown, 409 with `MCP_HUB_CONFIG`, 500 when the file cannot be written) |
 | GET, POST | `/dashboard/api/settings/autostart` | admin token only | The Hub's sign-in task, `{"hub": bool}` (503 when `hubctl` fails) |
 | GET | `/dashboard/api/update` | admin token only | Current bounded update state and sanitized component events |
 | POST | `/dashboard/api/update/check` | admin token only | Start asynchronous update discovery; returns update state |

@@ -33,6 +33,11 @@ class ServerSwitch:
     enabled: bool
     # Why an enabled child cannot run yet (for example "credentials required"), else None.
     reason: str | None = None
+    # Required key paths still empty (names only), the state of the child's requirements file
+    # (`declared`, `none`, or `invalid`), and whether its private config file exists.
+    missing: tuple[str, ...] = ()
+    requirements: str = "none"
+    config_file_exists: bool = False
 
 
 @dataclass(frozen=True)
@@ -48,16 +53,25 @@ def settings_from(value: dict[str, Any]) -> HubSettings:
     servers = value.get("servers")
     if not isinstance(servers, list) or not all(isinstance(item, dict) for item in servers):
         raise ValueError("The Hub returned unexpected settings")
-    switches = tuple(
-        ServerSwitch(str(item.get("id")), item.get("enabled") is True,
-                     item.get("reason") if isinstance(item.get("reason"), str) else None)
-        for item in servers
-    )
+    switches = tuple(_switch_from(item) for item in servers)
     return HubSettings(
         value.get("activity_ui") is True,
         switches,
         value.get("editable") is True,
         bitnet=value.get("bitnet") is True,
+    )
+
+
+def _switch_from(item: dict[str, Any]) -> ServerSwitch:
+    missing = item.get("missing")
+    requirements = item.get("requirements")
+    return ServerSwitch(
+        str(item.get("id")),
+        item.get("enabled") is True,
+        item.get("reason") if isinstance(item.get("reason"), str) else None,
+        missing=tuple(key for key in missing if isinstance(key, str)) if isinstance(missing, list) else (),
+        requirements=requirements if requirements in {"declared", "none", "invalid"} else "none",
+        config_file_exists=item.get("config_file_exists") is True,
     )
 
 
@@ -85,6 +99,14 @@ class HubClient:
 
     def set_server_enabled(self, server_id: str, enabled: bool) -> None:
         self._call(f"/dashboard/api/settings/servers/{quote(server_id, safe='')}", {"enabled": enabled})
+
+    def prepare_child_config(self, server_id: str) -> str:
+        """The child's private config file path, created from its template when missing (the Hub returns only the path)."""
+        value = self._call(f"/dashboard/api/settings/servers/{quote(server_id, safe='')}/config-file", {})
+        path = value.get("path")
+        if not isinstance(path, str) or not path:
+            raise ValueError("The Hub returned no config file path")
+        return path
 
     def read_hub_autostart(self) -> bool:
         return _hub_flag(self._call("/dashboard/api/settings/autostart"))

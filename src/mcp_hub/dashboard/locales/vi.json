@@ -288,5 +288,19 @@
   "desktop.processing.source.child": "MCP con",
   "desktop.processing.source.cache": "bộ nhớ đệm",
   "desktop.processing.source.fallback": "dự phòng",
-  "desktop.processing.source.local": "cục bộ"
+  "desktop.processing.source.local": "cục bộ",
+  "connection.configIncomplete": "Thiếu cấu hình",
+  "desktop.error.configOpen.hub": "Hub không tạo được file cấu hình. Kiểm tra Hub đang chạy và MCP con có template.",
+  "desktop.error.configOpen.editor": "Windows không mở được file. Kiểm tra ứng dụng mặc định cho file .json.",
+  "desktop.settings.tab.config": "Cấu hình",
+  "desktop.settings.config.ready": "Sẵn sàng",
+  "desktop.settings.config.readyRestart": "Đã đủ. Khởi động lại Hub để áp dụng.",
+  "desktop.settings.config.missing": "Thiếu: {keys}",
+  "desktop.settings.config.none": "Không khai báo yêu cầu",
+  "desktop.settings.config.invalid": "File yêu cầu không hợp lệ",
+  "desktop.settings.config.open": "Mở file cấu hình của {id}",
+  "desktop.settings.config.opened": "Đã mở. Lưu file rồi khởi động lại Hub.",
+  "desktop.settings.config.note": "Điền giá trị, lưu file, rồi bấm Restart Hub. Giá trị không hiển thị ở đây.",
+  "desktop.settings.config.disabled.needsHub": "Khởi động Hub để sửa cấu hình",
+  "desktop.settings.config.disabled.readOnly": "Chỉ đọc: đang dùng MCP_HUB_CONFIG"
 }

@@ -18,7 +18,7 @@ try:
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QApplication
 
-    from mcp_hub.desktop import app, hub_page, mini, screenshot, settings, update_card, widgets
+    from mcp_hub.desktop import app, hub_page, mini, screenshot, settings, system, update_card, widgets
     from qfluentwidgets import HyperlinkButton, PrimaryPushButton, TransparentToolButton
     QT_MISSING = None
 except ImportError as exc:  # Qt's system libraries are missing (for example a bare Linux host)
@@ -40,6 +40,14 @@ def running(*children: ChildRow, activity_ui: bool = False, clients: tuple[str, 
                        checked_at=datetime(2026, 10, 30, 10, 42, 5))
 
 
+def fake_switch(server_id: str, enabled: bool) -> ServerSwitch:
+    """mcp-server-logs needs credentials and a key; the other child needs nothing."""
+    if server_id == "mcp-server-logs":
+        return ServerSwitch(server_id, enabled, "credentials required", missing=("openobserve.dev.token",),
+                            requirements="declared", config_file_exists=True)
+    return ServerSwitch(server_id, enabled, None)
+
+
 class FakeStore:
     """HubClient stand-in: keeps the saved choices in memory."""
 
@@ -50,6 +58,9 @@ class FakeStore:
         self.enabled = {"mcp-server-logs": True, "mcp-jira-sync": False}
         self.update = UpdateStatus("", "idle", (), ())
         self.retries: list[tuple[str, ...]] = []
+        self.prepared: list[str] = []
+        self.prepare_error: Exception | None = None
+        self.config_file = Path("/private/mcps/mcp-server-logs.json")
 
     def check_updates(self):
         return self.update
@@ -73,9 +84,14 @@ class FakeStore:
         self.reads += 1
         if self.fail:
             raise OSError("locked")
-        servers = tuple(ServerSwitch(server_id, enabled, "credentials required" if server_id == "mcp-server-logs" else None)
-                        for server_id, enabled in self.enabled.items())
+        servers = tuple(fake_switch(server_id, enabled) for server_id, enabled in self.enabled.items())
         return HubSettings(self.activity_ui, servers, self.editable, bitnet=self.bitnet)
+
+    def prepare_child_config(self, server_id: str) -> str:
+        if self.prepare_error is not None:
+            raise self.prepare_error
+        self.prepared.append(server_id)
+        return str(self.config_file)
 
     def set_activity_ui(self, enabled: bool) -> None:
         self.activity_ui = enabled
@@ -741,6 +757,49 @@ class StatusWindowTest(unittest.TestCase):
         self.window.process_results()
         self.assertIn("sign-in setting", self.window.footer.text())
 
+    def open_config_tab(self) -> None:
+        self.window.apply(running())
+        self.window.show_tab("config")
+        self.window.process_results()
+
+    def test_the_config_tab_names_the_gap_and_opens_the_file_on_press(self) -> None:
+        self.open_config_tab()
+        page = self.window.config_page
+        self.assertTrue(any("Missing: openobserve.dev.token" in text for text in texts(page.rows, whole=True)))
+        opened: list[str] = []
+        with patch.object(system, "open_file", side_effect=opened.append):
+            page.items["mcp-server-logs"][1].click()
+            self.window.process_results()
+        self.assertEqual(self.store.prepared, ["mcp-server-logs"])
+        self.assertEqual(opened, [str(self.store.config_file)])
+        self.assertTrue(any("Opened. Save the file" in text for text in texts(page.rows, whole=True)))
+        self.assertNotIn(str(self.store.config_file), " ".join(texts(page.rows, whole=True)))
+
+    def test_a_failed_hub_request_or_editor_is_reported_on_the_row(self) -> None:
+        self.open_config_tab()
+        page = self.window.config_page
+        self.store.prepare_error = OSError("refused")
+        page.items["mcp-server-logs"][1].click()
+        self.window.process_results()
+        self.assertTrue(any("Hub could not create the config file" in text for text in texts(page.rows, whole=True)))
+        self.store.prepare_error = None
+        with patch.object(system, "open_file", side_effect=OSError("no app")):
+            page.items["mcp-server-logs"][1].click()
+            self.window.process_results()
+        self.assertTrue(any("Windows could not open the file" in text for text in texts(page.rows, whole=True)))
+
+    def test_a_custom_hub_config_disables_the_open_button_with_its_reason(self) -> None:
+        self.store.editable = False
+        self.open_config_tab()
+        button = self.window.config_page.items["mcp-server-logs"][1]
+        self.assertFalse(button.isEnabled())
+        self.assertIn("MCP_HUB_CONFIG", button.toolTip())
+
+    def test_a_child_started_with_a_gap_is_a_warning_in_the_children_card(self) -> None:
+        self.window.apply(running(ChildRow("mcp-server-logs", "connected", "wait", incomplete=True)))
+        self.window.process_results()
+        self.assertIn("wait mcp-server-logs Config incomplete", texts(self.window.children_list, whole=True))
+
     def test_autostart_switches_call_hubctl(self) -> None:
         self.window.show_tab("hub")
         self.window.process_results()
@@ -1332,7 +1391,7 @@ class ScreenshotTest(unittest.TestCase):
 
     def test_samples_cover_every_hub_state(self) -> None:
         self.assertEqual({sample.hub for sample in screenshot.SAMPLES.values()}, set(status.HUB_TONES))
-        self.assertEqual(screenshot.STATES[-4:], ("settings", "settings-hub", "settings-mcps", "compact"))
+        self.assertEqual(screenshot.STATES[-5:], ("settings", "settings-hub", "settings-mcps", "settings-config", "compact"))
         sample = screenshot.SampleSettings()
         self.assertIsNone(sample.set_activity_ui(True))
         self.assertIsNone(sample.set_server_enabled("mcp-server-logs", False))

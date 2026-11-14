@@ -20,6 +20,9 @@ class FakeRuntime:
     def child_states(self):
         return {"sample-child": "connected"}
 
+    def config_incomplete(self):
+        return {"sample-child": ["openobserve.dev.token"]}
+
     def activity_snapshot(self):
         return {
             "children": {"sample-child": {"tool_count": 2, "active_calls": 0}},

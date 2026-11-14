@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,6 +49,25 @@ def set_server_enabled(server_id: str, enabled: bool, config_path: str | Path | 
         raise config.ConfigError("servers must be an object")
     servers[server_id]["enabled"] = bool(enabled)
     _write(config.resolved_config_path(config_path), raw)
+
+
+def prepare_child_config(server_id: str, config_path: str | Path | None = None) -> Path:
+    """The child's private config file, created from its template when it does not exist yet.
+
+    Only the template is copied; nothing is read back, so the file's values never reach the caller.
+    """
+    if not config.uses_default_config(config_path):
+        raise config.ConfigError("MCP_HUB_CONFIG is set; change that file instead")
+    if server_id not in {switch.server_id for switch in config.server_switches(config_path)}:
+        raise KeyError(server_id)
+    target = config.child_config_file(server_id, config_path)
+    if not target.is_file():
+        template = config.HUB_ROOT / "config" / "mcps" / f"{server_id}.example.json"
+        if not template.is_file():
+            raise config.ConfigError("No template for this child MCP")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(template, target)
+    return target
 
 
 def set_extension(name: str, enabled: bool, config_path: str | Path | None = None) -> None:

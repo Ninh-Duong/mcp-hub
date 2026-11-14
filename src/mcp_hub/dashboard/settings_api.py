@@ -13,7 +13,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from .. import control, hub_settings
-from ..config import ConfigError
+from ..config import ConfigError, ServerSwitch
 from ..extensions import BITNET
 
 
@@ -22,7 +22,19 @@ def settings_payload(settings: hub_settings.HubSettings) -> dict[str, Any]:
         "editable": settings.editable,
         "activity_ui": settings.activity_ui,
         "bitnet": settings.bitnet,
-        "servers": [{"id": item.server_id, "enabled": item.enabled, "reason": item.reason} for item in settings.servers],
+        "servers": [_server_payload(item) for item in settings.servers],
+    }
+
+
+def _server_payload(item: ServerSwitch) -> dict[str, Any]:
+    """Names and states only: the missing key paths, never the values behind them."""
+    return {
+        "id": item.server_id,
+        "enabled": item.enabled,
+        "reason": item.reason,
+        "missing": list(item.missing),
+        "requirements": item.requirements,
+        "config_file_exists": item.config_file_exists,
     }
 
 
@@ -56,6 +68,7 @@ class SettingsHandlers:
             Route("/dashboard/api/settings/tracking", self.tracking, methods=["POST"]),
             Route("/dashboard/api/settings/bitnet", self.bitnet, methods=["POST"]),
             Route("/dashboard/api/settings/servers/{server_id:str}", self.server, methods=["POST"]),
+            Route("/dashboard/api/settings/servers/{server_id:str}/config-file", self.config_file, methods=["POST"]),
             Route("/dashboard/api/settings/autostart", self.autostart, methods=["GET", "POST"]),
         ]
 
@@ -92,6 +105,19 @@ class SettingsHandlers:
         if server_id not in {item.server_id for item in current.servers}:
             return _error("Unknown child MCP.", 404)
         return await self._write(self.store.set_server_enabled, server_id, enabled)
+
+    async def config_file(self, request: Request) -> Response:
+        """Create the child's private file from its template if needed; return its path for the app to open."""
+        server_id = request.path_params["server_id"]
+        try:
+            path = await asyncio.to_thread(self.store.prepare_child_config, server_id)
+        except KeyError:
+            return _error("Unknown child MCP.", 404)
+        except ConfigError as exc:
+            return _error(str(exc), 409)
+        except OSError:
+            return _error("The child's config file could not be created.", 500)
+        return JSONResponse({"path": str(path)})
 
     async def _write(self, write: Callable[..., None], *args: Any) -> Response:
         """Apply one change; a custom config (MCP_HUB_CONFIG) or an unreadable file is a conflict."""

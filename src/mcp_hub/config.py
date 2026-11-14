@@ -8,13 +8,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .child_requirements import NONE, SECRET_PLACEHOLDER, missing_keys, read_requirements
+
 
 HUB_ROOT = Path(__file__).resolve().parents[2]
 # `MCP_HUB_PRIVATE_DIR` relocates all private files (tests and tools that must not touch the real ones).
 PRIVATE_DIR_ENV = "MCP_HUB_PRIVATE_DIR"
 PRIVATE_ROOT = Path(os.environ.get(PRIVATE_DIR_ENV) or HUB_ROOT / "config" / "private").resolve()
 _DEFAULT_CONFIG = PRIVATE_ROOT / "hub.json"
-SECRET_PLACEHOLDER = "<SET_BY_USER>"
 _ALIAS_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _SENSITIVE_KEY_RE = re.compile(r"token|secret|password|authorization|email|credential|api[_-]?key|(?:^|[_-])key$", re.IGNORECASE)
 _VERSION_RE = re.compile(r"^\d+\.\d+(?:\.\d+)?$")
@@ -69,6 +70,8 @@ class HubConfig:
     routes: tuple[ToolRoute, ...]
     detected: tuple[str, ...] = ()
     unavailable: dict[str, str] = field(default_factory=dict)
+    # Required key paths still empty for a child that did start (names only, never values).
+    incomplete: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 @dataclass
@@ -79,6 +82,7 @@ class _LoadContext:
     explicit_features: set[str] = field(default_factory=set)
     explicit_files: set[str] = field(default_factory=set)
     unavailable: dict[str, str] = field(default_factory=dict)
+    incomplete: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 def is_sensitive_key(name: str) -> bool:
@@ -140,17 +144,25 @@ def load_config(config_path: str | Path | None = None) -> HubConfig:
     routes = _load_routes(_mapping(raw.get("features"), "features"), servers, context)
     if not routes and not automatic:
         raise ConfigError("Enable at least one feature with an allowlisted tool")
-    return HubConfig(config_path=path, servers=servers, routes=routes,
-                     detected=context.detected, unavailable=context.unavailable)
+    return HubConfig(config_path=path, servers=servers, routes=routes, detected=context.detected,
+                     unavailable=context.unavailable, incomplete=context.incomplete)
 
 
 @dataclass(frozen=True)
 class ServerSwitch:
-    """A child MCP the user can turn on or off, and why it cannot run when it is on (if known)."""
+    """A child MCP the user can turn on or off, and what is wrong with it (if known).
+
+    `reason` is "credentials required" when its file still has the placeholder. `missing` lists the
+    required key paths still empty (from its `hub-requirements.json`); `requirements` is the state of
+    that file: `declared`, `none`, or `invalid`.
+    """
 
     server_id: str
     enabled: bool
     reason: str | None = None
+    missing: tuple[str, ...] = ()
+    requirements: str = NONE
+    config_file_exists: bool = False
 
 
 def resolved_config_path(config_path: str | Path | None = None) -> Path:
@@ -185,17 +197,67 @@ def server_switches(config_path: str | Path | None = None) -> tuple[ServerSwitch
         if server_id not in listed:
             continue
         item = _mapping(value, f"server {server_id}")
-        enabled = _server_enabled(server_id, item, context)
-        reason = "credentials required" if enabled and _needs_credentials(server_id, item, context) else None
-        switches.append(ServerSwitch(server_id, enabled, reason))
+        switches.append(_switch(server_id, item, _server_enabled(server_id, item, context), context))
     return tuple(switches)
 
 
-def _needs_credentials(server_id: str, item: dict[str, Any], context: _LoadContext) -> bool:
+def _switch(server_id: str, item: dict[str, Any], enabled: bool, context: _LoadContext) -> ServerSwitch:
+    """The settings view of one child. Reads its private file, but returns only names and states."""
+    values = _child_values(server_id, item, context)
+    placeholder = SECRET_PLACEHOLDER in json.dumps(values)
+    requirements = read_requirements(_child_repo_dir(server_id, values))
+    return ServerSwitch(
+        server_id=server_id,
+        enabled=enabled,
+        reason="credentials required" if enabled and placeholder else None,
+        missing=missing_keys(requirements.groups, values),
+        requirements=requirements.status,
+        config_file_exists=_editable_file(server_id, item, context) is not None,
+    )
+
+
+def _child_values(server_id: str, item: dict[str, Any], context: _LoadContext) -> dict[str, Any]:
+    """The child's private values, or {} when the file cannot be read (then every required key shows as missing)."""
     try:
-        return SECRET_PLACEHOLDER in json.dumps(_read_json(_server_file(server_id, item, context), f"server {server_id} config"))
+        return _read_json(_server_file(server_id, item, context), f"server {server_id} config")
     except ConfigError:
-        return False
+        return {}
+
+
+def _child_repo_dir(server_id: str, values: dict[str, Any]) -> Path:
+    """The child's folder: its `cwd` when the config sets one, else the sibling folder `../<id>`."""
+    cwd = values.get("cwd")
+    if isinstance(cwd, str) and cwd.strip():
+        return (HUB_ROOT / Path(cwd.strip()).expanduser()).resolve()
+    return (HUB_ROOT.parent / server_id).resolve()
+
+
+def _editable_file(server_id: str, item: dict[str, Any], context: _LoadContext) -> Path | None:
+    """The file the desktop app opens for a child, when it exists."""
+    try:
+        path = child_config_file(server_id, item=item, context=context)
+    except ConfigError:
+        return None
+    return path if path.is_file() else None
+
+
+def child_config_file(server_id: str, config_path: str | Path | None = None, *,
+                      item: dict[str, Any] | None = None, context: _LoadContext | None = None) -> Path:
+    """Where a child's private values live: its `configFile`, or `config/private/mcps/<id>.json`.
+
+    The file may not exist yet; the caller decides whether to create it from a template.
+    """
+    _check_server_id(server_id)
+    if context is None or item is None:
+        path, automatic = _resolve_config_path(config_path)
+        raw, context = _merge_with_defaults(path) if automatic else _read_explicit(path)
+        servers = _mapping(raw.get("servers"), "servers")
+        if server_id not in servers:
+            raise ConfigError("Unknown child MCP")
+        item = _mapping(servers[server_id], f"server {server_id}")
+    if context.automatic and server_id not in context.explicit_files:
+        return PRIVATE_ROOT / "mcps" / f"{server_id}.json"
+    return _private_file(item.get("configFile"), f"server {server_id} configFile")
 
 
 def _resolve_config_path(config_path: str | Path | None) -> tuple[Path, bool]:
@@ -290,6 +352,9 @@ def _load_server(server_id: str, item: dict[str, Any], context: _LoadContext) ->
             context.unavailable[server_id] = "credentials required"
             return None
         raise ConfigError(f"server {server_id} has unfilled {SECRET_PLACEHOLDER} values in its configFile")
+    missing = missing_keys(read_requirements(_child_repo_dir(server_id, local)).groups, local)
+    if missing:
+        context.incomplete[server_id] = missing  # starts anyway: the child may read these from its own files
     if local.get("transport") != "stdio":
         raise ConfigError(f"server {server_id} uses an unsupported transport")
     command = _string(local.get("command"), f"server {server_id} command")

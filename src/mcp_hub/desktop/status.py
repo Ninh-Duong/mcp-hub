@@ -51,6 +51,8 @@ class ChildRow:
     server_id: str
     state: str
     tone: str
+    # Started with required settings still empty: shown as a warning even though the child runs.
+    incomplete: bool = False
 
 
 @dataclass(frozen=True)
@@ -119,6 +121,14 @@ def child_tone(state: str) -> str:
     return _CHILD_TONES.get(state, "error")
 
 
+def _child_row(server_id: str, state: str, incomplete: bool) -> ChildRow:
+    """A connected child with a settings gap is a warning (wait tone), not a plain ok."""
+    tone = child_tone(state)
+    if incomplete and tone == "ok":
+        tone = "wait"
+    return ChildRow(server_id, state, tone, incomplete=incomplete)
+
+
 def count_labels(counts: Counter[str]) -> tuple[str, ...]:
     """`name`, or `name ×N` when a client holds several connections or calls."""
     return tuple(name if count == 1 else f"{name} ×{count}" for name, count in counts.items())
@@ -156,10 +166,12 @@ def snapshot_from_status(status: dict[str, Any]) -> HubSnapshot:
     clients = status.get("clients") if isinstance(status.get("clients"), list) else []
     bitnet = status.get("bitnet") if isinstance(status.get("bitnet"), dict) else {}
     bitnet_state = str(bitnet.get("state")) if bitnet.get("state") else None
+    incomplete = status.get("config_incomplete") if isinstance(status.get("config_incomplete"), dict) else {}
     return HubSnapshot(
         hub="running",
         activity_ui=bool(extensions.get("activityUi")),
-        children=tuple(ChildRow(str(server_id), str(state), child_tone(str(state))) for server_id, state in children.items()),
+        children=tuple(_child_row(str(server_id), str(state), str(server_id) in incomplete)
+                       for server_id, state in children.items()),
         clients=client_labels(clients),
         client_names=live_client_names(clients),
         recent=recent_clients(clients),

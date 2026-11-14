@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from pathlib import Path
 
 from mcp.server import Server
 from starlette.testclient import TestClient
@@ -53,6 +54,13 @@ class FakeStore:
         self._check()
         self.enabled[server_id] = enabled
 
+    def prepare_child_config(self, server_id: str) -> Path:
+        if server_id not in self.enabled:
+            raise KeyError(server_id)
+        if self.fail_write or not self.editable:
+            raise config.ConfigError("MCP_HUB_CONFIG is set; change that file instead")
+        return Path("/private/mcps") / f"{server_id}.json"
+
 
 class SettingsApiTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -89,9 +97,22 @@ class SettingsApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {
             "editable": True, "activity_ui": False, "bitnet": False,
-            "servers": [{"id": "sample-child", "enabled": True, "reason": "credentials required"},
-                        {"id": "other-child", "enabled": False, "reason": None}],
+            "servers": [{"id": "sample-child", "enabled": True, "reason": "credentials required",
+                         "missing": [], "requirements": "none", "config_file_exists": False},
+                        {"id": "other-child", "enabled": False, "reason": None,
+                         "missing": [], "requirements": "none", "config_file_exists": False}],
         })
+
+    def test_the_config_file_route_returns_only_a_path(self) -> None:
+        response = self.call("POST", "/dashboard/api/settings/servers/other-child/config-file")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(set(response.json()), {"path"})
+        self.assertTrue(response.json()["path"].endswith("other-child.json"))
+
+    def test_the_config_file_route_maps_unknown_and_refused_requests(self) -> None:
+        self.assertEqual(self.call("POST", "/dashboard/api/settings/servers/no-such/config-file").status_code, 404)
+        self.store.editable = False
+        self.assertEqual(self.call("POST", "/dashboard/api/settings/servers/other-child/config-file").status_code, 409)
 
     def test_every_settings_route_needs_the_bearer(self) -> None:
         bare = {"Host": "127.0.0.1:8765"}

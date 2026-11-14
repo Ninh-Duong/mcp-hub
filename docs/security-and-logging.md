@@ -73,6 +73,7 @@ The BitNet [processing stream](bitnet.md#processing-stream) is transient metadat
 | Event | Level | Meaning |
 |-------|-------|---------|
 | `config.load.failed` | ERROR | Hub config or a child config is invalid; `error` names the problem. The Hub does not start. |
+| `child_config_incomplete` | WARNING | A child started with required settings still empty (see [child-mcp-compatibility.md](child-mcp-compatibility.md#declaring-required-settings)). `server_id` and `keys` (key paths only) name the gap; the child still starts. |
 | `server.connect.failed` | ERROR | On the first attempt, the child process didn't start or finish the MCP handshake within `connectTimeoutSeconds` (`error_type=TimeoutError` when it timed out). Its tools are skipped and it is retried in the background. |
 | `server.list_tools.failed` | ERROR | On the first attempt, the child started but tool listing failed or timed out. Its tools are skipped and it is retried in the background. |
 | `server.connected` | INFO | Child is up after its first attempt; `tools_count` is how many tools it offers. |

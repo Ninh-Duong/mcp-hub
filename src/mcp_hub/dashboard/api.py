@@ -112,6 +112,7 @@ class DashboardHandlers:
         payload: dict[str, Any] = {
             "ok": True,
             "children": self.runtime.child_states(),
+            "config_incomplete": self.runtime.config_incomplete(),
             "agents": self.job_runner.agent_status(),
             "projects": self.job_runner.list_projects(),
             "extensions": status_flags(tuple(extension.name for extension in self.extensions)),

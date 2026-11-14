@@ -64,6 +64,18 @@ class InheritedEnvironmentRedactionTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(config_secret, log)
         self.assertEqual(log.count("[REDACTED]"), 2)
 
+    async def test_a_child_started_with_empty_required_settings_is_audited_by_key_name_only(self) -> None:
+        config = HubConfig(self.tmp / "hub.json", {}, (), incomplete={"child": ("openobserve.dev.token",)})
+        runtime = HubRuntime(config, self.audit())
+        async with AsyncExitStack() as stack:
+            await runtime.connect(stack)
+        self.assertEqual(runtime.config_incomplete(), {"child": ["openobserve.dev.token"]})
+        events = [json.loads(line) for line in (self.tmp / "audit.jsonl").read_text(encoding="utf-8").splitlines()]
+        incomplete = [event for event in events if event.get("event") == "child_config_incomplete"]
+        self.assertEqual(len(incomplete), 1)
+        self.assertEqual(incomplete[0]["server_id"], "child")
+        self.assertEqual(incomplete[0]["keys"], ["openobserve.dev.token"])
+
     async def test_status_reports_detected_and_unavailable_children(self) -> None:
         config = HubConfig(self.tmp / "hub.json", {}, (), ("mcp-jira-sync",), {"mcp-jira-sync": "credentials required"})
         runtime = HubRuntime(config, self.audit())

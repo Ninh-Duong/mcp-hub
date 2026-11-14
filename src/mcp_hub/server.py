@@ -150,6 +150,8 @@ class HubRuntime:
         Children connect in parallel, each bounded by its `connectTimeoutSeconds`; a failing child is
         retried in the background so the remaining children stay usable. `stack` stops them all.
         """
+        for server_id, keys in self.config.incomplete.items():
+            self.audit.write("child_config_incomplete", level=logging.WARNING, server_id=server_id, keys=list(keys))
         for server_config in self.config.servers.values():
             self._add_child_secrets(server_config)
             self.supervisors[server_config.server_id] = ChildSupervisor(
@@ -264,6 +266,10 @@ class HubRuntime:
     def child_ids(self) -> tuple[str, ...]:
         """Detected, configured, and unavailable children in a stable order, without duplicates."""
         return tuple(dict.fromkeys((*self.config.detected, *self.config.servers, *self.config.unavailable)))
+
+    def config_incomplete(self) -> dict[str, list[str]]:
+        """Children that started with required settings still empty: key paths only, never values."""
+        return {server_id: list(keys) for server_id, keys in self.config.incomplete.items()}
 
     def child_states(self) -> dict[str, str]:
         """Each known child's state: connected, connecting, reconnecting, a configured reason

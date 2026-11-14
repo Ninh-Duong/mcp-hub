@@ -288,5 +288,19 @@
   "desktop.processing.source.child": "child",
   "desktop.processing.source.cache": "cache",
   "desktop.processing.source.fallback": "fallback",
-  "desktop.processing.source.local": "local"
+  "desktop.processing.source.local": "local",
+  "connection.configIncomplete": "Config incomplete",
+  "desktop.error.configOpen.hub": "The Hub could not create the config file. Check that it is running and that the child has a template.",
+  "desktop.error.configOpen.editor": "Windows could not open the file. Check the app set for .json files.",
+  "desktop.settings.tab.config": "Config",
+  "desktop.settings.config.ready": "Ready",
+  "desktop.settings.config.readyRestart": "Ready. Restart the Hub to apply.",
+  "desktop.settings.config.missing": "Missing: {keys}",
+  "desktop.settings.config.none": "No requirements declared",
+  "desktop.settings.config.invalid": "Requirements file is invalid",
+  "desktop.settings.config.open": "Open config file for {id}",
+  "desktop.settings.config.opened": "Opened. Save the file, then restart the Hub.",
+  "desktop.settings.config.note": "Fill in the values, save, then Restart Hub. Values are never shown here.",
+  "desktop.settings.config.disabled.needsHub": "Start the Hub to edit its settings",
+  "desktop.settings.config.disabled.readOnly": "Read-only: MCP_HUB_CONFIG is set"
 }

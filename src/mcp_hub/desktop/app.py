@@ -27,6 +27,7 @@ from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QLayout, QVBoxL
 from qfluentwidgets import FluentIcon
 
 from . import hub_api, prefs, screenshot, status, system, theme, update, usage, win32, processing
+from .config_page import ConfigPage, Feedback
 from .hub_page import ChildrenPage, HubPage
 from .i18n import LANGUAGES, Translator, system_language
 from .mini import MiniBar
@@ -136,6 +137,9 @@ class StatusWindow(QWidget):
         self._update_started_at = 0.0
         self.autostart: dict[str, bool | None] | None = None
         self.restart_needed = False
+        # Config tab: children whose file is being opened, and the outcome of the last press for each.
+        self.config_busy: set[str] = set()
+        self.config_feedback: dict[str, Feedback] = {}
         self.results: queue.Queue[tuple[str, Any]] = queue.Queue()
         self.snapshot: status.HubSnapshot | None = None
         self.message_key: str | None = None
@@ -213,7 +217,9 @@ class StatusWindow(QWidget):
             on_bitnet=self.set_bitnet, on_install_bitnet=self.install_bitnet,
         )
         self.mcps_page = ChildrenPage(on_toggle=self.set_child)
-        pages = {"appearance": self.appearance_page, "hub": self.hub_page, "mcps": self.mcps_page}
+        self.config_page = ConfigPage(on_open=self.open_child_config)
+        pages = {"appearance": self.appearance_page, "hub": self.hub_page, "mcps": self.mcps_page,
+                 "config": self.config_page}
         self.settings = SettingsPanel(theme.WINDOW_WIDTH, pages, on_tab=self.load_tab, on_restart=self.restart_hub)
 
     def _card(self, outer: QVBoxLayout) -> Card:
@@ -384,7 +390,9 @@ class StatusWindow(QWidget):
             ("actions", (hub, self._update_takes_primary(hub)), self._render_actions),
             ("mini", (language, self._mini_state(activity_ui)), self._render_mini),
             ("settings", (language, hub, self.hub_settings, self._autostart_key(), self.restart_needed,
-                          snapshot.bitnet_state if snapshot else None, snapshot.bitnet if snapshot else None),
+                          snapshot.bitnet_state if snapshot else None, snapshot.bitnet if snapshot else None,
+                          frozenset(self.config_busy), tuple(sorted(self.config_feedback.items())),
+                          self._loaded_gaps()),
              self._render_settings),
             ("icon", snapshot.tone if snapshot else "wait", self._render_icon),
         )
@@ -446,7 +454,10 @@ class StatusWindow(QWidget):
         for child in children:
             item = UsageRow()
             # A connected child needs no word: its green dot and the count say it. Other states keep theirs.
-            detail = "" if child.tone == "ok" else self.t.state_label(child.state)
+            if child.incomplete:
+                detail = self.t("connection.configIncomplete")
+            else:
+                detail = "" if child.tone == "ok" else self.t.state_label(child.state)
             item.row.show_state(child.tone, child.server_id, detail)
             self.children_list.addWidget(item)
             self.child_rows[child.server_id] = item
@@ -559,6 +570,8 @@ class StatusWindow(QWidget):
         bitnet_info = self.snapshot.bitnet if self.snapshot else None
         self.hub_page.sync(hub, settings, self.autostart, bitnet_state, bitnet_info)
         self.mcps_page.sync(settings, hub == "running")
+        self.config_page.sync(settings, hub == "running", busy=frozenset(self.config_busy),
+                              feedback=self.config_feedback, loaded_gaps=self._loaded_gaps())
         self.settings.show_pending(self.restart_needed and hub == "running")
 
     def _render_update(self, hub: str | None) -> None:
@@ -630,6 +643,8 @@ class StatusWindow(QWidget):
             elif kind == "autostart":
                 self.autostart = value
                 self.render()
+            elif kind in ("config_opened", "config_failed"):
+                self._config_result(kind, value)
             elif kind == "control_failed":
                 self._control_failed()
             elif kind in ("update_check", "update_status", "update_state"):
@@ -663,6 +678,8 @@ class StatusWindow(QWidget):
         self.render()
         if snapshot.hub == "running" and not was_running and not self.settings.isHidden():
             self.load_tab(self.settings.tab)  # the Hub can answer now
+        elif snapshot.hub == "running" and self.settings.tab == "config" and not self.settings.isHidden():
+            self.load_tab("config")  # a saved file shows its state on the next read
 
     def _pace_polling(self, snapshot: status.HubSnapshot) -> None:
         """Read the Hub every second while BitNet installs or starts, so the percent and the dot move."""
@@ -932,6 +949,8 @@ class StatusWindow(QWidget):
 
     def load_tab(self, name: str) -> None:
         """Read what the opened tab shows; the Appearance tab needs nothing."""
+        if name != "config":
+            self.config_feedback.clear()  # an outcome belongs to the tab it was shown on
         if name == "appearance" or self.settings.isHidden():
             return
         if self.snapshot is not None and self.snapshot.hub == "running":
@@ -970,6 +989,44 @@ class StatusWindow(QWidget):
             return
         write = partial(self.hub_store.set_bitnet, enabled)
         self._run("hub_changed", self._write_hub_settings, write, error_key="desktop.error.settings")
+
+    def open_child_config(self, server_id: str) -> None:
+        """Create the child's private config file if needed, then open it in the editor (off the Qt thread)."""
+        if server_id in self.config_busy:
+            return
+        self.config_busy.add(server_id)
+        self.config_feedback.pop(server_id, None)
+        self.render()
+
+        def job() -> None:
+            try:
+                path = self.hub_store.prepare_child_config(server_id)
+            except (OSError, ValueError):
+                self.results.put(("config_failed", (server_id, "desktop.error.configOpen.hub")))
+                return
+            try:
+                system.open_file(path)
+            except OSError:
+                self.results.put(("config_failed", (server_id, "desktop.error.configOpen.editor")))
+                return
+            self.results.put(("config_opened", server_id))
+
+        self.run_worker(job)
+
+    def _config_result(self, kind: str, value: Any) -> None:
+        """A press finished: the file opened (wait until the Hub restarts) or it failed (the reason key)."""
+        if kind == "config_opened":
+            server_id, feedback = value, ("wait", "desktop.settings.config.opened")
+        else:
+            server_id, feedback = value[0], ("error", value[1])
+        self.config_busy.discard(server_id)
+        self.config_feedback[server_id] = feedback
+        self.render()
+
+    def _loaded_gaps(self) -> frozenset[str]:
+        """Children the running Hub started with a settings gap (their rows carry the flag)."""
+        children = self.snapshot.children if self.snapshot else ()
+        return frozenset(child.server_id for child in children if child.incomplete)
 
     def set_child(self, server_id: str, enabled: bool) -> None:
         write = partial(self.hub_store.set_server_enabled, server_id, enabled)

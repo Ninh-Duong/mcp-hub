@@ -7,7 +7,7 @@ A small frosted-glass window (Qt), installed on its own with `mcp-hub-status-set
 - **Status.** The window shows the Hub state, the Hub mode (fast or activity UI), one row per child MCP, and, with the activity UI, the live AI clients plus those active in the last 30 minutes. With the activity UI, a child in use gets a short line saying which AI client is using it now, or used it in the last 2 minutes, and each AI client row shows the children it uses (see [Child usage line](#child-usage-line)).
 - **Main actions.** **Start Hub** runs `hubctl start` in the background, without a window. **Open dashboard** pairs a browser session and opens `/dashboard/`, as `hubctl open` does. The ⟳ button beside the Child MCPs count polls at once.
 - **Mini bar (⤡).** The ⤡ button in the Hub card shrinks the app to a one-line bar that stays above other windows: one dot per child (blue `◉` while an AI client calls it), the connected count, and the AI-client count; while the Hub is not running, the Hub's dot and state word instead. Drag it anywhere; ⤢ brings the full window back. The app reopens in the mode and at the place it was left (see [Design keywords](#design-keywords)).
-- **Settings (⚙).** The ⚙ button in the Hub card opens the Settings card. It has three tabs:
+- **Settings (⚙).** The ⚙ button in the Hub card opens the Settings card. It has four tabs:
   - **Appearance:** theme (Light/Dark), language (EN/VI), frosted glass on or off, card opacity (20–100 %), and background tint (0–90 %). These are remembered in the app's own `%APPDATA%\mcp-hub-status\desktop.json`. **Reset to defaults** turns glass on and restores the theme's tuned opacity and tint, keeping the theme and language. Without a saved choice, the app follows the Windows app theme and display language.
   - **Hub:**
     - Start, Restart, and Stop the Hub (`hubctl start`, `restart`, `stop`).
@@ -15,6 +15,7 @@ A small frosted-glass window (Qt), installed on its own with `mcp-hub-status-set
     - **BitNet (local AI)**, plan requests and condense large results on this PC. While it is not installed the tab shows **Install BitNet**; see [BitNet install](#bitnet-install).
     - **Start Hub at sign-in** (the Hub's task, changed through the Hub's API) and **Open this app at sign-in** (the app's own entry in the user's Run key; only in the installed app).
   - **MCPs:** each child MCP on or off.
+  - **Config:** each child MCP's required settings and the state of its requirements file (see [Child config files](#child-config-files)). The ⚙-style edit button opens the child's private config file in the user's editor; the app never reads its values.
 
   The Hub keeps these settings, so the Hub and MCPs tabs show them only while it runs (otherwise `desktop.settings.needsHub`). A change to the tracking mode or a child is saved by the Hub to `config/private/hub.json` and applies at the next Hub start; the card then shows **Restart Hub**.
 - **Update card.** The card reports updates for the Hub and enabled child MCPs, and stays compact: the title with **What's new** beside it, one status sentence, one summary line (`done/total done`, then only the components that are not finished, with their state or error; the tooltip lists every component), and a rolling log of the newest progress line per component (three rows, newest on top, each older row fainter, fixed height). One main button shows at a time: **Update**, or **Retry** for failed components; a ⟳ button checks now. The status sentence is red only when installing the app itself failed. The app installer runs last when a newer release exists (see [Updates](#updates)).
@@ -75,6 +76,15 @@ How releases, numbering, and upgrades of the other parts work is in [versioning.
 
 ## Hub settings
 
+## Child config files
+
+A child MCP can declare the settings it needs in `hub-requirements.json` in its own repository (format in [child-mcp-compatibility.md](child-mcp-compatibility.md#declaring-required-settings)). The app shows the result in two places:
+
+- **Child MCPs card.** A child that started with a gap shows the warning tone and **Config incomplete**. It still runs; its tools work from its own local files.
+- **Settings → Config.** One row per child with its state: **Ready**, **Missing: <key paths>** (names only), **Ready. Restart the Hub to apply.** (the file is complete but the running Hub started with the gap), **No requirements declared**, or **Requirements file is invalid**.
+
+The edit button asks the Hub to create the child's private file from its template when it is missing (`POST /dashboard/api/settings/servers/{id}/config-file`), then opens that file in the default editor. The Hub returns only the path. The app never reads the file and never shows its path or values. With `MCP_HUB_CONFIG` set, or while the Hub is not running, the button is disabled and its tooltip says why. A press that fails shows the reason on that child's row.
+
 The Hub and MCPs tabs call the Hub's settings API (`dashboard/settings_api.py`, see [Architecture](#architecture)). The Hub then changes `config/private/hub.json` through `src/mcp_hub/hub_settings.py`, the only writer of these values:
 
 - **`servers.<id>.enabled`.** The MCPs tab lists the children found next to the Hub (`../<id>`) or listed in `hub.json`. It never offers a missing repository, which would stop the Hub from starting. A child whose private config still holds `<SET_BY_USER>` shows "needs credentials".
@@ -130,6 +140,7 @@ The **connection file** is `%LOCALAPPDATA%\mcp-hub\connection.json`: `{"version"
 | `desktop/mini.py` | `MiniBar`, the pinned one-line bar of compact mode: dots updated in place, drag to move (`startSystemMove`). |
 | `desktop/settings.py` | `SettingsPanel`, the Settings card (title, tab row, one visible page, restart notice), and `AppearancePage`. Pages report choices through callbacks and show the current ones through `sync`; `StatusWindow` applies and saves them. |
 | `desktop/hub_page.py` | `HubPage` (Hub control, Track AI clients, BitNet switch, the two sign-in switches) and `ChildrenPage` (one On/Off row per child). Both show `desktop.settings.needsHub` while the Hub is not running. |
+| `desktop/config_page.py` | `ConfigPage`, the Config tab: one row per child with its requirements state and the edit button. `config_status` maps a child's settings to a tone and a locale key. |
 | `desktop/update.py` | Logic, no Qt. `check_latest` (one request to the latest Release; any failure is `None`), `update_blocked` (the health gate), `download_verified` (the SHA-256 is compared before anything runs), `launch_update` (the hidden PowerShell that waits, installs silently, and reopens the app), `install`, and the `Updater` the window takes (a fake in tests). |
 | `desktop/update_card.py` | `UpdateCard`: the card above the actions, with its note line (version in use, the gate, progress, or the one fixed failure sentence). |
 | `desktop/win32.py` | Windows integration, each with a harmless fallback: the window style (title bar theme, rounded corners, acrylic accent), the single-instance mutex, the AppUserModelID shared with the installed shortcut (`set_app_id`), the Windows app theme, and screen capture. |
@@ -206,7 +217,7 @@ These are the rules for every UI change in the app. A change that breaks one upd
 - **Responsive controls.** Fluent controls have hover, pressed, and disabled states, and a pointing-hand cursor. A Fluent button is as wide as its label needs, so a row of buttons must leave room for the longest label in both languages (a test checks the update card).
 - **Elided text.** A line that may be long is cut with "…" to the room its row or card has (`widgets.show_elided`). `Row.show_state` cuts the state word and the detail, using `row_room` for the width they share, and the tooltip holds the full text.
 - **Settings card.** The card is inline, right below the Hub card, never a second window, and the window grows to fit it.
-  - The title and the tab row (Appearance | Hub | MCPs) share the first line. One tab shows at a time, so the card stays short.
+  - The title is on the first line and the tab row (Appearance | Hub | MCPs | Config) on the second, full width, because four tabs do not fit beside the title. One tab shows at a time, so the card stays short.
   - Each row is a caption on the left and a control on the right. Theme, language, glass, glass style, and the tabs are a Fluent `SegmentedWidget` (one segment per value; its route key is `str(value)`; the selected one has Fluent's indicator). The four on/off choices (Track AI clients, BitNet, Start Hub at sign-in, Open this app at sign-in) and each child MCP's on/off row are Fluent `SwitchButton`s made by `Page.switch_row`, with the On/Off text from `desktop.settings.on` and `off`; `widgets.set_switch` shows the value, and an unknown value (the Hub is not running) shows off and disabled. Amounts are Fluent sliders with their value in percent.
   - A control that cannot act is disabled: the sliders while glass is off, glass where it is unavailable (with a caption), values still loading (with `desktop.settings.loading`), and every Hub setting with `MCP_HUB_CONFIG` set.
   - Appearance changes apply live; a save follows `PREFS_SAVE_DELAY_MS` after the last change, or on close. Hub settings are saved at once and apply at the next start.
@@ -246,6 +257,7 @@ Before the first poll the Hub row shows `desktop.checking` in the `wait` tone. W
 | `connecting`, `reconnecting` | `wait` | `connection.connecting`, `connection.reconnecting` |
 | `disabled` | `off` | `connection.disabled` |
 | `credentials required`, `unavailable`, any other reason | `error` | `connection.credentialsRequired`, `connection.unavailable`, or the reason as reported |
+| `connected`, but started with a required setting empty (`config_incomplete`) | `wait` | `connection.configIncomplete`, in place of the state word |
 
 Under the children, one **BitNet** row has its own dot and is not counted in `ok/total`. It is green only when llama-server answers `/health`; a Hub too old to report BitNet shows no row.
 
@@ -287,7 +299,9 @@ AI clients: live clients come first, one row each in the `ok` tone, with `×N` f
 The app's own keys:
 - `desktop.settings.{open,title,theme,themeLight,themeDark,language,glass,glassStyle,frosted,clear,on,off,cardOpacity,tint,reset,glassUnavailable}`
 - `desktop.compact.{on,off}`, `desktop.mini.{clients,dot}`
-- `desktop.settings.{confirm,pending,restartNow,loading,needsHub}`, `desktop.settings.tab.{appearance,hub,mcps}`
+- `desktop.settings.{confirm,pending,restartNow,loading,needsHub}`, `desktop.settings.tab.{appearance,hub,mcps,config}`
+- `desktop.settings.config.{ready,readyRestart,missing,none,invalid,open,opened,note}`, `desktop.settings.config.disabled.{needsHub,readOnly}`
+- `desktop.error.configOpen.{hub,editor}`, `connection.configIncomplete`
 - `desktop.settings.hub.{control,start,restart,stop,tracking,trackingHint,autostartHub,autostartApp,autostartAppSource}`
 - `desktop.settings.mcps.{empty,readOnly,credentials}`
 - `desktop.section.{children,clients}`

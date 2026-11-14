@@ -39,6 +39,31 @@ Every child runs both standalone and under the Hub, with one rule for where its 
 
 Section key names and the source report of each child are in its contract in [mcps/](mcps/).
 
+## Declaring required settings
+
+A child can list the settings it needs in `hub-requirements.json` at the root of its own repository. The Hub reads the file from the child's folder (its `cwd`, or the sibling `../<server-id>`), and the desktop app shows any gap; the child still starts.
+
+```json
+{
+  "version": 1,
+  "groups": [
+    {
+      "label": "OpenObserve or Seq",
+      "anyOf": [
+        ["openobserve.default_env", "openobserve.dev.url", "openobserve.dev.token"],
+        ["seq.server_url", "seq.api_key"]
+      ]
+    }
+  ]
+}
+```
+
+- Each group is satisfied when one of its `anyOf` alternatives has a filled value for every key. Keys are dotted paths into the child's private file (`config/private/mcps/<server-id>.json`).
+- A value is empty when it is missing, `null`, blank, or `<SET_BY_USER>`. Numbers and booleans always count as filled.
+- The file holds key names only. Never put values in it.
+- No file means no requirements. A file that cannot be read or does not follow this format is reported as `invalid`, and the Hub still starts the child.
+- The Hub audits `child_config_incomplete` (server ID and key names) when a child starts with a gap, and reports the gap in `config_incomplete` on `GET /dashboard/api/status`. The desktop app shows the same gap in the **Config** settings tab and in the Child MCPs card. A gap does not stop the child, because it may still read the value from its own local files.
+
 ## Tests and documentation to update
 
 - Follow the child repository's test instructions. Cover tool schemas, success and failure results, and side effects without calling a real upstream service from unit tests.
