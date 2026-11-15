@@ -94,10 +94,13 @@ def _release_handler(path: Path) -> None:
     handler.close()
 
 
+_DEFAULT_LOG_SETTINGS = LogSettings()
+
+
 class AuditLog:
     """Redacted JSONL audit events, written to `path` (default: `default_audit_path()`)."""
 
-    def __init__(self, path: Path | None = None, logs: LogSettings = LogSettings()) -> None:
+    def __init__(self, path: Path | None = None, logs: LogSettings = _DEFAULT_LOG_SETTINGS) -> None:
         self.path = path or default_audit_path()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._key = self.path.resolve()

@@ -359,7 +359,7 @@ class OffloadAndRestartTest(unittest.TestCase):
 
         with _runner(_Runtime([]), {}) as runner:
             job_id = runner.store.create_job(project="orders", question="busy", env="dev")
-            for index in range(EVENT_PAGE_LIMIT + 20):
+            for _ in range(EVENT_PAGE_LIMIT + 20):
                 runner.store.append_event(job_id, "agent.started", agent="logs")
             for index in range(5):
                 runner.store.append_event(job_id, "tool.call.succeeded", agent="logs", tool="logs__query_logs",

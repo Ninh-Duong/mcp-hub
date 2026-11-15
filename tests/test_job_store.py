@@ -78,7 +78,7 @@ class JobStoreTest(unittest.TestCase):
 
     def test_evidence_refs_cover_every_source_id_and_filter_by_agent(self) -> None:
         job_id = self.store.create_job(project="orders", question="q")
-        for index in range(150):
+        for _ in range(150):
             self.store.append_event(job_id, "agent.started", agent="logs")
         self.store.append_event(job_id, "tool.call.succeeded", agent="logs", tool="logs__query_logs", source_id="logs-1")
         self.store.append_event(job_id, "tool.call.failed", agent="jira", tool="jira__read_ticket", source_id="jira-1")

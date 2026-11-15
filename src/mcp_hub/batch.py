@@ -122,7 +122,7 @@ async def run_batch(
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
-    return [_item(call, task, timeout) for call, task in zip(calls, tasks)]
+    return [_item(call, task, timeout) for call, task in zip(calls, tasks, strict=True)]
 
 
 def _item(call: BatchCall, task: asyncio.Task, timeout: float) -> BatchItem:

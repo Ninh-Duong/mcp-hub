@@ -265,7 +265,7 @@ def main() -> None:
         enabled = list(load_config().servers)
     except Exception as exc:
         print(f"smoke=FAIL ({type(exc).__name__}: Hub config is invalid; see logs/mcp-hub.jsonl)")
-        raise SystemExit(1)
+        raise SystemExit(1) from exc
 
     if not enabled:
         print("No enabled child MCPs; Hub exposes hub__status.")

@@ -33,7 +33,7 @@ class ContextBudget:
         for exchange in result[:max(0, len(result) - self.keep_last_rounds)]:
             exchange.text = _cleared(exchange)
         overflow = _total(result) - self.max_chars
-        for original, copy in zip(exchanges, result):
+        for original, copy in zip(exchanges, result, strict=True):
             if overflow <= 0:
                 break
             cleared = _cleared(original)

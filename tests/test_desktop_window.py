@@ -1402,7 +1402,7 @@ class ScreenshotTest(unittest.TestCase):
     def test_the_update_sample_shows_the_card(self) -> None:
         window = type("W", (), {})()
         window.t, window.shown, window.releases = i18n.Translator("en"), [], []
-        for name, value in (("show_for_capture", None), ("set_theme", None), ("set_language", None), ("show_settings", None),
+        for name, _value in (("show_for_capture", None), ("set_theme", None), ("set_language", None), ("show_settings", None),
                             ("set_compact", None), ("preview_usage", None), ("process_results", None)):
             setattr(window, name, lambda *_a, **_k: None)
         window.now = lambda: datetime(2026, 10, 31, tzinfo=timezone.utc)

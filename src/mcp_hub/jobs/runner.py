@@ -150,6 +150,9 @@ async def _db(function: Callable[..., _T], /, *args: Any, **kwargs: Any) -> _T:
     return await asyncio.to_thread(function, *args, **kwargs)
 
 
+_DEFAULT_LIMITS = JobSettings()
+
+
 class _JobSlot:
     """One job's hold on an active-job slot; released while the job waits for an approval."""
 
@@ -178,7 +181,7 @@ class JobRunner:
         agents: dict[str, AgentConfig],
         provider_factory: Callable[[AgentConfig], ModelProvider] | None = None,
         policy: SideEffectPolicy | None = None,
-        limits: JobSettings = JobSettings(),
+        limits: JobSettings = _DEFAULT_LIMITS,
         plan_assistant: PlanAssistant | None = None,
         condenser: ResultCondenser | None = None,
         summarizer: DraftSummarizer | None = None,

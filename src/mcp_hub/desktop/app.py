@@ -533,7 +533,7 @@ class StatusWindow(QWidget):
         self.clients_count.setText(str(len(self.snapshot.clients)))
         live = self.snapshot.clients
         names = self.snapshot.client_names if len(self.snapshot.client_names) == len(live) else live
-        for name, text in zip(names, live):
+        for name, text in zip(names, live, strict=True):
             self._client_row(name, "ok", text, "")
         for name in self.snapshot.recent:
             self._client_row(name, "off", name, self.t("clients.recent"))

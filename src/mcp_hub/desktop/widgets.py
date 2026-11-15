@@ -369,7 +369,7 @@ class FadingLog(QWidget):
         if lines == self._shown:
             return
         self._shown = lines
-        positions = dict(zip(self.keys, (row.pos() for row in self.rows)))
+        positions = dict(zip(self.keys, (row.pos() for row in self.rows), strict=False))
         self._clear()
         self.keys = tuple(key for key, _text in lines)
         height = self.row_height()

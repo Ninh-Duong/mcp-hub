@@ -82,6 +82,9 @@ class Backoff:
         return min(self.maximum, self.initial * 2 ** min(failures, 32))
 
 
+_DEFAULT_BACKOFF = Backoff()
+
+
 def child_environment(config: ServerConfig) -> dict[str, str]:
     """The environment a child process gets: the MCP SDK's safe defaults, its `inheritEnv` names, and its `env`."""
     env = get_default_environment()
@@ -176,7 +179,7 @@ class ChildSupervisor:
         *,
         log_dir: Path,
         opener: ChildOpener = open_stdio_client,
-        backoff: Backoff = Backoff(),
+        backoff: Backoff = _DEFAULT_BACKOFF,
         log_max_bytes: int | None = None,
         on_tools_changed: ToolsChangedCallback | None = None,
     ) -> None:
