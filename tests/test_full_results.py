@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 import unittest
 
 from mcp_hub.full_results import FullResultStore
@@ -94,6 +95,62 @@ class FullResultsTest(unittest.TestCase):
         rid_blob = store.put(("a" * 300) + "Target976Token" + ("b" * 300))
         res_blob = store.search(rid_blob, contains="976token")
         self.assertIn("Target976Token", res_blob["text"])
+
+
+_ALPHABET = ("a", "é", "漢", "\U0001f600")  # 1, 2, 3 and 4 UTF-8 bytes
+
+
+def _random_text(rng: random.Random, length: int) -> str:
+    return "".join(rng.choice(_ALPHABET) for _ in range(length))
+
+
+def _live_bytes(store: FullResultStore, sizes: dict[str, int]) -> tuple[int, int]:
+    """Total bytes and count of the stored entries that are still retrievable."""
+    live = [size for rid, size in sizes.items() if store.page(rid) is not None]
+    return sum(live), len(live)
+
+
+class FullResultByteCapTest(unittest.TestCase):
+    def test_oldest_entries_are_evicted_to_fit_max_bytes(self) -> None:
+        store = FullResultStore(max_entries=10, ttl_seconds=60.0, max_bytes=10)
+        first = store.put("aaaa")
+        second = store.put("bbbb")
+        third = store.put("cccc")
+        self.assertIsNone(store.page(first))
+        self.assertIsNotNone(store.page(second))
+        self.assertIsNotNone(store.page(third))
+
+    def test_byte_count_is_utf8_bytes_not_characters(self) -> None:
+        store = FullResultStore(max_entries=10, ttl_seconds=60.0, max_bytes=10)
+        self.assertIsNone(store.put("é" * 6))  # 6 characters, 12 bytes
+        self.assertIsInstance(store.put("é" * 5), str)  # 5 characters, 10 bytes: fits exactly
+
+    def test_oversized_entry_returns_none_and_evicts_nothing(self) -> None:
+        store = FullResultStore(max_entries=10, ttl_seconds=60.0, max_bytes=10)
+        kept = store.put("abcde")
+        self.assertIsInstance(kept, str)
+        self.assertIsNone(store.put("x" * 11))
+        page = store.page(kept)
+        self.assertIsNotNone(page)
+        self.assertEqual(page["text"], "abcde")
+
+    def test_total_bytes_never_exceed_max_bytes_under_random_sizes(self) -> None:
+        rng = random.Random(20261115)
+        max_bytes = 4096
+        store = FullResultStore(max_entries=1000, ttl_seconds=60.0, max_bytes=max_bytes)
+        sizes: dict[str, int] = {}
+        for _ in range(300):
+            text = _random_text(rng, rng.randint(0, 2000))
+            rid = store.put(text)
+            if rid is None:
+                continue
+            sizes[rid] = len(text.encode("utf-8"))
+            self.assertIsNotNone(store.page(rid))
+            total, _ = _live_bytes(store, sizes)
+            self.assertLessEqual(total, max_bytes)
+        total, count = _live_bytes(store, sizes)
+        self.assertGreater(count, 0)
+        self.assertLess(count, len(sizes))  # the cap forced some evictions
 
 
 if __name__ == "__main__":

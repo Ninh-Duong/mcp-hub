@@ -21,20 +21,33 @@ class FullResultStore:
         max_entries: int,
         ttl_seconds: float,
         clock: Callable[[], float] = time.monotonic,
+        max_bytes: int | None = None,
     ) -> None:
         self.max_entries = max_entries
         self.ttl_seconds = ttl_seconds
         self.clock = clock
-        self._entries: OrderedDict[str, tuple[float, str]] = OrderedDict()
+        self.max_bytes = max_bytes
+        self._entries: OrderedDict[str, tuple[float, str, int]] = OrderedDict()
+        self._total_bytes = 0
 
-    def put(self, text: str) -> str:
-        """Store an original result and return its ID, evicting expired and LRU items."""
+    def put(self, text: str) -> str | None:
+        """Store an original result and return its ID, evicting expired and LRU items.
+
+        With max_bytes set, the oldest entries go first until the stored UTF-8 bytes fit.
+        Returns None, and changes nothing, when the entry alone is larger than max_bytes.
+        """
+        size = len(text.encode("utf-8"))
+        if self.max_bytes is not None and size > self.max_bytes:
+            return None
         now = self.clock()
         self._evict_expired(now)
         while len(self._entries) >= self.max_entries:
-            self._entries.popitem(last=False)
+            self._drop_oldest()
+        while self.max_bytes is not None and self._entries and self._total_bytes + size > self.max_bytes:
+            self._drop_oldest()
         result_id = f"r-{secrets.token_hex(6)}"
-        self._entries[result_id] = (now + self.ttl_seconds, text)
+        self._entries[result_id] = (now + self.ttl_seconds, text, size)
+        self._total_bytes += size
         return result_id
 
     def page(self, result_id: str, offset: int = 0, limit: int = 20000) -> dict[str, Any] | None:
@@ -71,17 +84,24 @@ class FullResultStore:
         entry = self._entries.get(result_id)
         if entry is None:
             return None
-        expires_at, text = entry
+        expires_at, text, _ = entry
         if expires_at <= now:
-            del self._entries[result_id]
+            self._remove(result_id)
             return None
         self._entries.move_to_end(result_id)
         return text
 
     def _evict_expired(self, now: float) -> None:
-        expired = [rid for rid, (exp, _) in self._entries.items() if exp <= now]
+        expired = [rid for rid, entry in self._entries.items() if entry[0] <= now]
         for rid in expired:
-            del self._entries[rid]
+            self._remove(rid)
+
+    def _drop_oldest(self) -> None:
+        self._remove(next(iter(self._entries)))
+
+    def _remove(self, result_id: str) -> None:
+        _, _, size = self._entries.pop(result_id)
+        self._total_bytes -= size
 
 
 def _slice_page(result_id: str, text: str, offset: int, limit: int) -> dict[str, Any]:
