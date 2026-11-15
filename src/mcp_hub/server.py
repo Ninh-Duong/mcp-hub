@@ -10,7 +10,7 @@ from contextlib import AsyncExitStack
 from dataclasses import replace
 from pathlib import Path
 from time import monotonic, perf_counter
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, NamedTuple
 
 import anyio
@@ -383,7 +383,7 @@ class HubRuntime:
             return await self._create_plan(arguments, request_id)
         if params.name == BATCH_TOOL:
             return await self._call_batch(arguments, request_id, client_name)
-        return await self._call_planned(params.name, arguments, request_id, client_name)
+        return await self._call_planned(params.name, arguments, request_id, client_name, _child_options(ctx, params))
 
     @property
     def policy_mode(self) -> str:
@@ -477,6 +477,7 @@ class HubRuntime:
 
     async def _call_planned(
         self, name: str, arguments: dict[str, Any], request_id: str, client_name: str,
+        options: ChildOptions | None = None,
     ) -> CallToolResult:
         """A client's direct child call, checked against its plan before it reaches the child."""
         plan_id, arguments = policy.split_plan_id(arguments)
@@ -487,7 +488,9 @@ class HubRuntime:
             violation = policy.check(plan, facts, arguments, self._health_tools, plan_id)
         if violation is not None and self.policy_mode == "enforce":
             return self._policy_denied(name, request_id, violation)
-        result = await self.call_child_tool(name, arguments, request_id=request_id, client_name=client_name)
+        result = await self.call_child_tool(
+            name, arguments, request_id=request_id, client_name=client_name, options=options,
+        )
         policy.record(plan, name, arguments, result_succeeded(result))
         result = await self._maybe_condense(name, result, plan.task if plan else None, request_id)
         if violation is None:
@@ -742,6 +745,7 @@ class HubRuntime:
         request_id: str = "unknown",
         client_name: str = "unknown",
         agent_role: str | None = None,
+        options: ChildOptions | None = None,
     ) -> CallToolResult:
         # A caller that copied a client tool schema may pass the plan ID along; a child never receives it.
         arguments = policy.split_plan_id(arguments)[1]
@@ -760,7 +764,7 @@ class HubRuntime:
             "tool.call.started", request_id=request_id, feature=route.feature, server=route.server_id, tool=route.tool_name,
         )
         try:
-            result, cached = await self._invoke_child(route, arguments)
+            result, cached = await self._invoke_child(route, arguments, options)
         except asyncio.CancelledError:
             self._complete_call(call, "interrupted", "CancelledError",
                                 "tool.call.interrupted", logging.WARNING, error_type="CancelledError")
@@ -783,27 +787,31 @@ class HubRuntime:
             self._complete_call(call, "succeeded", None, event, logging.INFO)
         return result
 
-    async def _invoke_child(self, route: ToolRoute, arguments: dict[str, Any]) -> tuple[CallToolResult, bool]:
+    async def _invoke_child(
+        self, route: ToolRoute, arguments: dict[str, Any], options: ChildOptions | None = None,
+    ) -> tuple[CallToolResult, bool]:
         """Reach the child, through the result cache for read-only tools with a TTL; returns (result, cached)."""
         name = route.exposed_name
         if route.cache_seconds > 0 and name in self._read_only:
             return await self.result_cache.get_or_call(
-                name, arguments, route.cache_seconds, lambda: self._call_child(route, arguments),
+                name, arguments, route.cache_seconds, lambda: self._call_child(route, arguments, options),
                 store_if=result_succeeded,
             )
         try:
-            return await self._call_child(route, arguments), False
+            return await self._call_child(route, arguments, options), False
         finally:
             if name not in self._read_only:
                 # A tool that may write makes this child's cached reads stale, whatever its outcome.
                 self.result_cache.invalidate(self._server_tools(route.server_id))
 
-    async def _call_child(self, route: ToolRoute, arguments: dict[str, Any]) -> CallToolResult:
+    async def _call_child(
+        self, route: ToolRoute, arguments: dict[str, Any], options: ChildOptions | None = None,
+    ) -> CallToolResult:
         client = self.clients.get(route.server_id)
         if client is None:
             raise ChildUnavailable(route.server_id)
         with anyio.fail_after(self.config.servers[route.server_id].timeout_seconds):
-            return await client.call_tool(route.tool_name, arguments)
+            return await client.call_tool(route.tool_name, arguments, **_child_call_kwargs(options))
 
     def _server_tools(self, server_id: str) -> list[str]:
         return [name for name, route in self.routes.items() if route.server_id == server_id]
@@ -865,6 +873,54 @@ class HubRuntime:
             "cache" if event == "tool.call.cached" else "child", call.route.server_id, call.route.tool_name,
             duration_ms, error,
         ))
+
+
+ProgressRelay = Callable[[float, float | None, str | None], Awaitable[None]]
+# The client's `_meta` keys the Hub does not forward. The first three describe the client's connection (the SDK sets
+# them per connection); the progress token is read by the Hub, which relays progress itself. The SDK keys the token
+# as `progress_token` (wire name `progressToken`).
+CONNECTION_META_KEYS = frozenset({
+    "io.modelcontextprotocol/protocolVersion", "io.modelcontextprotocol/clientInfo",
+    "io.modelcontextprotocol/clientCapabilities", "progress_token",
+})
+
+
+class ChildOptions(NamedTuple):
+    """What a client's call adds for its child: a progress relay (None without a token) and the forwarded `_meta`."""
+
+    progress: ProgressRelay | None
+    meta: dict[str, Any]
+
+
+def _child_options(ctx: Any, params: CallToolRequestParams) -> ChildOptions:
+    """The progress relay and the forwarded `_meta` of a client's tool call (FR-010)."""
+    meta = dict(params.meta or {})
+    token = meta.pop("progress_token", None)
+    forwarded = {key: value for key, value in meta.items() if key not in CONNECTION_META_KEYS}
+    return ChildOptions(None if token is None else _progress_relay(ctx, token), forwarded)
+
+
+def _progress_relay(ctx: Any, token: Any) -> ProgressRelay:
+    """Send the child's progress to the client under the client's own token, on the request's own stream."""
+
+    async def relay(progress: float, total: float | None, message: str | None) -> None:
+        await ctx.session.send_progress_notification(
+            token, progress, total, message, related_request_id=ctx.request_id,
+        )
+
+    return relay
+
+
+def _child_call_kwargs(options: ChildOptions | None) -> dict[str, Any]:
+    """The optional arguments of the SDK's call_tool; a call without them looks as it always did."""
+    kwargs: dict[str, Any] = {}
+    if options is None:
+        return kwargs
+    if options.progress is not None:
+        kwargs["progress_callback"] = options.progress
+    if options.meta:
+        kwargs["meta"] = options.meta
+    return kwargs
 
 
 class _ChildCall(NamedTuple):
