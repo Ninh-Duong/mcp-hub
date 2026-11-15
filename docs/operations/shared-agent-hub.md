@@ -118,6 +118,12 @@ The dashboard panel **Connected AI clients** and `hubctl status` (`Clients:` lin
 
 Only client names and times are kept, in memory. Session IDs and tokens are never shown. A client configured with the legacy per-client launcher (`start.ps1` without `-Bridge`) runs its own Hub, so the shared service cannot see it.
 
+### Slow children and tool definition changes
+
+The service starts serving after `children.startupWaitSeconds` (default 10) even if a child has not answered; that child's tools appear when it connects, and clients are told about the new tool list.
+
+The Hub pins each child tool definition in `config/private/tool_pins.json` (hashes only). When a definition changes, the Hub writes `tool.definition.changed` to the audit log and lists the tool under `tool_pins` in `hub__status` while it differs; the tool keeps running. To accept a change, stop the service, delete that tool's entry from the file, and start again: the next start pins the new definition. Hidden Unicode or an over-long description writes `tool.description.suspicious`. A corrupt or unreadable pin file is treated as empty, so every tool is pinned again at the next start without a warning.
+
 ## 4. Connect each AI client
 
 Each client still has exactly one entry named `mcp-hub`:

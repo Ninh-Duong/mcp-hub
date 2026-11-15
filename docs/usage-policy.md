@@ -64,12 +64,20 @@ The Hub checks a call against the rules below in this order, and the first rule 
 | `policy:target` | The call passes an `organization`, `stream`, `field`, or `project` other than the plan's targets. |
 | `policy:write` | The tool may write (its child does not mark it `readOnlyHint: true`), and the plan does not list it in `writes`. `writes` is meant for writes the user explicitly asked for. |
 | `policy:health_check` | The tool is a connection check (`settings.policy.healthCheckTools`), no call of the plan has failed yet, and the plan does not set `connection_checks: true`. That flag is meant for when the user asked to check connections. |
-| `policy:repeat` | The same tool already succeeded with the same arguments in this plan. Within one `hub__batch`, it is also refused when the same call appears twice. |
+| `policy:repeat` | The same tool already succeeded with the same arguments in this plan. Within one `hub__batch`, it is also refused when the same call appears twice. `settings.policy.repeatAfterSeconds` (default `0`, which refuses every repeat) lets an identical successful call run again once that many seconds have passed. |
 | `policy:retry` | The same call already failed twice. |
 
 An invalid `hub__plan` is refused with `policy:plan`. That covers an unknown server ID, empty `steps`, or a `writes` entry that is read-only or belongs to another child.
 
 A refused call returns `Policy: <what to do>` to the client and never reaches the child. A `hub__batch` with one refused call is refused as a whole, with the call's index.
+
+## Plan IDs and argument checks
+
+A plan ID is 128 bits, so it cannot be guessed. The Hub adds `hub_plan_id` to each published schema without changing the child's own keywords: the argument is added to the root `properties`, or, for a root that uses `allOf`, `anyOf`, `oneOf` or `$ref`, the root is wrapped so the argument is valid there too.
+
+Known gap: a root that is a `$ref` to a definition with `additionalProperties: false` still refuses `hub_plan_id` when a client validates the call against the published schema. The Hub itself removes the argument before the child call, so calls work; a client that validates strictly must omit `hub_plan_id` for that tool. This is not fixed in this release.
+
+Arguments are checked against the child's input schema in warn mode (`protocol.validateArguments`). A mismatch writes `tool.arguments.invalid` with the field paths and never the values. The call still runs, and this check is not a policy refusal. Batch items get the same check.
 
 ## What the Hub cannot check
 
