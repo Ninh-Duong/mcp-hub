@@ -5,6 +5,7 @@ import json
 import re
 import uuid
 from datetime import datetime, timedelta
+from functools import partial
 from typing import Any, Callable, TypeVar
 
 from mcp.types import CallToolResult, TextContent, Tool
@@ -31,10 +32,9 @@ from ..projects import ProjectConfig, validate_project_env
 from .store import JobStore, TERMINAL_STATES
 
 
-# Job limits (active and queued jobs, the job time window, child calls per job, the approval-code lifetime)
-# come from settings.jobs. The coordinator's summary runs after the specialists finish or reach the job
-# window, bounded by this.
-COORDINATOR_SECONDS = JobSettings().coordinator_seconds
+# Job limits (active and queued jobs, the job time window, child calls per job, the approval-code lifetime, the
+# coordinator's time, the specialists' rounds and result size, the prompt cache) come from settings.jobs, passed
+# to JobRunner as `limits`.
 # The approval preview shows the full arguments up to this many characters, then marks the cut.
 MAX_PREVIEW_CHARS = 64 * 1024
 EVENT_PAGE_LIMIT = 100
@@ -127,7 +127,7 @@ def _limit_text(seconds: float) -> str:
     return f"{seconds / 60:g}-minute" if seconds >= 60 and seconds % 60 == 0 else f"{seconds:g}-second"
 
 
-def create_provider(config: AgentConfig) -> ModelProvider:
+def create_provider(config: AgentConfig, *, prompt_cache: bool = JobSettings().prompt_cache) -> ModelProvider:
     if not config.configured or not config.provider or not config.model or not config.api_key:
         raise ValueError("Agent is not configured")
     provider_types = {
@@ -140,6 +140,8 @@ def create_provider(config: AgentConfig) -> ModelProvider:
         raise ValueError("Unsupported provider")
     if not provider_package_installed(config.provider):
         raise ValueError(PACKAGE_MISSING_MESSAGE)
+    if provider_type is AnthropicProvider:
+        return AnthropicProvider(config.model, config.api_key, prompt_cache=prompt_cache)
     return provider_type(config.model, config.api_key)
 
 
@@ -174,7 +176,7 @@ class JobRunner:
         runtime: Any,
         projects: dict[str, ProjectConfig],
         agents: dict[str, AgentConfig],
-        provider_factory: Callable[[AgentConfig], ModelProvider] = create_provider,
+        provider_factory: Callable[[AgentConfig], ModelProvider] | None = None,
         policy: SideEffectPolicy | None = None,
         limits: JobSettings = JobSettings(),
         plan_assistant: PlanAssistant | None = None,
@@ -202,7 +204,8 @@ class JobRunner:
         add_secrets = getattr(audit, "add_secrets", None)
         if callable(add_secrets):
             add_secrets(config.api_key for config in agents.values() if config and config.api_key)
-        self.providers = _create_providers(agents, provider_factory)
+        factory = provider_factory or partial(create_provider, prompt_cache=limits.prompt_cache)
+        self.providers = _create_providers(agents, factory)
         self.policy = policy or SideEffectPolicy()
         self._slots = asyncio.Semaphore(limits.max_active)
         self._submit_lock = asyncio.Lock()
@@ -775,7 +778,9 @@ class JobRunner:
             condenser=self._observed_condenser(),
             condense_min_chars=self.condense_min_chars,
             condense_timeout_seconds=self.condense_timeout_seconds,
+            max_rounds=self.limits.specialist_max_rounds,
             context_chars=self.limits.context_chars,
+            tool_result_chars=self.limits.tool_result_chars,
         )
         await _db(self.store.append_event, job_id, "agent.started", agent=role)
         return await executor.run(job_id, role, _specialist_task(request))
