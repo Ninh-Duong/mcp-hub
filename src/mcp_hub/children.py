@@ -8,6 +8,9 @@ through `on_lost`, and reconnects with exponential backoff until it is stopped.
 
 States: `connecting` (first attempt), `connected`, `reconnecting` (after a failed
 attempt or a lost session).
+
+A child's `notifications/tools/list_changed` relists its tools on the same session, then
+awaits `on_tools_changed` with the server id; the new listing is then in `supervisor.tools`.
 """
 from __future__ import annotations
 
@@ -16,17 +19,18 @@ import logging
 import math
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
-from typing import Any, AsyncIterator, Literal, TextIO
+from typing import Any, AsyncIterator, Literal, Protocol, TextIO
 
 import anyio
 from mcp import Client, StdioServerParameters
+from mcp.client.session import IncomingMessage, MessageHandlerFnT
 from mcp.client.stdio import get_default_environment, stdio_client
-from mcp.types import Tool
+from mcp.types import Tool, ToolListChangedNotification
 
 from .audit import AuditLog, describe_exception
 from .child_logs import CappedLog, pipe_into
@@ -38,9 +42,25 @@ RECONNECTING = "reconnecting"
 # error_type of `server.disconnected` when the session ended without an exception (e.g. the child exited).
 CONNECTION_CLOSED = "ConnectionClosed"
 
-ChildOpener = Callable[[ServerConfig, TextIO, Callable[[], None]], AbstractAsyncContextManager[Client]]
+logger = logging.getLogger(__name__)
+
+
+class ChildOpener(Protocol):
+    """Opens one child's MCP client; `message_handler` receives the notifications the child sends."""
+
+    def __call__(
+        self,
+        config: ServerConfig,
+        errlog: TextIO,
+        on_closed: Callable[[], None],
+        *,
+        message_handler: MessageHandlerFnT,
+    ) -> AbstractAsyncContextManager[Client]: ...
+
+
 ConnectedCallback = Callable[[str, Client, dict[str, Tool]], None]
 LostCallback = Callable[[str], None]
+ToolsChangedCallback = Callable[[str], Awaitable[None]]
 
 
 class ChildUnavailable(RuntimeError):
@@ -76,10 +96,12 @@ def open_stdio_client(
     on_closed: Callable[[], None],
     *,
     encoding_error_handler: Literal["strict", "ignore", "replace"] = "replace",
+    message_handler: MessageHandlerFnT | None = None,
 ) -> Client:
     """A not-yet-entered MCP client for one stdio child; `on_closed` fires when its session ends.
 
     Undecodable child stdout is replaced instead of crashing the transport reader.
+    `message_handler` receives the child's notifications (and transport faults).
     """
     params = StdioServerParameters(
         command=config.command,
@@ -88,7 +110,7 @@ def open_stdio_client(
         cwd=str(config.cwd),
         encoding_error_handler=encoding_error_handler,
     )
-    return Client(_watched(stdio_client(params, errlog=errlog), on_closed))
+    return Client(_watched(stdio_client(params, errlog=errlog), on_closed), message_handler=message_handler)
 
 
 @asynccontextmanager
@@ -156,6 +178,7 @@ class ChildSupervisor:
         opener: ChildOpener = open_stdio_client,
         backoff: Backoff = Backoff(),
         log_max_bytes: int | None = None,
+        on_tools_changed: ToolsChangedCallback | None = None,
     ) -> None:
         self.config = config
         self.state = CONNECTING
@@ -170,6 +193,15 @@ class ChildSupervisor:
         self._scope = anyio.CancelScope()
         self._task: asyncio.Task[None] | None = None
         self._connected_at = 0.0
+        self._on_tools_changed = on_tools_changed
+        self._tools: dict[str, Tool] = {}
+        self._tools_lock = asyncio.Lock()
+        self._client: Client | None = None
+
+    @property
+    def tools(self) -> dict[str, Tool]:
+        """The latest tool listing: the first one on connect, then each relist after a change."""
+        return self._tools
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._run(), name=f"mcp-hub-child-{self.config.server_id}")
@@ -207,9 +239,10 @@ class ChildSupervisor:
         errlog = pipe_into(self._stderr_log, self.config.server_id)
         try:
             with anyio.fail_after(self.config.connect_timeout_seconds) as deadline:
-                async with self._opener(self.config, errlog, lost.set) as client:
+                async with self._opener(self.config, errlog, lost.set, message_handler=self._on_message) as client:
+                    self._client = client
                     stage = "list_tools"
-                    tools = await list_all_tools(client)
+                    tools = await self._refresh_tools(client)
                     deadline.deadline = math.inf
                     connected = True
                     self._publish(client, tools)
@@ -218,6 +251,7 @@ class ChildSupervisor:
             error = exc
         finally:
             errlog.close()
+            self._client = None
             if connected:
                 self._on_lost(self.config.server_id)
         if connected:
@@ -225,6 +259,34 @@ class ChildSupervisor:
         else:
             self._report_failed(stage, error, failures)
         return connected
+
+    async def _refresh_tools(self, client: Client) -> dict[str, Tool]:
+        """List the child's tools and store them; the lock keeps stored listings in request order."""
+        async with self._tools_lock:
+            self._tools = await list_all_tools(client)
+            return self._tools
+
+    async def _on_message(self, message: IncomingMessage) -> None:
+        """The SDK's message handler: a tools list change relists the child, then tells the callback. Never raises."""
+        client = self._client
+        if client is None or not isinstance(message, ToolListChangedNotification):
+            return
+        try:
+            await self._refresh_tools(client)
+        except Exception as exc:
+            logger.warning("Relisting the tools of child %s failed: %s", self.config.server_id, type(exc).__name__)
+            return
+        await self._notify_tools_changed()
+
+    async def _notify_tools_changed(self) -> None:
+        if self._on_tools_changed is None:
+            return
+        try:
+            await self._on_tools_changed(self.config.server_id)
+        except Exception as exc:
+            logger.warning(
+                "The tools-changed callback for child %s failed: %s", self.config.server_id, type(exc).__name__,
+            )
 
     def _publish(self, client: Client, tools: dict[str, Tool]) -> None:
         event = "server.connected" if self.state == CONNECTING else "server.reconnected"

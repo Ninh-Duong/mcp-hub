@@ -1,6 +1,6 @@
 # Track B: events and child list changes
 
-Status: ready
+Status: done (T20, T21 committed on `arch/track-b`; package_qc passed)
 Branch: `arch/track-b` (from `arch/base`). Worktree: `../mcp-hub-track-b` (sibling of the Hub checkout).
 
 Owns:
@@ -14,7 +14,7 @@ Do not edit `server.py` or `activity_ui/` (Phase 2 wires them).
 
 SDK facts already verified in the Hub's venv (`mcp` 2.2.0): `mcp.server.subscriptions` exports `InMemorySubscriptionBus`, `ListenHandler`, `SubscriptionBus`, `ToolsListChanged`. `mcp.Client.__init__` takes `message_handler`. Read the SDK source under `.venv/Lib/site-packages/mcp/` to confirm the publish method and the listen-handler constructor, and the notification type for a child's tools list change (`ToolListChangedNotification` is the likely name). If a name differs, use the real one and say so in the progress log.
 
-## T20 `HubEvents`
+## T20 `HubEvents` (done)
 
 File: `src/mcp_hub/events.py`. Test: `tests/test_events.py`.
 
@@ -36,7 +36,7 @@ Behaviour:
 
 Tests (use a real short debounce such as 0.02 seconds and `asyncio.sleep`): prime then same signature publishes nothing; a burst of five different signatures inside the window publishes exactly once; a change after the window publishes again; `close` cancels a pending publish. Count publishes by subscribing to the bus with the SDK's subscription API (read the SDK to find it).
 
-## T21 child list changes
+## T21 child list changes (done)
 
 File: `src/mcp_hub/children.py`. Test: `tests/test_children.py` (additions) and `tests/fake_stdio_child.py` (new mode).
 
@@ -64,4 +64,7 @@ uv run --no-sync python scripts/package_qc.py
 
 ## Progress log
 
+- T20 done: `HubEvents` in `src/mcp_hub/events.py` with 5 tests in `tests/test_events.py`. SDK names match the card (mcp 2.2.0): `InMemorySubscriptionBus`, `ListenHandler`, `ToolsListChanged` from `mcp.server.subscriptions`; `bus.subscribe(listener)` is the test's counting API.
+- T21 done: `ChildSupervisor(on_tools_changed=...)` relists on a child's `ToolListChangedNotification` (SDK name, from `mcp.types`) and calls the callback with the server id; `supervisor.tools` holds the latest listing; `open_stdio_client` takes `message_handler`, and `ChildOpener` is now a Protocol with that keyword. Three tests in `tests/test_children.py`, and the fake child has `FAKE_CHILD_TOOL_CHANGE=1`.
+- T21 deviation: mcp 2.2.0 drops standalone notifications on a stdio session (no standing channel), so the fake child sends its notification on the first tools/list request's stream, before that response, not after it. The flag still selects the behavior. Relist and callback failures are logged with the exception type name only; no audit event fits them and the docs are outside this track.
 - (agent: add one line per task here)
