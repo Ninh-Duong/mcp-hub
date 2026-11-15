@@ -164,7 +164,7 @@ class HubRuntime:
             self.supervisors[server_config.server_id] = ChildSupervisor(
                 server_config, self.audit, self.child_connected, self.child_lost,
                 log_dir=self.child_log_dir, opener=self.child_opener, backoff=self.child_backoff,
-                log_max_bytes=self.settings.logs.max_bytes,
+                log_max_bytes=self.settings.logs.max_bytes, on_tools_changed=self.child_tools_changed,
             )
         stack.push_async_callback(self.close_children)
         self._starting = True
@@ -205,12 +205,25 @@ class HubRuntime:
         self.clients[server_id] = client
         if self._starting:
             return  # `connect` registers all routes once the first attempts are done
+        self._schedule_announcement(self._rebuild_child_routes(server_id))
+
+    async def child_tools_changed(self, server_id: str) -> None:
+        """A child sent tools/list_changed and its supervisor relisted it: rebuild its routes and announce them."""
+        tools = self.supervisors[server_id].tools
+        self._discovered[server_id] = tools
+        self.discovered_tool_counts[server_id] = len(tools)
+        if self._starting:
+            return  # `connect` registers all routes once the first attempts are done
+        await self.announce_tools(self._rebuild_child_routes(server_id))
+
+    def _rebuild_child_routes(self, server_id: str) -> str:
+        """Rebuild one child's routes; `hub.tools.registered` is written when the exposed names change."""
         before = [tool.name for tool in self.public_tools]
         signature = self._register_routes(server_id)
         after = [tool.name for tool in self.public_tools]
         if after != before:
             self.audit.write("hub.tools.registered", tool_count=len(after), tools=after)
-        self._schedule_announcement(signature)
+        return signature
 
     def child_lost(self, server_id: str) -> None:
         """Withdraw a child's session (called by its supervisor)."""

@@ -5,10 +5,14 @@ import asyncio
 import json
 import tempfile
 import unittest
+from collections.abc import AsyncIterator
+from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock
 
-from mcp.types import Tool
+from mcp.types import Tool, ToolListChangedNotification
 
 from mcp_hub.audit import AuditLog
 from mcp_hub.config import HubConfig, ServerConfig, ToolRoute
@@ -83,6 +87,67 @@ class ToolChangeAnnouncementTest(unittest.IsolatedAsyncioTestCase):
         self.runtime.child_connected("child", self.client, {"read": READ_TOOL})
         await self.settle()
         self.assertEqual(publish.await_count, 0)
+
+
+class _FakeClient:
+    """Lists whatever tools its child currently has, like a child MCP session would."""
+
+    def __init__(self, child: _FakeChild) -> None:
+        self.child = child
+
+    async def list_tools(self, cursor: str | None = None) -> SimpleNamespace:
+        return SimpleNamespace(tools=list(self.child.tools), next_cursor=None)
+
+
+class _FakeChild:
+    """Stands in for a child process: the opener keeps the SDK message handler the supervisor passes in."""
+
+    def __init__(self) -> None:
+        self.tools: list[Tool] = [READ_TOOL]
+        self.handler: Any = None
+
+    @asynccontextmanager
+    async def opener(self, config: Any, errlog: Any, on_closed: Any, *, message_handler: Any) -> AsyncIterator[Any]:
+        self.handler = message_handler
+        yield _FakeClient(self)
+
+
+class ChildSentChangeTest(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.audit = AuditLog(self.root / "audit.jsonl")
+        self.addCleanup(self.audit.close)
+        child = ServerConfig("child", "python", (), self.root, {}, (), timeout_seconds=60.0)
+        config = HubConfig(self.root / "hub.json", {"child": child}, (READ, EXTRA))
+        settings = Settings(protocol=ProtocolSettings(list_changed_debounce_seconds=DEBOUNCE_SECONDS))
+        self.runtime = HubRuntime(config, self.audit, settings)
+        self.runtime.child_log_dir = self.root / "children"
+        self.fake = _FakeChild()
+        self.runtime.child_opener = self.fake.opener
+        self.stack = AsyncExitStack()
+        self.addAsyncCleanup(self.stack.aclose)
+        self.addCleanup(self.runtime.events.close)
+        await self.runtime.connect(self.stack)
+
+    def exposed(self) -> list[str]:
+        return [tool.name for tool in self.runtime.public_tools]
+
+    async def test_child_sent_change_updates_the_tool_list(self) -> None:
+        self.assertNotIn("child__extra", self.exposed())
+        self.fake.tools.append(EXTRA_TOOL)
+        await self.fake.handler(ToolListChangedNotification())
+        self.assertIn("child__extra", self.exposed())
+        self.assertIn("child__extra", self.runtime.routes)
+
+    async def test_child_sent_change_is_announced_once(self) -> None:
+        publish = AsyncMock()
+        self.runtime.events.bus.publish = publish
+        self.fake.tools.append(EXTRA_TOOL)
+        await self.fake.handler(ToolListChangedNotification())
+        await asyncio.sleep(DEBOUNCE_SECONDS * 20)
+        self.assertEqual(publish.await_count, 1)
 
 
 if __name__ == "__main__":
