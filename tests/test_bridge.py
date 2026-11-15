@@ -142,6 +142,51 @@ class BridgeInstructionsTest(unittest.TestCase):
         self.assertEqual(seen["instructions"], "Forwards MCP requests to the authenticated local mcp-hub service.")
 
 
+class FakeRemoteWithProgress(FakeRemoteClient):
+    def __init__(self) -> None:
+        self.metas = []
+
+    async def call_tool(self, name: str, arguments: dict[str, str], progress_callback=None, meta=None):
+        self.metas.append(meta)
+        if progress_callback is not None:
+            for step in range(1, 4):
+                await progress_callback(float(step), 3.0, f"step {step}")
+        return CallToolResult(content=[TextContent(type="text", text=f"{name}:{arguments['text']}")])
+
+
+class BridgeProgressTest(unittest.TestCase):
+    def test_hub_progress_reaches_the_stdio_client_in_order(self) -> None:
+        seen = []
+
+        async def check(client) -> None:
+            async def on_progress(progress, total, message) -> None:
+                seen.append((progress, total, message))
+
+            await client.call_tool("sample__echo", {"text": "x"}, progress_callback=on_progress)
+
+        run_downstream(FakeRemoteWithProgress(), check)
+        self.assertEqual(seen, [(1.0, 3.0, "step 1"), (2.0, 3.0, "step 2"), (3.0, 3.0, "step 3")])
+
+    def test_hub_receives_the_request_meta_without_connection_keys(self) -> None:
+        remote = FakeRemoteWithProgress()
+
+        async def check(client) -> None:
+            async def on_progress(progress, total, message) -> None:
+                return None
+
+            await client.call_tool(
+                "sample__echo", {"text": "x"}, progress_callback=on_progress, meta={"example.com/trace": "abc"},
+            )
+
+        run_downstream(remote, check)
+        forwarded = remote.metas[0]
+        self.assertEqual(forwarded["example.com/trace"], "abc")
+        self.assertNotIn("progress_token", forwarded)
+        self.assertNotIn("io.modelcontextprotocol/protocolVersion", forwarded)
+        self.assertNotIn("io.modelcontextprotocol/clientInfo", forwarded)
+        self.assertNotIn("io.modelcontextprotocol/clientCapabilities", forwarded)
+
+
 class PresenceTest(unittest.TestCase):
     def test_main_client_has_no_read_timeout_so_long_child_calls_finish(self) -> None:
         from mcp_hub.bridge import BRIDGE_TIMEOUT

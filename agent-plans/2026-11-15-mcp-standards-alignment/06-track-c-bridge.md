@@ -22,7 +22,7 @@ Replace the hard-coded one-line instructions with the instructions the Hub sent 
 
 Test: a fake upstream with instructions gives the same text downstream; with none, the one-liner is used.
 
-## T32 progress
+## T32 progress [x]
 
 When a downstream `tools/call` carries a `progressToken` in `_meta`, pass a `progress_callback` to the upstream `call_tool`. Each upstream progress is re-sent downstream as `notifications/progress` with the same token (verify the SDK helper on the request context). Forward the other `_meta` keys except the ones that belong to the connection (protocol version, client info, capabilities).
 
@@ -66,3 +66,4 @@ uv run --no-sync python scripts/package_qc.py
 
 - T30 done: forwarding handlers moved to `bridge_proxy.py`; `bridge.py` re-imports `create_bridge_server`; 7 bridge tests pass unchanged (plus one new module-location test).
 - T31 done: `upstream_instructions(remote)` reads the SDK client's `instructions` (`getattr`, so fakes work); the one-liner is the fallback; 2 new tests.
+- T32 done: bridge relays Hub progress with the stdio token and forwards other `_meta` keys (connection keys and the progress token stripped). The Hub does not emit child progress yet (`server.py` has no progress handling), so end-to-end progress needs W-T76. Request to track W: pass `progress_callback` and `_meta` to the child and relay its progress notifications to the client. The bridge side is ready.
