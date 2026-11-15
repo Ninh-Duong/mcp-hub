@@ -16,6 +16,8 @@ dist/
 .vscode/
 .idea/
 .claude/settings.local.json
+# Git worktrees that agents create for parallel tracks (copies of this repository)
+.claude/worktrees/
 
 # Local configuration and secrets
 .local/
