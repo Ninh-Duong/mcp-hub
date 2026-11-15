@@ -219,6 +219,24 @@ class LoadConfigTest(unittest.TestCase):
         with self.assertRaisesRegex(ConfigError, "Hub config must be an object"):
             load_config(path)
 
+    def test_missing_or_null_servers_and_features_mean_none(self) -> None:
+        # A hand-written hub.json that sets only `settings`, or nulls, must not fail on the two keys.
+        (self.root / "config" / "hub.example.json").write_text(
+            json.dumps({"servers": {}, "features": {}}), encoding="utf-8")
+        for hub in ({"version": 1, "settings": {"logs": {"maxBytes": 1000}}},
+                    {"version": 1, "servers": None, "features": None}):
+            with self.subTest(keys=sorted(hub)), patch.object(config, "_DEFAULT_CONFIG", self.tmp / "hub.json"), \
+                    patch.dict(config.os.environ, {}, clear=False):
+                config.os.environ.pop("MCP_HUB_CONFIG", None)
+                (self.tmp / "hub.json").write_text(json.dumps(hub), encoding="utf-8")
+                self.assertEqual(load_config().servers, {})
+
+    def test_explicit_config_without_servers_or_features_names_the_missing_feature(self) -> None:
+        path = self.tmp / "hub.json"
+        path.write_text(json.dumps({"version": 1}), encoding="utf-8")
+        with self.assertRaisesRegex(ConfigError, "Enable at least one feature"):
+            load_config(path)
+
     def test_invalid_tool_routes_are_rejected(self) -> None:
         cases = (
             ({"f": {"enabled": True, "tools": "t"}}, "tools must be a list"),

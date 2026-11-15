@@ -96,6 +96,12 @@ def _mapping(value: Any, label: str) -> dict[str, Any]:
     return value
 
 
+def _optional_mapping(raw: dict[str, Any], key: str) -> dict[str, Any]:
+    """A top-level object of the Hub config: a missing or null key means none, any other non-object is refused."""
+    value = raw.get(key)
+    return {} if value is None else _mapping(value, key)
+
+
 def _string(value: Any, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ConfigError(f"{label} must be a non-empty string")
@@ -285,8 +291,8 @@ def _merge_with_defaults(path: Path) -> tuple[dict[str, Any], _LoadContext]:
     defaults = _read_json(HUB_ROOT / "config" / "hub.example.json", "default Hub config")
     detected = tuple(server_id for server_id in defaults["servers"] if (HUB_ROOT.parent / server_id).is_dir())
     private = _read_json(path, "Hub config") if path.is_file() else {"version": 1, "servers": {}, "features": {}}
-    private_servers = _mapping(private.get("servers"), "servers")
-    private_features = _mapping(private.get("features"), "features")
+    private_servers = _optional_mapping(private, "servers")
+    private_features = _optional_mapping(private, "features")
     raw = {"version": private.get("version"),
            "servers": _overlay(defaults["servers"], private_servers),
            "features": _overlay(defaults["features"], private_features)}
@@ -302,10 +308,9 @@ def _merge_with_defaults(path: Path) -> tuple[dict[str, Any], _LoadContext]:
 
 def _read_explicit(path: Path) -> tuple[dict[str, Any], _LoadContext]:
     raw = _read_json(path, "Hub config")
-    servers = raw.get("servers")
-    features = raw.get("features")
-    explicit_servers = set(servers) if isinstance(servers, dict) else set()
-    explicit_features = set(features) if isinstance(features, dict) else set()
+    raw = {**raw, "servers": _optional_mapping(raw, "servers"), "features": _optional_mapping(raw, "features")}
+    explicit_servers = set(raw["servers"])
+    explicit_features = set(raw["features"])
     context = _LoadContext(automatic=False, explicit_servers=explicit_servers,
                            explicit_features=explicit_features, explicit_files=explicit_servers)
     return raw, context
