@@ -49,6 +49,7 @@ from .playbooks import Playbook, load_playbooks
 from .policy import PLAN_TOOL, CallFacts, PlanBook, PlanCatalog, PolicyRefused, Violation
 from .projects import ProjectConfig, load_projects
 from .result_cache import ResultCache
+from .result_shape import is_condensable, with_condensed_meta
 from .settings import Settings, load_settings
 
 
@@ -516,7 +517,7 @@ class HubRuntime:
         """Condense a large read-only success result; any failure returns `result` unchanged."""
         if self.condenser is None or self.full_results is None:
             return result
-        if name not in self._read_only or result.is_error:
+        if name not in self._read_only or not is_condensable(self._output_schema(name), result):
             return result
         total_len = sum(len(getattr(item, "text", "")) for item in result.content if isinstance(item, TextContent))
         if total_len < self.settings.bitnet.condense_min_chars:
@@ -539,26 +540,43 @@ class HubRuntime:
                 kept_lines=0, total_lines=0, source="fallback", duration_ms=duration_ms,
             )
             return result
-        return self._finish_condensed(text, condensed, request_id, server, name, duration_ms)
+        return self._finish_condensed(result, text, condensed, request_id, server, name, duration_ms)
+
+    def _output_schema(self, name: str) -> Mapping[str, Any] | None:
+        """The output schema the child declared for a routed tool, or None."""
+        route = self.routes.get(name)
+        if route is None:
+            return None
+        child_tool = self._discovered.get(route.server_id, {}).get(route.tool_name)
+        return getattr(child_tool, "output_schema", None)
 
     def _finish_condensed(
-        self, text: str, condensed: Any, request_id: str, server: str, name: str, duration_ms: int,
+        self, original: CallToolResult, text: str, condensed: Any, request_id: str, server: str, name: str,
+        duration_ms: int,
     ) -> CallToolResult:
+        """The condensed result; `original` when the store cannot hold the full text (one entry over its byte limit)."""
         assert self.full_results is not None
+        if getattr(condensed, "lossless", False):
+            self._audit_condensed(condensed, request_id, server, name, duration_ms)
+            note = "\n[Compacted losslessly by mcp-hub.]"
+            return CallToolResult(content=[TextContent(type="text", text=condensed.text + note)], is_error=False)
+        rid = self.full_results.put(text)
+        if rid is None:
+            return original
+        self._audit_condensed(condensed, request_id, server, name, duration_ms)
+        footer = (
+            f"\n\n[Condensed by mcp-hub: kept {condensed.kept_lines} of {condensed.total_lines} lines. "
+            f"Full result: {FULL_RESULT_TOOL} result_id=\"{rid}\" ({len(text)} chars).]"
+        )
+        condensed_result = CallToolResult(content=[TextContent(type="text", text=condensed.text + footer)], is_error=False)
+        return with_condensed_meta(condensed_result, rid, condensed.kept_lines, condensed.total_lines)
+
+    def _audit_condensed(self, condensed: Any, request_id: str, server: str, name: str, duration_ms: int) -> None:
         self.audit.write(
             "tool.result.condensed", request_id=request_id, server=server, tool=name,
             kept_lines=condensed.kept_lines, total_lines=condensed.total_lines,
             source=condensed.source, duration_ms=duration_ms,
         )
-        if getattr(condensed, "lossless", False):
-            note = "\n[Compacted losslessly by mcp-hub.]"
-            return CallToolResult(content=[TextContent(type="text", text=condensed.text + note)], is_error=False)
-        rid = self.full_results.put(text)
-        footer = (
-            f"\n\n[Condensed by mcp-hub: kept {condensed.kept_lines} of {condensed.total_lines} lines. "
-            f"Full result: {FULL_RESULT_TOOL} result_id=\"{rid}\" ({len(text)} chars).]"
-        )
-        return CallToolResult(content=[TextContent(type="text", text=condensed.text + footer)], is_error=False)
 
     async def _call_batch(self, arguments: dict[str, Any], request_id: str, client_name: str) -> CallToolResult:
         """Run independent read-only calls in parallel; each one is audited as `<request_id>.<i>`."""
@@ -615,6 +633,7 @@ class HubRuntime:
             and "[Condensed by mcp-hub:" not in _join_text(item.result.content)
             and "[Compacted losslessly by mcp-hub.]" not in _join_text(item.result.content)
             and len(_join_text(item.result.content)) >= 1200
+            and is_condensable(self._output_schema(item.call.tool), item.result)
         ]
         if not eligible:
             return items
@@ -626,7 +645,9 @@ class HubRuntime:
                 condensed = self._pack_condense(text, budget, task)
                 route = self.routes.get(item.call.tool)
                 server = route.server_id if route else "unknown"
-                new_res = self._finish_condensed(text, condensed, f"{request_id}.{item.call.index}", server, item.call.tool, 0)
+                new_res = self._finish_condensed(
+                    item.result, text, condensed, f"{request_id}.{item.call.index}", server, item.call.tool, 0,
+                )
                 packed[idx] = BatchItem(item.call, new_res, item.ok, item.duration_ms)
         return packed
 
