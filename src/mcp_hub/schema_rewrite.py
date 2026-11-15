@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from jsonschema import Draft202012Validator, SchemaError, ValidationError
+
 PLAN_ID_ARG = "hub_plan_id"
 _PLAN_ID_SCHEMA = {"type": "string", "description": "The plan ID that hub__plan returned; required."}
 # Root keys that compose or reference other schemas: such a root is wrapped, not extended.
@@ -34,3 +36,19 @@ def _wrap_composed(root: dict[str, Any]) -> dict[str, Any]:
         "type": "object", "properties": properties, "additionalProperties": False,
         "allOf": [inner], **definitions,
     }
+
+
+def validate_args(schema: Mapping[str, Any] | None, args: Mapping[str, Any]) -> list[str]:
+    """The dotted paths of the arguments that break a child's input schema, in the order the errors come.
+    A missing or broken schema gives no paths, because the check is advisory."""
+    if schema is None:
+        return []
+    try:
+        Draft202012Validator.check_schema(schema)
+    except SchemaError:
+        return []
+    return [_field_path(error) for error in Draft202012Validator(schema).iter_errors(args)]
+
+
+def _field_path(error: ValidationError) -> str:
+    return ".".join(str(part) for part in error.absolute_path) or "<root>"

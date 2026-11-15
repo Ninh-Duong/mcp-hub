@@ -32,7 +32,7 @@ Tests (use `jsonschema.Draft202012Validator`): for each shape, a valid instance 
 
 `policy.py` imports `PLAN_ID_ARG` and `with_plan_id` from `schema_rewrite`, so existing imports keep working. Existing tests pass unchanged.
 
-## T42 `validate_args`
+## [x] T42 `validate_args`
 
 File: `src/mcp_hub/schema_rewrite.py`.
 
@@ -75,4 +75,5 @@ uv run --no-sync python scripts/package_qc.py
 
 - T40 done: `schema_rewrite.py` with `with_plan_id` (flat, allOf/anyOf/oneOf/$ref, closed roots) and 6 tests. Deviation: the wrapper also takes `$defs`/`definitions` from the root, so `$ref` roots resolve.
 - T41 done: `policy.py` drops its copies of `PLAN_ID_ARG`, `_PLAN_ID_SCHEMA`, `with_plan_id` and re-exports the two names from `schema_rewrite` (redundant aliases). Identity test added in `tests/test_policy.py`.
+- T42 done: `schema_rewrite.validate_args` returns dotted paths (or `<root>`), `[]` for a missing or broken schema; 7 tests.
 - (agent: add one line per task here)

@@ -7,7 +7,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
-from mcp_hub.schema_rewrite import PLAN_ID_ARG, with_plan_id
+from mcp_hub.schema_rewrite import PLAN_ID_ARG, validate_args, with_plan_id
 
 FLAT = {"type": "object", "properties": {"env": {"type": "string"}}, "required": ["env"]}
 FLAT_CLOSED = {"type": "object", "properties": {"env": {"type": "string"}}, "additionalProperties": False}
@@ -80,6 +80,38 @@ class WithPlanIdTest(unittest.TestCase):
                 before = copy.deepcopy(original)
                 with_plan_id(original)
                 self.assertEqual(original, before)
+
+
+NESTED = {
+    "type": "object",
+    "properties": {"filters": {"type": "object", "properties": {"limit": {"type": "integer"}}}},
+    "required": ["env"],
+}
+
+
+class ValidateArgsTest(unittest.TestCase):
+    def test_a_wrong_nested_type_gives_its_dotted_path(self) -> None:
+        self.assertEqual(validate_args(NESTED, {"env": "stg", "filters": {"limit": "ten"}}), ["filters.limit"])
+
+    def test_a_missing_required_key_gives_the_root(self) -> None:
+        self.assertEqual(validate_args(NESTED, {"filters": {"limit": 5}}), ["<root>"])
+
+    def test_an_array_item_gives_its_index(self) -> None:
+        schema = {"type": "object", "properties": {"ids": {"type": "array", "items": {"type": "integer"}}}}
+        self.assertEqual(validate_args(schema, {"ids": [1, "x"]}), ["ids.1"])
+
+    def test_several_errors_are_all_reported(self) -> None:
+        paths = validate_args(NESTED, {"filters": {"limit": "ten"}})
+        self.assertEqual(sorted(paths), ["<root>", "filters.limit"])
+
+    def test_a_valid_argument_gives_no_paths(self) -> None:
+        self.assertEqual(validate_args(NESTED, {"env": "stg", "filters": {"limit": 5}}), [])
+
+    def test_a_broken_schema_gives_no_paths(self) -> None:
+        self.assertEqual(validate_args({"type": 5}, {"env": "stg"}), [])
+
+    def test_no_schema_gives_no_paths(self) -> None:
+        self.assertEqual(validate_args(None, {"env": "stg"}), [])
 
 
 if __name__ == "__main__":
