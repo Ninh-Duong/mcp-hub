@@ -18,15 +18,24 @@ The values an operator may want to change live in one optional `settings` object
 - Keys are camelCase, like the rest of the Hub config.
 - **Whole numbers:** a key whose default is a whole number takes only whole numbers.
 - **Other numbers:** every other numeric key takes any finite number.
-- **Text and lists:** `policy.mode` and `policy.confirmPlaybook` take one of the listed words; `policy.healthCheckTools` takes a list of tool names.
+- **Text and lists:** `policy.mode`, `policy.confirmPlaybook`, `protocol.validateArguments`, and `security.toolPinMode` take one of the listed words; `policy.healthCheckTools` takes a list of tool names.
+- **True or false:** `jobs.promptCache` takes `true` or `false`.
 - All values must be positive, except where the table gives another range.
 
 | Group | Key | Default | What it changes |
 |---|---|---|---|
 | `http` | `port` | `8765` | The shared service's port on `127.0.0.1` (1024 to 65535; the host is always `127.0.0.1`). The service writes it to `service.json` and the connection file, so the bridge, `hubctl`, and the desktop app follow it. **HTTP clients configured with `http://127.0.0.1:8765/mcp` must be updated by hand.** |
 | `http` | `shutdownDrainSeconds` | `20` | How long a stopping Hub waits for open requests before it closes them. |
+| `bridge` | `presenceRetrySeconds` | `5` | Seconds the stdio bridge waits before it opens the presence stream again. |
+| `bridge` | `connectTimeoutSeconds` | `60` | Timeout of one request the stdio bridge forwards to the shared service. |
+| `protocol` | `validateArguments` | `"warn"` | Checks each call's arguments against the child's input schema: `off` does nothing, `warn` only writes a `tool.arguments.invalid` audit line and still runs the call. |
+| `protocol` | `listChangedDebounceSeconds` | `1` | Quiet time before one `notifications/tools/list_changed` is sent for a burst of tool changes; `0` sends each change at once. |
+| `protocol` | `toolsListTtlMs` | `0` | `ttlMs` of `tools/list` results; `0` tells clients not to cache the list. |
+| `security` | `toolPinMode` | `"warn"` | Tool definition pins: `off` does nothing; `warn` writes a `tool.definition.changed` audit line when a child's tool definition changes. |
+| `security` | `maxDescriptionChars` | `4096` | Longest tool description accepted without a `tool.description.suspicious` audit line. |
 | `children` | `reconnectInitialSeconds` | `1` | The first delay before a dropped child MCP is started again; it doubles after each failed attempt. |
 | `children` | `reconnectMaxSeconds` | `60` | The longest delay between reconnect attempts. A session that stayed up this long resets the delay. |
+| `children` | `startupWaitSeconds` | `10` | Longest the Hub waits for children at start; a child that has not answered by then joins later, and the Hub serves without it. |
 | `logs` | `maxBytes` | `5242880` (5 MiB) | Size at which `logs/mcp-hub.jsonl` rotates, and the cap of each child's stderr log. |
 | `logs` | `backups` | `3` | Rotated audit logs kept (`.1` to `.3`); `0` or more. |
 | `cache` | `maxEntries` | `256` | Read-only results the Hub keeps in memory for their `cacheSeconds`. |
@@ -40,6 +49,11 @@ The values an operator may want to change live in one optional `settings` object
 | `jobs` | `retentionDays` | `30` | Days finished jobs and their encrypted evidence are kept. |
 | `jobs` | `approvalCodeMinutes` | `10` | Lifetime of a one-time write-approval code. |
 | `jobs` | `maxWindowHours` | `168` | Longest `since` to `until` span accepted in a plan or investigation job (in hours). |
+| `jobs` | `coordinatorSeconds` | `90` | Time the coordinator gets after an investigation's window ends, to summarize what exists. |
+| `jobs` | `specialistMaxRounds` | `8` | Model rounds one specialist may take before it stops. |
+| `jobs` | `toolResultChars` | `6000` | Characters of one child tool result a specialist reads; the rest is kept as evidence. |
+| `jobs` | `contextChars` | `48000` | Character budget of a specialist's conversation; older tool results are replaced by one-line evidence references. |
+| `jobs` | `promptCache` | `true` | Ask the model provider to cache the stable start of each prompt (tool definitions first). |
 | `batch` | `maxCalls` | `8` | Most calls in one `hub__batch` (at least 2); the tool's schema follows it. |
 | `batch` | `maxPerChild` | `8` | Most calls of one batch that one child serves at the same time. |
 | `batch` | `timeoutSeconds` | `120` | Time the whole batch may take; a call still running is cancelled and reported. |
@@ -48,6 +62,7 @@ The values an operator may want to change live in one optional `settings` object
 | `policy` | `maxPlans` | `256` | Plans kept in memory; the least recently used one is dropped, and a call naming it must plan again. |
 | `policy` | `confirmPlaybook` | `"always"` | Whether `hub__plan` asks the user to choose a playbook first: `always` offers the playbooks before every plan, `ambiguous` offers only when no single playbook matches the task, `off` never asks. See [usage-policy.md](usage-policy.md#playbook-confirmation). |
 | `policy` | `confirmTokenSeconds` | `600` | Seconds a playbook offer's `confirm_token` stays valid; a token is single use. |
+| `policy` | `repeatAfterSeconds` | `0` | An identical call that already succeeded is refused unless this many seconds have passed; `0` refuses every repeat, as before. |
 | `policy` | `healthCheckTools` | `jira__check_connection`, `pr__check_bitbucket_connection`, `source__check_connection`, `sql__check_connection` | Tool names treated as connection checks: allowed only after a failed call of the plan, or with `connection_checks: true`. A list of strings. |
 | `bitnet` | `port` | `8766` | llama-server port on `127.0.0.1` (`1024` to `65535`). |
 | `bitnet` | `threads` | `0` | CPU threads for llama-server; `0` means auto (half the CPU count, at least 1). |
@@ -58,6 +73,7 @@ The values an operator may want to change live in one optional `settings` object
 | `bitnet` | `condenseMinChars` | `9000` | Minimum tool result text length to condense. |
 | `bitnet` | `fullResultTtlSeconds` | `1800` | Lifetime in seconds of a stored original result. |
 | `bitnet` | `fullResultMaxEntries` | `50` | Maximum number of original results kept in memory (LRU). |
+| `bitnet` | `fullResultMaxBytes` | `33554432` | Total bytes of original results kept in memory; the oldest are dropped first (32 MiB). |
 | `bitnet` | `releaseRepository` | `"Ninh-Duong/mcp-hub"` | GitHub repository (`owner/name`) whose Release carries the prebuilt BitNet runtime and model manifest that the desktop app installs. |
 | `bitnet` | `downloadTimeoutSeconds` | `60` | Seconds without data before a BitNet download fails. |
 | `bitnet` | `minFreeBytes` | `3221225472` | Free disk space in bytes needed under `vendor/` before a BitNet install starts (3 GiB). |

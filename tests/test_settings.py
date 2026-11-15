@@ -69,6 +69,49 @@ class SettingsTest(unittest.TestCase):
                 with self.assertRaises(ConfigError):
                     load_settings(root / "hub.json")
 
+    def test_the_standards_alignment_keys_have_their_defaults(self) -> None:
+        settings = Settings()
+        self.assertEqual((settings.bridge.presence_retry_seconds, settings.bridge.connect_timeout_seconds), (5.0, 60.0))
+        self.assertEqual(settings.protocol.validate_arguments, "warn")
+        self.assertEqual(settings.protocol.list_changed_debounce_seconds, 1.0)
+        self.assertEqual(settings.protocol.tools_list_ttl_ms, 0)
+        self.assertEqual((settings.security.tool_pin_mode, settings.security.max_description_chars), ("warn", 4096))
+        self.assertEqual(settings.children.startup_wait_seconds, 10.0)
+        self.assertEqual(settings.policy.repeat_after_seconds, 0.0)
+        self.assertEqual(settings.jobs.coordinator_seconds, 90.0)
+        self.assertEqual(settings.jobs.specialist_max_rounds, 8)
+        self.assertEqual(settings.jobs.tool_result_chars, 6000)
+        self.assertEqual(settings.jobs.context_chars, 48000)
+        self.assertIs(settings.jobs.prompt_cache, True)
+        self.assertEqual(settings.bitnet.full_result_max_bytes, 33554432)
+
+    def test_new_keys_accept_their_documented_ranges(self) -> None:
+        settings = parse_settings({
+            "protocol": {"validateArguments": "off", "listChangedDebounceSeconds": 0, "toolsListTtlMs": 0},
+            "security": {"toolPinMode": "off", "maxDescriptionChars": 512},
+            "policy": {"repeatAfterSeconds": 0},
+            "jobs": {"promptCache": False, "contextChars": 1000},
+            "bitnet": {"fullResultMaxBytes": 1024},
+        })
+        self.assertEqual(settings.protocol.validate_arguments, "off")
+        self.assertIs(settings.jobs.prompt_cache, False)
+        self.assertEqual(settings.security.max_description_chars, 512)
+        self.assertEqual(settings.bitnet.full_result_max_bytes, 1024)
+
+    def test_new_keys_refuse_bad_values_naming_the_key(self) -> None:
+        cases = {
+            "settings.jobs.promptCache must be true or false": {"jobs": {"promptCache": "yes"}},
+            "settings.protocol.validateArguments must be one of: off, warn": {"protocol": {"validateArguments": "block"}},
+            "settings.security.toolPinMode must be one of: off, warn": {"security": {"toolPinMode": "block"}},
+            "settings.protocol.toolsListTtlMs must be at least 0": {"protocol": {"toolsListTtlMs": -1}},
+            "settings.policy.repeatAfterSeconds must be at least 0": {"policy": {"repeatAfterSeconds": -0.5}},
+            "settings.children.startupWaitSeconds must be positive": {"children": {"startupWaitSeconds": 0}},
+            "settings.bridge.connectTimeoutSeconds must be a number": {"bridge": {"connectTimeoutSeconds": "60"}},
+        }
+        for message, raw in cases.items():
+            with self.subTest(message), self.assertRaisesRegex(ConfigError, message.replace(".", r"\.")):
+                parse_settings(raw)
+
 
 if __name__ == "__main__":
     unittest.main()

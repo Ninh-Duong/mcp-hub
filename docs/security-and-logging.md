@@ -82,6 +82,10 @@ The BitNet [processing stream](bitnet.md#processing-stream) is transient metadat
 | `server.reconnect.failed` | WARNING | A retry failed; `error_type`/`error` name the cause and `retry_in_seconds` is the delay before the next attempt (1 s doubling to 60 s). |
 | `route.skipped` | WARNING | An allowlisted tool wasn't exposed; `reason` is `server unavailable` or `tool not found`. Written at start, and for a reconnected child's tools it no longer lists. |
 | `hub.tools.registered` | INFO | Final list of exposed tool names; written again when a reconnect changes the list. |
+| `tools.list_changed.sent` | INFO | The tool set or a tool definition changed, and clients were sent `notifications/tools/list_changed`: `tools_count`. Bursts inside `protocol.listChangedDebounceSeconds` produce one line. |
+| `tool.definition.changed` | WARNING | A child's tool definition no longer matches its pin (`security.toolPinMode` `warn`): `server` and `tool` only, never the definition. The tool keeps running. |
+| `tool.description.suspicious` | WARNING | A tool description has hidden Unicode characters or is longer than `security.maxDescriptionChars`: `server`, `tool`, and `reason`. Never the description text. |
+| `tool.arguments.invalid` | WARNING | A call's arguments do not match the child's input schema (`protocol.validateArguments` `warn`; the call still runs): `server`, `tool`, and the field paths. Never the values. |
 | `hub.started` / `hub.stopped` | INFO | Lifecycle. |
 | `hub.tools.listed` | INFO | A client listed tools. |
 | `tool.call.started` | INFO | Call routed; it carries `request_id`, `feature`, `server`, and `tool`. |

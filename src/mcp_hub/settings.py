@@ -26,10 +26,37 @@ class HttpSettings:
 
 
 @dataclass(frozen=True)
+class BridgeSettings:
+    # The stdio bridge (mcp-hub-bridge) to the shared service: presence retry and the per-request timeout.
+    presence_retry_seconds: float = 5.0
+    connect_timeout_seconds: float = 60.0
+
+
+@dataclass(frozen=True)
+class ProtocolSettings:
+    # Argument checks against a child's input schema: off, or warn (audit only; the call still runs).
+    validate_arguments: str = "warn"
+    # Quiet time before one notifications/tools/list_changed is sent for a burst of tool changes.
+    list_changed_debounce_seconds: float = 1.0
+    # ttlMs of tools/list results; 0 tells clients not to cache them.
+    tools_list_ttl_ms: int = 0
+
+
+@dataclass(frozen=True)
+class SecuritySettings:
+    # Tool definition pins (config/private/tool_pins.json): off, or warn (audit when a child's definition changes).
+    tool_pin_mode: str = "warn"
+    # Longest tool description accepted without a finding.
+    max_description_chars: int = 4096
+
+
+@dataclass(frozen=True)
 class ChildrenSettings:
     # A dropped child is reconnected after `reconnect_initial_seconds`, doubling up to `reconnect_max_seconds`.
     reconnect_initial_seconds: float = 1.0
     reconnect_max_seconds: float = 60.0
+    # Longest the Hub waits for children at start; a child that has not answered by then joins later.
+    startup_wait_seconds: float = 10.0
 
 
 @dataclass(frozen=True)
@@ -60,6 +87,13 @@ class JobSettings:
     retention_days: int = 30
     approval_code_minutes: float = 10.0
     max_window_hours: int = 168
+    # The coordinator's time after the window ends, and the specialists' round and context budgets.
+    coordinator_seconds: float = 90.0
+    specialist_max_rounds: int = 8
+    tool_result_chars: int = 6000
+    context_chars: int = 48000
+    # Ask the model provider to cache the stable part of each prompt (tool list first).
+    prompt_cache: bool = True
 
 
 @dataclass(frozen=True)
@@ -80,6 +114,8 @@ class PolicySettings:
     # playbook matches the task; off never asks. A confirmation token lives confirm_token_seconds and is used once.
     confirm_playbook: str = "always"
     confirm_token_seconds: float = 600.0
+    # An identical call that already succeeded is refused, unless this many seconds have passed (0: always refused).
+    repeat_after_seconds: float = 0.0
     # Connection checks: allowed only after a failed call, or when the plan says the user asked for checks.
     # Listing OpenObserve organizations is discovery, not a check; playbooks pass the project's targets instead.
     health_check_tools: tuple[str, ...] = (
@@ -102,6 +138,8 @@ class BitnetSettings:
     condense_min_chars: int = 9000
     full_result_ttl_seconds: float = 1800.0
     full_result_max_entries: int = 50
+    # Total bytes of the original results kept in memory; the oldest are dropped first.
+    full_result_max_bytes: int = 32 * 1024 * 1024
     # Install from the desktop app: the GitHub repository whose Release carries the prebuilt runtime and the
     # model manifest, the time without data before a download fails, and the free space needed before it starts.
     release_repository: str = "Ninh-Duong/mcp-hub"
@@ -112,6 +150,9 @@ class BitnetSettings:
 @dataclass(frozen=True)
 class Settings:
     http: HttpSettings = field(default_factory=HttpSettings)
+    bridge: BridgeSettings = field(default_factory=BridgeSettings)
+    protocol: ProtocolSettings = field(default_factory=ProtocolSettings)
+    security: SecuritySettings = field(default_factory=SecuritySettings)
     children: ChildrenSettings = field(default_factory=ChildrenSettings)
     logs: LogSettings = field(default_factory=LogSettings)
     cache: CacheSettings = field(default_factory=CacheSettings)
@@ -130,10 +171,18 @@ _MINIMUMS = {
     ("batch", "max_calls"): 2,
     ("bitnet", "port"): 1024,
     ("bitnet", "threads"): 0,
+    ("protocol", "list_changed_debounce_seconds"): 0,
+    ("protocol", "tools_list_ttl_ms"): 0,
+    ("policy", "repeat_after_seconds"): 0,
 }
 _MAXIMUMS = {("http", "port"): 65535, ("bitnet", "port"): 65535}
 # Text settings and the values each accepts.
-_CHOICES = {("policy", "mode"): ("enforce", "warn", "off"), ("policy", "confirm_playbook"): ("always", "ambiguous", "off")}
+_CHOICES = {
+    ("policy", "mode"): ("enforce", "warn", "off"),
+    ("policy", "confirm_playbook"): ("always", "ambiguous", "off"),
+    ("protocol", "validate_arguments"): ("off", "warn"),
+    ("security", "tool_pin_mode"): ("off", "warn"),
+}
 
 
 def load_settings(config_path: str | Path | None = None) -> Settings:
@@ -175,9 +224,17 @@ def _checked(label: str, key: tuple[str, str], value: Any, kind: type) -> Any:
         if not isinstance(value, str) or not value.strip():
             raise ConfigError(f"{label} must be a non-empty string")
         return value.strip()
+    if kind is bool:
+        return _checked_flag(label, value)
     if kind is tuple:
         return _checked_names(label, value)
     return _checked_number(label, key, value, kind)
+
+
+def _checked_flag(label: str, value: Any) -> bool:
+    if not isinstance(value, bool):
+        raise ConfigError(f"{label} must be true or false")
+    return value
 
 
 def _checked_choice(label: str, key: tuple[str, str], value: Any) -> str:
