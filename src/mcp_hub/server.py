@@ -38,7 +38,7 @@ from mcp.types import (
 
 from . import config as hub_config
 from .audit import AuditLog, default_log_dir, describe_exception, redact
-from .audit_events import TOOL_DEFINITION_CHANGED, TOOL_DESCRIPTION_SUSPICIOUS, TOOLS_LIST_CHANGED_SENT
+from .audit_events import TOOL_ARGUMENTS_INVALID, TOOL_DEFINITION_CHANGED, TOOL_DESCRIPTION_SUSPICIOUS, TOOLS_LIST_CHANGED_SENT
 from .batch import BATCH_TOOL, BatchItem, BatchRefused, batch_result, batch_tool, parse_calls, run_batch
 from .children import Backoff, ChildOpener, ChildSupervisor, ChildUnavailable, open_stdio_client
 from .condense import RuleCondenser, condense_text_rules
@@ -55,6 +55,7 @@ from .policy import PLAN_TOOL, CallFacts, PlanBook, PlanCatalog, PolicyRefused, 
 from .projects import ProjectConfig, load_projects
 from .result_cache import ResultCache
 from .result_shape import is_condensable, parse_page_args, with_condensed_meta
+from .schema_rewrite import validate_args
 from .settings import Settings, load_settings
 from .tool_pins import PinStore, description_findings, fingerprint
 
@@ -816,6 +817,18 @@ class HubRuntime:
         self.audit.write("tool.call.denied", level=logging.WARNING, **fields, reason=f"policy:{violation.rule}")
         return _error_result(f"Policy: call {index}: {violation.message}")
 
+    def _screen_arguments(self, route: ToolRoute, arguments: dict[str, Any], request_id: str) -> None:
+        """In warn mode, audit arguments that do not match the child's input schema; the call still runs (FR-012)."""
+        if self.settings.protocol.validate_arguments != "warn":
+            return
+        child_tool = self._discovered.get(route.server_id, {}).get(route.tool_name)
+        paths = validate_args(getattr(child_tool, "input_schema", None), arguments)
+        if paths:
+            self.audit.write(
+                TOOL_ARGUMENTS_INVALID, level=logging.WARNING, request_id=request_id, feature=route.feature,
+                server=route.server_id, tool=route.tool_name, fields=paths,
+            )
+
     async def call_child_tool(
         self,
         name: str,
@@ -833,6 +846,7 @@ class HubRuntime:
             denied = redact(str(name)[:DENIED_NAME_LIMIT + _SUMMARY_REDACTION_MARGIN], limit=DENIED_NAME_LIMIT)
             self.audit.write("tool.call.denied", level=logging.WARNING, request_id=request_id, tool=denied)
             return _error_result("This tool is not enabled in the Hub configuration.")
+        self._screen_arguments(route, arguments, request_id)
         tokens = self._observe_start(route, client_name, agent_role) if self.observers else None
         call = _ChildCall(route, request_id, tokens, perf_counter())
         if self.processing_observer is not None:
