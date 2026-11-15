@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 from mcp_hub.bitnet.rules import fold, parse_rules
 from mcp_hub.extensions import PlanContext
@@ -9,7 +9,7 @@ from mcp_hub.extensions import PlanContext
 
 class BitnetRulesTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.now = datetime(2026, 11, 8, 10, 0, tzinfo=timezone.utc)
+        self.now = datetime(2026, 11, 8, 10, 0, tzinfo=UTC)
         self.playbooks = {
             "rcid-bug": "when you have a request ID",
             "jira-ticket-bug": "when you have a Jira ticket key",
@@ -41,8 +41,8 @@ class BitnetRulesTest(unittest.TestCase):
     def test_check_production_hom_nay(self) -> None:
         res = parse_rules(self._context("check production hom nay"))
         self.assertEqual(res.hints.env, "prod")
-        self.assertEqual(res.hints.since, datetime(2026, 11, 7, 10, 0, tzinfo=timezone.utc))
-        self.assertEqual(res.hints.until, datetime(2026, 11, 8, 10, 0, tzinfo=timezone.utc))
+        self.assertEqual(res.hints.since, datetime(2026, 11, 7, 10, 0, tzinfo=UTC))
+        self.assertEqual(res.hints.until, datetime(2026, 11, 8, 10, 0, tzinfo=UTC))
         self.assertNotIn("env", res.unresolved)
         self.assertNotIn("window", res.unresolved)
 
@@ -52,8 +52,8 @@ class BitnetRulesTest(unittest.TestCase):
         self.assertIn("mcp-server-logs", res.hints.servers)
         self.assertIn("mcp-sqlserver", res.hints.servers)
         # Yesterday UTC: 2026-11-07 00:00:00 to 2026-11-08 00:00:00
-        self.assertEqual(res.hints.since, datetime(2026, 11, 7, 0, 0, tzinfo=timezone.utc))
-        self.assertEqual(res.hints.until, datetime(2026, 11, 8, 0, 0, tzinfo=timezone.utc))
+        self.assertEqual(res.hints.since, datetime(2026, 11, 7, 0, 0, tzinfo=UTC))
+        self.assertEqual(res.hints.until, datetime(2026, 11, 8, 0, 0, tzinfo=UTC))
 
     def test_compare_dev_and_prod_leaves_env_unresolved(self) -> None:
         res = parse_rules(self._context("compare dev and prod"))
@@ -62,8 +62,8 @@ class BitnetRulesTest(unittest.TestCase):
 
     def test_last_6h_errors(self) -> None:
         res = parse_rules(self._context("last 6h errors"))
-        self.assertEqual(res.hints.since, datetime(2026, 11, 8, 4, 0, tzinfo=timezone.utc))
-        self.assertEqual(res.hints.until, datetime(2026, 11, 8, 10, 0, tzinfo=timezone.utc))
+        self.assertEqual(res.hints.since, datetime(2026, 11, 8, 4, 0, tzinfo=UTC))
+        self.assertEqual(res.hints.until, datetime(2026, 11, 8, 10, 0, tzinfo=UTC))
         self.assertNotIn("window", res.unresolved)
         self.assertIn("mcp-server-logs", res.hints.servers)
 
@@ -103,10 +103,10 @@ class BitnetRulesTest(unittest.TestCase):
 
     def test_window_days_and_week(self) -> None:
         res_days = parse_rules(self._context("last 2 days"))
-        self.assertEqual(res_days.hints.since, datetime(2026, 11, 6, 10, 0, tzinfo=timezone.utc))
+        self.assertEqual(res_days.hints.since, datetime(2026, 11, 6, 10, 0, tzinfo=UTC))
 
         res_week = parse_rules(self._context("this week errors"))
-        self.assertEqual(res_week.hints.since, datetime(2026, 11, 1, 10, 0, tzinfo=timezone.utc))
+        self.assertEqual(res_week.hints.since, datetime(2026, 11, 1, 10, 0, tzinfo=UTC))
 
         res_over = parse_rules(self._context("last 200h"))
         self.assertIsNone(res_over.hints.since)

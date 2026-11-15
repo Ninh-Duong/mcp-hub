@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
 
 from mcp_hub.bitnet.client import BitnetClient
@@ -26,7 +26,7 @@ class _FakeBitnetClient(BitnetClient):
 
 class BitnetPlannerTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
-        self.now = datetime(2026, 11, 8, 10, 0, tzinfo=timezone.utc)
+        self.now = datetime(2026, 11, 8, 10, 0, tzinfo=UTC)
         self.playbooks = {
             "rcid-bug": "when you have a request ID",
             "jira-ticket-bug": "when you have a Jira ticket key",

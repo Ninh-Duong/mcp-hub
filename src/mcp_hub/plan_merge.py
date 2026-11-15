@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unicodedata
 from collections.abc import Iterable, Mapping
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from .extensions import PlanHints
@@ -52,7 +52,7 @@ def _to_utc_datetime(value: Any, name: str) -> datetime:
 
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=UTC)
-    return dt.astimezone(timezone.utc)
+    return dt.astimezone(UTC)
 
 
 def merge_plan_arguments(arguments: Mapping[str, Any], hints: PlanHints | None) -> tuple[dict[str, Any], bool]:

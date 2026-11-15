@@ -8,7 +8,7 @@ import re
 import subprocess
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
 
@@ -111,7 +111,7 @@ def _load_children() -> list[dict[str, Any]]:
 
 
 def _initialize(run_id: str, mode: str) -> dict[str, Any]:
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     value = {"run_id": run_id, "state": "running", "started_at": now, "updated_at": now,
              "components": [], "events": []}
     write(value)

@@ -3,8 +3,8 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import Mapping
+from datetime import datetime, timedelta, UTC
+from collections.abc import Mapping
 
 from ..extensions import PlanContext, PlanHints
 
@@ -58,7 +58,7 @@ def _parse_env(folded: str, allowed_envs: tuple[str, ...]) -> str | None:
 
 
 def _parse_window(folded: str, now: datetime) -> tuple[datetime, datetime] | None:
-    now_utc = now.astimezone(timezone.utc)
+    now_utc = now.astimezone(UTC)
     if _WINDOW_TODAY_RE.search(folded):
         return now_utc - timedelta(hours=24), now_utc
     if _WINDOW_YESTERDAY_RE.search(folded):

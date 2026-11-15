@@ -14,7 +14,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from time import monotonic
-from typing import Any, Callable, Literal, Protocol, get_args
+from typing import Any, Literal, Protocol, get_args
+from collections.abc import Callable
 
 from .config import PRIVATE_ROOT, ConfigError, resolved_config_path
 

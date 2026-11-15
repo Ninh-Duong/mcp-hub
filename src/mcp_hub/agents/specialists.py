@@ -5,7 +5,8 @@ import json
 import re
 import uuid
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable
+from typing import Any
+from collections.abc import Awaitable, Callable
 
 from jsonschema import Draft202012Validator
 from mcp.types import CallToolResult, TextContent

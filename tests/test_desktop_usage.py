@@ -5,14 +5,14 @@ import json
 import tempfile
 import threading
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from pathlib import Path
 from urllib.error import URLError
 
 from mcp_hub.desktop import status, theme, usage
 from mcp_hub.desktop.usage import ChildUsage, UsageBoard
 
-NOW = datetime(2026, 10, 31, 9, 30, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 31, 9, 30, tzinfo=UTC)
 TOKEN = "t" * 48
 
 
@@ -94,7 +94,7 @@ class FakeResponse:
     def __init__(self, lines: list[bytes]) -> None:
         self.lines = lines
 
-    def __enter__(self) -> "FakeResponse":
+    def __enter__(self) -> FakeResponse:
         return self
 
     def __exit__(self, *_args: object) -> None:

@@ -7,9 +7,10 @@ import secrets
 import sqlite3
 import threading
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from pathlib import Path
-from typing import Any, Iterable, Protocol
+from typing import Any, Protocol
+from collections.abc import Iterable
 
 from ..config import PRIVATE_ROOT
 from ..security.dpapi import DPAPIProtector
@@ -106,11 +107,11 @@ class Protector(Protocol):
 
 
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _utc_timestamp(value: datetime) -> str:
-    return value.astimezone(timezone.utc).isoformat()
+    return value.astimezone(UTC).isoformat()
 
 
 class JobStore:
@@ -574,7 +575,7 @@ class JobStore:
         }
 
     def _timestamp(self) -> str:
-        return self.clock().astimezone(timezone.utc).isoformat()
+        return self.clock().astimezone(UTC).isoformat()
 
     def _expiry(self, timestamp: str) -> str:
         return (datetime.fromisoformat(timestamp) + self.retention).isoformat()

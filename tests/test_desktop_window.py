@@ -7,7 +7,7 @@ import threading
 import time
 import unittest
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -180,7 +180,7 @@ class StatusWindowTest(unittest.TestCase):
         self.store = FakeStore()
         self.autostart = {"hub": True, "app": True}
         self.autostart_calls: list[tuple[str, bool]] = []
-        self.utc = datetime(2026, 10, 31, 9, 30, tzinfo=timezone.utc)
+        self.utc = datetime(2026, 10, 31, 9, 30, tzinfo=UTC)
         self.streams: list[tuple] = []
         self.stream_started = threading.Event()
         self.processing_streams = []
@@ -1374,7 +1374,7 @@ class ScreenshotTest(unittest.TestCase):
                 self.drained = True
 
             def now(self) -> datetime:
-                return datetime(2026, 10, 31, tzinfo=timezone.utc)
+                return datetime(2026, 10, 31, tzinfo=UTC)
 
             def preview_usage(self, board) -> None:
                 self.previewed.append(board.usage("mcp-server-logs", self.now()))
@@ -1405,7 +1405,7 @@ class ScreenshotTest(unittest.TestCase):
         for name, _value in (("show_for_capture", None), ("set_theme", None), ("set_language", None), ("show_settings", None),
                             ("set_compact", None), ("preview_usage", None), ("process_results", None)):
             setattr(window, name, lambda *_a, **_k: None)
-        window.now = lambda: datetime(2026, 10, 31, tzinfo=timezone.utc)
+        window.now = lambda: datetime(2026, 10, 31, tzinfo=UTC)
         window.apply = lambda snapshot: window.shown.append(snapshot)
         window.preview_update = window.releases.append
         with tempfile.TemporaryDirectory() as tmp:

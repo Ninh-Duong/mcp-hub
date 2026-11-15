@@ -63,7 +63,7 @@ uv run --locked --python 3.12 python scripts/package_qc.py
 
 It runs, in order, and stops at the first failure:
 
-1. `python -m ruff check .` — lint: syntax errors (`E9`) and pyflakes (`F`: unused imports and variables, undefined names), configured in `pyproject.toml`.
+1. `python -m ruff check .` — lint: syntax errors (`E9`), pyflakes (`F`: unused imports and variables, undefined names), bugbear (`B`: likely bugs), and pyupgrade (`UP`: newer Python spellings), configured in `pyproject.toml`.
 2. `python -m coverage run -m unittest discover tests` — the unit tests, measured for line and branch coverage of `src/mcp_hub`.
 3. `python -m coverage report --fail-under=85` — fails below 85 % (`COVERAGE_FAIL_UNDER`: the measured 88 % baseline rounded down to a multiple of 5). Raise it when coverage grows.
 4. `python scripts/check_leaks.py` — machine paths, real emails, private path components.

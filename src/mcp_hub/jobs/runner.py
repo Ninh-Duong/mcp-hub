@@ -6,7 +6,8 @@ import re
 import uuid
 from datetime import datetime, timedelta
 from functools import partial
-from typing import Any, Callable, TypeVar
+from typing import Any
+from collections.abc import Callable
 
 from mcp.types import CallToolResult, TextContent, Tool
 
@@ -49,7 +50,6 @@ _SECRET_ARGUMENT_RE = re.compile(
 )
 _SQL_RE = re.compile(r"\b(sql|database|db|table|query|stored procedure|bang|du lieu|co so du lieu)\b")
 _UNKNOWN_TOOL = object()
-_T = TypeVar("_T")
 
 _DETERMINISTIC_TOOLS: dict[str, tuple[str, ...]] = {
     "logs": ("logs__get_openobserve_service_logs", "logs__search_openobserve_logs"),
@@ -145,7 +145,7 @@ def create_provider(config: AgentConfig, *, prompt_cache: bool = JobSettings().p
     return provider_type(config.model, config.api_key)
 
 
-async def _db(function: Callable[..., _T], /, *args: Any, **kwargs: Any) -> _T:
+async def _db[T](function: Callable[..., T], /, *args: Any, **kwargs: Any) -> T:
     """Run one store (SQLite/DPAPI) operation off the event loop."""
     return await asyncio.to_thread(function, *args, **kwargs)
 

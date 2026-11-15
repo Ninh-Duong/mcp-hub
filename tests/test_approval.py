@@ -3,7 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from pathlib import Path
 
 from tests.test_job_store import FakeProtector
@@ -19,7 +19,7 @@ class ApprovalStoreTest(unittest.TestCase):
         from mcp_hub.jobs.store import JobStore
 
         self.temp = tempfile.TemporaryDirectory()
-        self.now = datetime(2026, 10, 28, tzinfo=timezone.utc)
+        self.now = datetime(2026, 10, 28, tzinfo=UTC)
         self.store = JobStore(
             Path(self.temp.name) / "jobs.sqlite3", protector=FakeProtector(), clock=lambda: self.now,
         )

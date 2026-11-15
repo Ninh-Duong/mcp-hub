@@ -16,7 +16,7 @@ import os
 import re
 import sys
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 from mcp import Client, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -271,7 +271,7 @@ def main() -> None:
         print("No enabled child MCPs; Hub exposes hub__status.")
         raise SystemExit(0)
 
-    started = datetime.now(timezone.utc).isoformat()
+    started = datetime.now(UTC).isoformat()
     try:
         connected, calls = asyncio.run(_probe(enabled))
     except Exception:

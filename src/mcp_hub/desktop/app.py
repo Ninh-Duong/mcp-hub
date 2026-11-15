@@ -16,7 +16,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -49,7 +49,7 @@ def thread_worker(job: Callable[[], None]) -> None:
 
 
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 HUB = hub_api.HubClient()

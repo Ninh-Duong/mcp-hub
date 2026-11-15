@@ -10,7 +10,8 @@ import ctypes
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication

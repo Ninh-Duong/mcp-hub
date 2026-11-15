@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
 
@@ -53,7 +53,7 @@ def write(value: dict[str, Any], path: Path | None = None) -> None:
         "run_id": _text(value.get("run_id"), 40),
         "state": value.get("state") if value.get("state") in _ALLOWED_STATES else "idle",
         "started_at": _text(value.get("started_at"), 40),
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
         "components": [item for item in value.get("components", [])[:MAX_COMPONENTS] if _safe_component(item)],
         "events": [item for item in value.get("events", [])[-MAX_EVENTS:] if _safe_event(item)],
     }
@@ -69,7 +69,7 @@ def write(value: dict[str, Any], path: Path | None = None) -> None:
 def add_event(value: dict[str, Any], component: str, phase: str, state: str, error_code: str | None = None) -> None:
     value.setdefault("events", []).append({"component": component[:128], "phase": phase[:32], "state": state[:16],
                                             "error_code": error_code[:40] if error_code else None,
-                                            "at": datetime.now(timezone.utc).isoformat()})
+                                            "at": datetime.now(UTC).isoformat()})
     value["events"] = value["events"][-MAX_EVENTS:]
 
 

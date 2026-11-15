@@ -5,10 +5,11 @@ import logging
 import os
 import re
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
+from collections.abc import Iterable
 
 from .config import HUB_ROOT
 from .settings import LogSettings
@@ -124,7 +125,7 @@ class AuditLog:
         if handler is None or level < logging.INFO:
             return
         record = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "event": event,
             **fields,
         }

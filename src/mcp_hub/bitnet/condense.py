@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Callable
+from collections.abc import Callable
 
 from ..condense import (
     _ERROR_MARKER_RE,

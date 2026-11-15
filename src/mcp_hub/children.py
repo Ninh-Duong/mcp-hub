@@ -24,7 +24,8 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppres
 from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
-from typing import Any, AsyncIterator, Literal, Protocol, TextIO
+from typing import Any, Literal, Protocol, TextIO
+from collections.abc import AsyncIterator
 
 import anyio
 from mcp import Client, StdioServerParameters

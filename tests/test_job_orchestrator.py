@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -126,8 +126,8 @@ class JobOrchestratorTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(planned_event["tool"], "fallback")
 
     async def test_plan_job_fills_window_only_when_absent(self) -> None:
-        s = datetime(2026, 11, 8, 0, 0, tzinfo=timezone.utc)
-        u = datetime(2026, 11, 8, 4, 0, tzinfo=timezone.utc)
+        s = datetime(2026, 11, 8, 0, 0, tzinfo=UTC)
+        u = datetime(2026, 11, 8, 4, 0, tzinfo=UTC)
         self.runner.plan_assistant = _FakeAssistant(PlanHints(since=s, until=u, source="bitnet"))
 
         # Case 1: absent window
