@@ -1,6 +1,6 @@
 # Track B: events and child list changes
 
-Status: ready
+Status: done (T20, T21 committed on `arch/track-b`; package_qc passed)
 Branch: `arch/track-b` (from `arch/base`). Worktree: `../mcp-hub-track-b` (sibling of the Hub checkout).
 
 Owns:
