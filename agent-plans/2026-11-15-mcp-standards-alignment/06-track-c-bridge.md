@@ -16,7 +16,7 @@ Do not edit `server.py` or `http.py` (Phase 2 owns the Hub side).
 
 Move the forwarding handlers (tools and prompts) into `src/mcp_hub/bridge_proxy.py`. `bridge.py` keeps startup and lifecycle only. Existing tests must pass unchanged.
 
-## T31 instructions
+## T31 instructions [x]
 
 Replace the hard-coded one-line instructions with the instructions the Hub sent in its `initialize` result. Read the attribute from the SDK client (verify the name, for example on `initialize_result`). If the Hub sent none, keep the current one-liner.
 
@@ -65,3 +65,4 @@ uv run --no-sync python scripts/package_qc.py
 ## Progress log
 
 - T30 done: forwarding handlers moved to `bridge_proxy.py`; `bridge.py` re-imports `create_bridge_server`; 7 bridge tests pass unchanged (plus one new module-location test).
+- T31 done: `upstream_instructions(remote)` reads the SDK client's `instructions` (`getattr`, so fakes work); the one-liner is the fallback; 2 new tests.

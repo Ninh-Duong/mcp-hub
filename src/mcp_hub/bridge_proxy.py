@@ -14,6 +14,14 @@ from mcp.types import (
 )
 
 
+BRIDGE_INSTRUCTIONS = "Forwards MCP requests to the authenticated local mcp-hub service."
+
+
+def upstream_instructions(remote: Any) -> str:
+    """The instructions the Hub sent in its initialize result, or the bridge one-liner when it sent none."""
+    return getattr(remote, "instructions", None) or BRIDGE_INSTRUCTIONS
+
+
 def create_bridge_server(remote: Any) -> Server:
     """A stdio MCP server that forwards tools and prompts to the Hub client `remote`."""
 
@@ -37,7 +45,7 @@ def create_bridge_server(remote: Any) -> Server:
 
     return Server(
         "mcp-hub-stdio-bridge",
-        instructions="Forwards MCP requests to the authenticated local mcp-hub service.",
+        instructions=upstream_instructions(remote),
         on_list_tools=list_tools,
         on_call_tool=call_tool,
         on_list_prompts=list_prompts,

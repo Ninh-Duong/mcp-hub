@@ -88,6 +88,60 @@ class BridgeProxyModuleTest(unittest.TestCase):
         self.assertEqual(bridge_proxy.create_bridge_server.__module__, "mcp_hub.bridge_proxy")
 
 
+class FakeRemoteWithInstructions(FakeRemoteClient):
+    instructions = "Call sample__echo to echo text."
+
+
+def run_downstream(remote, check) -> None:
+    """Serve `remote` through the bridge over memory streams and run `check(client)` as the stdio client."""
+    from mcp_hub.bridge_proxy import create_bridge_server
+
+    async def exercise() -> None:
+        server = create_bridge_server(remote)
+        async with create_client_server_memory_streams() as (client_streams, server_streams):
+            client_read, client_write = client_streams
+            server_read, server_write = server_streams
+
+            @asynccontextmanager
+            async def transport():
+                yield client_read, client_write
+
+            async with anyio.create_task_group() as task_group:
+                task_group.start_soon(
+                    server.run,
+                    server_read,
+                    server_write,
+                    server.create_initialization_options(),
+                )
+                try:
+                    async with Client(transport()) as client:
+                        await check(client)
+                finally:
+                    task_group.cancel_scope.cancel()
+
+    asyncio.run(exercise())
+
+
+class BridgeInstructionsTest(unittest.TestCase):
+    def test_downstream_client_gets_the_hub_instructions(self) -> None:
+        seen = {}
+
+        async def check(client) -> None:
+            seen["instructions"] = client.instructions
+
+        run_downstream(FakeRemoteWithInstructions(), check)
+        self.assertEqual(seen["instructions"], "Call sample__echo to echo text.")
+
+    def test_downstream_client_gets_the_one_liner_when_the_hub_sent_none(self) -> None:
+        seen = {}
+
+        async def check(client) -> None:
+            seen["instructions"] = client.instructions
+
+        run_downstream(FakeRemoteClient(), check)
+        self.assertEqual(seen["instructions"], "Forwards MCP requests to the authenticated local mcp-hub service.")
+
+
 class PresenceTest(unittest.TestCase):
     def test_main_client_has_no_read_timeout_so_long_child_calls_finish(self) -> None:
         from mcp_hub.bridge import BRIDGE_TIMEOUT
