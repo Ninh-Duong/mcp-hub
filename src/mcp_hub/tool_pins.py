@@ -80,14 +80,13 @@ class PinStore:
             self._servers = servers
 
     def check(self, server_id: str, tools: Iterable[Tool]) -> PinVerdict:
-        """Compare a server's tools with the pins; a new tool is pinned now, a changed one waits for accept."""
+        """Compare a server's tools with the pins; a new tool is pinned now, a changed one waits for accept.
+        A pin whose tool is missing from this listing is kept, so the tool is compared again when it returns."""
         known = self._servers.setdefault(server_id, {})
         new: list[str] = []
         same: list[str] = []
         changed: list[str] = []
-        listed: set[str] = set()
         for tool in tools:
-            listed.add(tool.name)
             digest = fingerprint(tool)
             if tool.name not in known:
                 known[tool.name] = digest
@@ -96,8 +95,6 @@ class PinStore:
                 same.append(tool.name)
             else:
                 changed.append(tool.name)
-        for name in set(known) - listed:
-            del known[name]
         return PinVerdict(tuple(new), tuple(same), tuple(changed))
 
     def accept(self, server_id: str, tool: Tool) -> None:
