@@ -1,0 +1,52 @@
+# Track W: wiring (Phase 2)
+
+Status: waiting for Phase 1 (tracks A to F merged into `arch/base`)
+Branch: `arch/track-w` (from `arch/base` after all Phase 1 merges). Worktree: `../mcp-hub-track-w`.
+
+This is the only track that edits `server.py`. Tasks run one at a time, one commit each, in the order below.
+
+Owns:
+- `src/mcp_hub/server.py`, `src/mcp_hub/service.py`, `src/mcp_hub/batch.py`
+- `src/mcp_hub/activity_ui/extension.py`, `src/mcp_hub/activity_ui/client_sessions.py`
+- `src/mcp_hub/bitnet/__init__.py` (only the `FullResultStore(max_bytes=...)` call)
+- `tests/test_server*.py`, `tests/test_batch.py`, `tests/test_activity*.py` (additions)
+- `docs/architecture.md`, `docs/child-mcp-compatibility.md`, `docs/batch.md`, `docs/usage-policy.md`, `docs/operations/shared-agent-hub.md`, `AGENTS.md` (the dependency line only)
+
+Read first: `src/mcp_hub/server.py` (`_maybe_condense`, `_finish_condensed`, `_pack_batch_items`, `_get_full_result`, `_register_routes`, `call_child_tool`, `_invoke_child`, `create_mcp_server`, `_ERROR_PREFIXES` near line 58), and the Phase 1 modules: `result_shape.py`, `events.py`, `schema_rewrite.py`, `tool_pins.py`, `instructions.py`, `full_results.py`, and the new policy and cache behaviour.
+
+## Tasks
+
+- [ ] T070 `_maybe_condense` calls `result_shape.is_condensable(tool_output_schema, result)` first and returns the result untouched when it is False. `_finish_condensed` builds its result with `with_condensed_meta`. The batch packing applies the same rule. Test: a tool with `outputSchema` returns a result that validates against that schema with `jsonschema`, including after a large text result.
+- [ ] T071 `hub__get_full_result` uses `parse_page_args` and returns `isError=true` with the error text for bad input (FR-003). Test: `limit` set to a list gives an error result, not an exception.
+- [ ] T072 `create_mcp_server` installs `runtime.events.listen_handler` on the server (the `subscriptions/listen` handler). `activity_ui/extension.py` wraps that handler for its presence feed instead of registering its own. Test: with the activity UI on and off, `subscriptions/listen` answers, and only one handler is registered.
+- [ ] T073 `_register_routes` computes a signature from `tool_pins.fingerprint` over every exposed tool (sorted by server id then tool name) and calls `events.tools_changed(signature)`. The first build calls `events.prime(signature)` instead. Audit `tools.list_changed.sent` (constant from `audit_events`) when a publish is scheduled. Test: a fake child that reconnects with one new tool yields exactly one notification (SC-003).
+- [ ] T074 The supervisor callback from Track B (`on_tools_changed(server_id)`) is passed when children are created; the callback relists routes through `_register_routes`. Test: a child-sent change updates the tool list.
+- [ ] T075 `tools/list` order is fixed: Hub tools, then each server in config order, then job tools; each server's tools sorted by name. The cache hint comes from `Settings().protocol.tools_list_ttl_ms`, applied through `mcp.server.caching.apply_cache_hint` or `cache_hints` (verify the SDK argument). Test: two builds give the same order.
+- [ ] T076 `_call_child` passes `progress_callback` to `client.call_tool` when the downstream request has a `progressToken`, and forwards `_meta` minus connection-owned keys (FR-010). Test: a fake child that reports progress causes downstream progress notifications.
+- [ ] T077 `connect` waits at most `children.startup_wait_seconds` for the first attempts; children that answer later are registered when they connect (SC-004). Test: a fake child that hangs does not delay the Hub past 12 seconds in the test's clock or timeout settings.
+- [ ] T078 `PinStore.check` runs inside `_register_routes`, through `asyncio.to_thread` for loading and saving. In warn mode, changed tools write `tool.definition.changed` (with `server` and `tool` only) and `hub__status` lists them under a `tool_pins` field. The pin file path is `config/private/tool_pins.json` under the private root. Test: a changed fake definition writes the event and does not hide the tool.
+- [ ] T079 `validate_args` runs in `call_child_tool` when `protocol.validate_arguments` is `warn`. A failure writes `tool.arguments.invalid` with the field paths and the call still runs. Batch items get the same check. Test: a wrong-typed argument still reaches the fake child and writes the audit line.
+- [ ] T080 `create_mcp_server` builds the server instructions with `instructions.build_instructions`. The summary is the existing short summary; sections are the tool list per server and then `client-rules.md`. Remove live connection counts from the instructions; `hub__status` still reports them. Test: the instructions are at most 4096 characters and start with the summary.
+- [ ] T081 Pass `Settings().bitnet.full_result_max_bytes` to the `FullResultStore` constructor. Update `AGENTS.md` dependency line and `docs/architecture.md` (module table, failure handling, list_changed, condensing rules), `docs/child-mcp-compatibility.md` (`isError`, `outputSchema`, `list_changed`), `docs/batch.md`, `docs/usage-policy.md` (repeat and rate of plan ids, validation warn mode), `docs/operations/shared-agent-hub.md`.
+
+Also wire the Phase 1 settings values: `policy.repeat_after_seconds` into the policy object, `children.startup_wait_seconds` into `connect`, `protocol.list_changed_debounce_seconds` into `HubEvents`, `security.tool_pin_mode` and `max_description_chars` into the pin check, and `jobs.*` into the job runner and specialists. Each value is passed when the object is created, never read from `hub.json` inside a module.
+
+## Verify (after each task)
+
+```
+cd "../mcp-hub-track-w"
+uv run --no-sync python -m unittest discover tests -q
+uv run --no-sync python scripts/package_qc.py
+```
+
+At the end, run the Hub in this checkout with `MCP_HUB_PRIVATE_DIR`, `MCP_HUB_LOG_DIR`, and a free port set, and run `uv run --no-sync python scripts/smoke.py` with the same environment. Record the result, including any child that is `WARN` (a missing account is expected) or `FAIL` (report it, do not hide it).
+
+## Stop and ask
+
+- A Phase 1 module's signature differs from its card.
+- Any existing test that asserts the old instructions, the old tool order, or the old condensed shape fails. Report the test names; do not rewrite them without a decision.
+- The change would add a second place where a default value is written.
+
+## Progress log
+
+- (agent: add one line per task here)
