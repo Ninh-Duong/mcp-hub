@@ -1,6 +1,6 @@
 # Track Q: quality and conformance (Phase 3)
 
-Status: in progress (T090 to T092 done; the closing package_qc run is pending)
+Status: done (T090 to T092; the closing package_qc run passed in the worktree)
 Branch: `arch/track-q` (from `arch/base` after Phase 2 merges). Worktree: `../mcp-hub-track-q`.
 
 Owns:
@@ -39,3 +39,4 @@ uv run --no-sync python scripts/package_qc.py
 - 2026-11-15 T092 not started: it is blocked by the same scripts rule. `UP` gives 96 findings: 43 in `src/`, 51 in `tests/`, and 2 in `scripts/` (`scripts/bench_call_path.py:19` UP035, `scripts/smoke.py:274` UP017). 95 are auto-fixable; `src/mcp_hub/jobs/runner.py:148` (UP047, generic function) needs a manual change. The fixes I checked change no public API.
 - 2026-11-15 T091 done (D11 lifts the scripts block; this line supersedes the T091 blocker above): `B` is in `[tool.ruff.lint] select`, and the 22 findings are fixed in code, none suppressed. `zip(strict=True)` where the lengths are equal by construction; `strict=False` where the code relies on truncation or the lengths can drift. The B008 defaults are module-level instances of frozen dataclasses, so values and types are unchanged. Unit suite: 1143 tests OK (one skipped); ruff and the standards check pass.
 - 2026-11-15 T092 done: `UP` is in `[tool.ruff.lint] select`; 96 findings fixed in code. 95 are ruff's safe rewrites (`datetime.UTC`, `collections.abc` imports, `TimeoutError`, unquoted annotations), plus the unused `timezone` imports they left. UP047 in `src/mcp_hub/jobs/runner.py` is by hand: `_db` uses PEP 695 type parameters and the module-level `TypeVar` is removed. No public API changed. The `ruff check` wording is updated in `AGENTS.md` and `docs/packaging-and-qc.md`. Unit suite: 1143 tests OK (one skipped); ruff, the standards check and the docs check pass.
+- 2026-11-15 track Q closed: the closing `scripts/package_qc.py` run exits 0 (lint passed; 1143 tests OK, one skipped; coverage 92%; leak, standards, docs and compile checks passed; live smoke skipped, as it needs `--live-smoke`).
