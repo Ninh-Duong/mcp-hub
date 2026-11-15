@@ -14,6 +14,8 @@ from ..audit import SENSITIVE_FIELD_RE, redact
 from ..config import HUB_ROOT
 from ..extensions import ResultCondenser
 from ..server import is_read_only_tool
+from ..settings import JobSettings
+from .harness import ContextBudget, Exchange
 from .providers import ModelProvider, ModelToolCall, ModelTurn
 
 
@@ -139,6 +141,34 @@ def _tool_message(call: ModelToolCall, content: str) -> dict[str, Any]:
     return {"role": "tool", "tool_call_id": call.call_id, "name": call.name, "content": content}
 
 
+@dataclass
+class _Round:
+    """One model turn and the exchanges of its tool calls, in call order."""
+    turn: ModelTurn
+    exchanges: list[Exchange]
+
+
+def _build_messages(base: list[dict[str, Any]], rounds: list[_Round], texts: list[str]) -> list[dict[str, Any]]:
+    """The base messages, then each round's assistant message and tool messages; `texts` follow call order."""
+    messages = list(base)
+    remaining = iter(texts)
+    for rnd in rounds:
+        messages.append(_assistant_message(rnd.turn))
+        for call in rnd.turn.tool_calls:
+            messages.append(_tool_message(call, next(remaining)))
+    return messages
+
+
+def _transcript_chars(messages: list[dict[str, Any]]) -> int:
+    """Characters the model reads: message content plus the JSON of each tool call's arguments."""
+    total = 0
+    for message in messages:
+        total += len(str(message.get("content") or ""))
+        for call in message.get("tool_calls") or []:
+            total += len(json.dumps(call.get("arguments", {}), ensure_ascii=False))
+    return total
+
+
 class SpecialistExecutor:
     """Runs one specialist's bounded model/tool loop.
 
@@ -155,6 +185,7 @@ class SpecialistExecutor:
         call_tool: Callable[[str, str, str, dict[str, Any], Any, str], Awaitable[CallToolResult | ToolCallOutcome]],
         tool_filter: Callable[[Any], bool] = is_read_only_tool,
         max_rounds: int = 8,
+        context_chars: int = JobSettings().context_chars,
         condenser: ResultCondenser | None = None,
         condense_min_chars: int = 9000,
         condense_timeout_seconds: float = 8.0,
@@ -165,6 +196,7 @@ class SpecialistExecutor:
         self.call_tool = call_tool
         self.tool_filter = tool_filter
         self.max_rounds = max_rounds
+        self.context_chars = context_chars
         self.condenser = condenser
         self.condense_min_chars = condense_min_chars
         self.condense_timeout_seconds = condense_timeout_seconds
@@ -173,18 +205,28 @@ class SpecialistExecutor:
         tools = tools_for_role(role, self.runtime.public_tools, self.tool_filter)
         if not tools:
             return SpecialistResult(role, "", (), "No connected tools are available for this specialist.")
-        messages = await self._initial_messages(role, task)
+        base = await self._initial_messages(role, task)
+        rounds: list[_Round] = []
         evidence: list[EvidenceRef] = []
         for _ in range(self.max_rounds):
-            turn = await self.provider.complete(messages, tools)
+            turn = await self.provider.complete(self._transcript(base, rounds), tools)
             if not turn.tool_calls:
                 return SpecialistResult(role, turn.text.strip(), tuple(evidence))
-            messages.append(_assistant_message(turn))
+            exchanges: list[Exchange] = []
             for call in turn.tool_calls:
-                ref = await self._handle_call(job_id, role, call, tools, messages)
+                exchange, ref = await self._handle_call(job_id, role, call, tools)
+                exchanges.append(exchange)
                 if ref is not None and ref not in evidence:
                     evidence.append(ref)
+            rounds.append(_Round(turn, exchanges))
         return SpecialistResult(role, "", tuple(evidence), "Specialist reached its response-round limit.")
+
+    def _transcript(self, base: list[dict[str, Any]], rounds: list[_Round]) -> list[dict[str, Any]]:
+        """The messages for the next model call; older tool results are cleared until they fit context_chars."""
+        flat = [exchange for rnd in rounds for exchange in rnd.exchanges]
+        fixed = _transcript_chars(_build_messages(base, rounds, [""] * len(flat)))
+        compacted = ContextBudget(max(0, self.context_chars - fixed)).compact(flat)
+        return _build_messages(base, rounds, [exchange.text for exchange in compacted])
 
     async def _initial_messages(self, role: str, task: str) -> list[dict[str, Any]]:
         system = await asyncio.to_thread(_role_prompt, role)
@@ -201,23 +243,22 @@ class SpecialistExecutor:
         ]
 
     async def _handle_call(
-        self, job_id: str, role: str, call: ModelToolCall, tools: list[Any], messages: list[dict[str, Any]],
-    ) -> EvidenceRef | None:
-        """Run one requested call; any failure becomes an error tool message so the model can continue."""
+        self, job_id: str, role: str, call: ModelToolCall, tools: list[Any],
+    ) -> tuple[Exchange, EvidenceRef | None]:
+        """Run one requested call; any failure becomes an error exchange (no evidence) so the model can continue."""
         try:
             tool = validate_tool_call(call, tools)
-            return await self._run_tool_call(job_id, role, call, tool, messages)
+            return await self._run_tool_call(job_id, role, call, tool)
         except SpecialistError as exc:
             error = str(exc)
         except Exception as exc:
             error = f"Child call failed ({type(exc).__name__})"
-        messages.append(_tool_message(call, _ERROR_NOTE.format(error=error)))
-        return None
+        return Exchange(call.call_id, "", _ERROR_NOTE.format(error=error)), None
 
     async def _run_tool_call(
-        self, job_id: str, role: str, call: ModelToolCall, tool: Any, messages: list[dict[str, Any]],
-    ) -> EvidenceRef:
-        """Call one validated tool, store its result encrypted, and append a minimized copy to the conversation.
+        self, job_id: str, role: str, call: ModelToolCall, tool: Any,
+    ) -> tuple[Exchange, EvidenceRef]:
+        """Call one validated tool, store its result encrypted, and return a minimized copy for the conversation.
 
         A result reused from an identical earlier call in the job keeps that call's source ID
         and is neither stored again nor resent to the model.
@@ -251,5 +292,4 @@ class SpecialistExecutor:
             content = minimize_model_content(target, redactor=redactor)
             if outcome.result.is_error:
                 content = f"The tool returned an error result [{outcome.source_id}]:\n{content}"
-        messages.append(_tool_message(call, content))
-        return EvidenceRef(outcome.source_id, call.name, role)
+        return Exchange(call.call_id, outcome.source_id, content), EvidenceRef(outcome.source_id, call.name, role)

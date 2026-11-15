@@ -775,6 +775,7 @@ class JobRunner:
             condenser=self._observed_condenser(),
             condense_min_chars=self.condense_min_chars,
             condense_timeout_seconds=self.condense_timeout_seconds,
+            context_chars=self.limits.context_chars,
         )
         await _db(self.store.append_event, job_id, "agent.started", agent=role)
         return await executor.run(job_id, role, _specialist_task(request))

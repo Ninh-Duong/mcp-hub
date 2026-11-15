@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
+
+from mcp.types import CallToolResult, TextContent
 
 from mcp_hub.agents.harness import ContextBudget, Exchange
+from mcp_hub.agents.providers import ModelProvider, ModelToolCall, ModelTurn
+from mcp_hub.agents.specialists import SpecialistExecutor
 
 
 def _exchanges(count: int, size: int) -> list[Exchange]:
@@ -73,6 +78,54 @@ class ContextBudgetTest(unittest.TestCase):
 
     def test_empty_transcript_stays_empty(self) -> None:
         self.assertEqual(ContextBudget(max_chars=10).compact([]), [])
+
+
+class _RecordingProvider(ModelProvider):
+    """Returns scripted turns and records the size of each transcript it is sent."""
+
+    def __init__(self, turns: list[ModelTurn]) -> None:
+        self.turns = list(turns)
+        self.sizes: list[int] = []
+        self.transcripts: list[list[dict]] = []
+
+    async def complete(self, messages: list[dict], tools: list, *, max_output_tokens: int = 2048) -> ModelTurn:
+        self.transcripts.append(list(messages))
+        self.sizes.append(sum(len(str(message.get("content") or "")) for message in messages))
+        return self.turns.pop(0)
+
+
+def _query_turns(count: int) -> list[ModelTurn]:
+    turns = [
+        ModelTurn(text="", tool_calls=(ModelToolCall(f"call-{index}", "logs__query", {"n": index}),))
+        for index in range(count)
+    ]
+    return [*turns, ModelTurn(text="All checked", tool_calls=())]
+
+
+def _logs_runtime() -> SimpleNamespace:
+    tool = SimpleNamespace(name="logs__query", annotations=SimpleNamespace(read_only_hint=True))
+    return SimpleNamespace(public_tools=[tool], audit=None)
+
+
+class SpecialistContextBudgetTest(unittest.IsolatedAsyncioTestCase):
+    async def test_transcript_stays_within_context_chars_over_ten_rounds(self) -> None:
+        provider = _RecordingProvider(_query_turns(10))
+
+        async def fake_call(job_id, role, name, arguments, tool, source_id) -> CallToolResult:
+            text = f"row {arguments['n']}\n" + "x" * 1000
+            return CallToolResult(content=[TextContent(type="text", text=text)], is_error=False)
+
+        executor = SpecialistExecutor(
+            runtime=_logs_runtime(), provider=provider, save_result=lambda *args: None, call_tool=fake_call,
+            max_rounds=11, context_chars=3000,
+        )
+        result = await executor.run("job-1", "logs", "Analyze logs")
+        self.assertEqual(result.summary, "All checked")
+        self.assertEqual(len(provider.sizes), 11)
+        self.assertLessEqual(max(provider.sizes), 3000, provider.sizes)
+        first_ref = result.evidence_refs[0].source_id
+        self.assertIn(f"[cleared; evidence {first_ref}:", str(provider.transcripts[-1]))
+        self.assertEqual(len(result.evidence_refs), 10)
 
 
 if __name__ == "__main__":
