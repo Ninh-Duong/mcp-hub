@@ -11,7 +11,7 @@ Owns (only these files):
 
 Read first: `src/mcp_hub/full_results.py`; `src/mcp_hub/server.py` functions `_get_full_result`, `_fetch_one_result` (around lines 480-505, for the `offset`/`limit` defaults), and `_maybe_condense` (around line 513). Do not edit `server.py`.
 
-## T10 `is_condensable`
+## T10 `is_condensable` (done)
 
 File: `src/mcp_hub/result_shape.py`. Test file: `tests/test_result_shape.py`.
 
@@ -70,4 +70,4 @@ Start every shell call with `cd "../mcp-hub-track-<x>"` (relative to the Hub che
 
 ## Progress log
 
-- (agent: add one line per task here)
+- T10 done: `is_condensable` in `result_shape.py` with 5 tests in `tests/test_result_shape.py`; ruff and code standards pass.
