@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import copy
 import unittest
+import uuid
 from typing import Any
+from unittest import mock
 
 from jsonschema import Draft202012Validator
 
@@ -112,6 +114,26 @@ class ValidateArgsTest(unittest.TestCase):
 
     def test_no_schema_gives_no_paths(self) -> None:
         self.assertEqual(validate_args(None, {"env": "stg"}), [])
+
+
+class ValidateArgsNeverRaisesTest(unittest.TestCase):
+    def test_an_unresolvable_reference_gives_no_paths(self) -> None:
+        self.assertEqual(validate_args({"$ref": "#/$defs/Missing"}, {"env": "stg"}), [])
+
+    def test_a_schema_that_is_not_an_object_gives_no_paths(self) -> None:
+        self.assertEqual(validate_args(["not", "a", "schema"], {"env": "stg"}), [])
+
+    def test_arguments_that_are_not_an_object_give_the_root_path(self) -> None:
+        schema = {"type": "object", "properties": {"env": {"type": "string"}}}
+        self.assertEqual(validate_args(schema, ["stg"]), ["<root>"])
+
+    def test_the_schema_is_checked_once_for_repeated_calls(self) -> None:
+        schema = {"type": "object", "description": uuid.uuid4().hex, "properties": {"env": {"type": "string"}}}
+        with mock.patch.object(Draft202012Validator, "check_schema", wraps=Draft202012Validator.check_schema) as check:
+            first = validate_args(schema, {"env": "stg"})
+            second = validate_args(schema, {"env": 5})
+        self.assertEqual((first, second), ([], ["env"]))
+        check.assert_called_once()
 
 
 if __name__ == "__main__":

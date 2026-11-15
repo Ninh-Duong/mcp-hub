@@ -52,6 +52,11 @@ class InstructionsTest(unittest.TestCase):
         self.assertLessEqual(len(text), 4096)
         self.assertTrue(text.startswith(INSTRUCTIONS_SUMMARY))
 
+    def test_a_cut_rules_section_names_client_rules_not_the_tool_list(self) -> None:
+        text = _server_instructions(self.runtime(), with_jobs=True)
+        self.assertRegex(text, r"\+\d+ more lines in docs/client-rules\.md$")
+        self.assertNotIn("see tools/list", text)
+
 
 if __name__ == "__main__":
     unittest.main()

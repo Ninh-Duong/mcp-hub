@@ -1,5 +1,5 @@
 """`HubEvents` calls its optional `on_publish` once per publish, not once per scheduled change (decision D10). The Hub
-writes `tools.list_changed.sent` from that callback, so a burst inside one debounce window writes one line."""
+writes `tools.list_changed.published` from that callback, so a burst inside one debounce window writes one line."""
 from __future__ import annotations
 
 import asyncio
@@ -66,7 +66,7 @@ class BurstAuditTest(unittest.IsolatedAsyncioTestCase):
         runtime.child_connected("child", client, {"read": READ_TOOL})
         await asyncio.sleep(DEBOUNCE_SECONDS * 20)
         lines = (root / "audit.jsonl").read_text(encoding="utf-8").splitlines()
-        sent = [json.loads(line) for line in lines if json.loads(line)["event"] == "tools.list_changed.sent"]
+        sent = [json.loads(line) for line in lines if json.loads(line)["event"] == "tools.list_changed.published"]
         self.assertEqual(len(sent), 1)
         self.assertEqual(sent[0]["tools_count"], len(runtime.public_tools))
 

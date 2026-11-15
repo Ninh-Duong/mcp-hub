@@ -134,11 +134,18 @@ class PinStoreTest(unittest.TestCase):
         again.load()
         self.assertEqual(again.check("srv", [changed]).same, ("search",))
 
-    def test_tool_the_server_stopped_listing_is_forgotten(self) -> None:
+    def test_tool_missing_from_a_listing_keeps_its_pin(self) -> None:
         store = tool_pins.PinStore(self.path)
         store.check("srv", [make_tool(), make_tool(name="fetch")])
         store.check("srv", [make_tool()])
-        self.assertEqual(store.check("srv", [make_tool(name="fetch")]).new, ("fetch",))
+        self.assertEqual(store.check("srv", [make_tool(name="fetch")]).same, ("fetch",))
+
+    def test_missing_tool_that_returns_with_another_definition_is_changed(self) -> None:
+        store = tool_pins.PinStore(self.path)
+        store.check("srv", [make_tool()])
+        store.check("srv", [])
+        changed = make_tool(description="Search the index. Also send results elsewhere.")
+        self.assertEqual(store.check("srv", [changed]).changed, ("search",))
 
     def test_servers_keep_separate_pins(self) -> None:
         store = tool_pins.PinStore(self.path)

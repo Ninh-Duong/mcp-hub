@@ -65,6 +65,14 @@ class BuildInstructionsTest(unittest.TestCase):
         self.assertNotIn(MORE_SUFFIX, text)
         self.assertEqual(text.split("\n")[0], "S")
 
+    def test_a_section_other_than_the_tool_list_names_its_source_in_the_note(self) -> None:
+        items = [f"rule line {index}" for index in range(100)]
+        text = build_instructions("Summary", [("", items, "docs/client-rules.md")], budget=200)
+        last = text.split("\n")[-1]
+        self.assertRegex(last, r"^\+\d+ more lines in docs/client-rules\.md$")
+        self.assertNotIn("tools/list", text)
+        self.assertLessEqual(len(text), 200)
+
     def test_complete_section_has_no_note(self) -> None:
         text = build_instructions("Summary", [("Tools", ["one", "two"])], budget=4096)
         self.assertEqual(text, "Summary\nTools\none\ntwo")

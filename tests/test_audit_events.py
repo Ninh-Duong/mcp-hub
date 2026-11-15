@@ -15,7 +15,7 @@ class AuditEventNamesTest(unittest.TestCase):
         self.assertEqual(
             set(audit_events.ALL),
             {
-                "tools.list_changed.sent",
+                "tools.list_changed.published",
                 "tool.definition.changed",
                 "tool.description.suspicious",
                 "tool.arguments.invalid",

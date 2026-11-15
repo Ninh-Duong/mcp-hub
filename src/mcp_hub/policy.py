@@ -405,12 +405,25 @@ def record(plan: Plan | None, name: str, arguments: Mapping[str, Any], ok: bool)
     if plan is None:
         return
     key = cache_key(name, dict(arguments))
-    if key is not None and plan.seen.get(key) != _SUCCEEDED:
-        plan.seen[key] = _SUCCEEDED if ok else plan.seen.get(key, 0) + 1
-    if key is not None and ok:
-        plan.succeeded_at[key] = plan.clock()
+    if key is not None:
+        _record_outcome(plan, key, ok)
     if not ok:
         plan.had_failure = True
+
+
+def _record_outcome(plan: Plan, key: str, ok: bool) -> None:
+    """A success starts its repeat window. A failed repeat that the window permitted clears that success and counts
+    as a failure, so the retry limit applies to the key again (F4). A failure while a repeat is refused changes
+    nothing."""
+    if ok:
+        plan.seen[key] = _SUCCEEDED
+        plan.succeeded_at[key] = plan.clock()
+    elif plan.seen.get(key) == _SUCCEEDED:
+        if _repeat_allowed(plan, key):
+            plan.succeeded_at.pop(key, None)
+            plan.seen[key] = 1
+    else:
+        plan.seen[key] = plan.seen.get(key, 0) + 1
 
 
 def _scope_lines(plan: Plan) -> list[str]:

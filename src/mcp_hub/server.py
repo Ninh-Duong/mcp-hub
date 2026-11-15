@@ -38,7 +38,7 @@ from mcp.types import (
 
 from . import config as hub_config
 from .audit import AuditLog, default_log_dir, describe_exception, redact
-from .audit_events import TOOL_ARGUMENTS_INVALID, TOOL_DEFINITION_CHANGED, TOOL_DESCRIPTION_SUSPICIOUS, TOOLS_LIST_CHANGED_SENT
+from .audit_events import TOOL_ARGUMENTS_INVALID, TOOL_DEFINITION_CHANGED, TOOL_DESCRIPTION_SUSPICIOUS, TOOLS_LIST_CHANGED_PUBLISHED
 from .batch import BATCH_TOOL, BatchItem, BatchRefused, batch_result, batch_tool, parse_calls, run_batch
 from .children import Backoff, ChildOpener, ChildSupervisor, ChildUnavailable, open_stdio_client
 from .condense import RuleCondenser, condense_text_rules
@@ -150,15 +150,20 @@ class HubRuntime:
         self.plan_assistant: PlanAssistant | None = None
         self.condenser: ResultCondenser | None = None
         self.full_results: FullResultStore | None = None
-        self.events = HubEvents(settings.protocol.list_changed_debounce_seconds, on_publish=self._audit_tools_sent)
+        self.events = HubEvents(settings.protocol.list_changed_debounce_seconds, on_publish=self._audit_tools_published)
         self._background: set[asyncio.Task[None]] = set()
-        # Pins are kept only when a pin file is given (the service passes the private one) and the mode is warn.
+        self._setup_pins(pin_path, settings)
+        self._starting = False
+
+    def _setup_pins(self, pin_path: Path | None, settings: Settings) -> None:
+        """Pins are kept only when a pin file is given (the service passes the private one) and the mode is warn."""
         self.pins: PinStore | None = (
             PinStore(pin_path) if pin_path is not None and settings.security.tool_pin_mode != "off" else None
         )
         self._max_description_chars = settings.security.max_description_chars
         self._pin_changes: dict[str, tuple[str, ...]] = {}
-        self._starting = False
+        # Pin saves take turns in the order they were scheduled, so the newest snapshot is written last (F3).
+        self._pin_save_lock = asyncio.Lock()
 
     def add_observer(self, observer: CallObserver) -> None:
         self.observers = (*self.observers, observer)
@@ -285,9 +290,9 @@ class HubRuntime:
         """Schedule one debounced tools/list_changed for a new tool signature (FR-006)."""
         await self.events.tools_changed(signature)
 
-    def _audit_tools_sent(self) -> None:
-        """Called by the event bus once per publish: one `tools.list_changed.sent` line per notification sent."""
-        self.audit.write(TOOLS_LIST_CHANGED_SENT, tools_count=len(self.public_tools))
+    def _audit_tools_published(self) -> None:
+        """Called by the event bus once per publish, with or without a listener: one `tools.list_changed.published` line."""
+        self.audit.write(TOOLS_LIST_CHANGED_PUBLISHED, tools_count=len(self.public_tools))
 
     def _check_tools(self, only_server: str | None) -> None:
         """Screen each child's tool descriptions and, when pins are on, check its definitions (warn mode)."""
@@ -330,7 +335,12 @@ class HubRuntime:
         except RuntimeError:
             self._write_pins(snapshot)
             return
-        self._keep_background(asyncio.ensure_future(asyncio.to_thread(self._write_pins, snapshot)))
+        self._keep_background(asyncio.ensure_future(self._save_pins_in_turn(snapshot)))
+
+    async def _save_pins_in_turn(self, snapshot: dict[str, dict[str, str]]) -> None:
+        """Wait for the saves scheduled before this one, then write this snapshot on a worker thread."""
+        async with self._pin_save_lock:
+            await asyncio.to_thread(self._write_pins, snapshot)
 
     def _write_pins(self, snapshot: dict[str, dict[str, str]]) -> None:
         """Write one snapshot; a failure is logged at WARNING with the exception type only, and the Hub keeps running."""
@@ -1217,6 +1227,8 @@ _CONDENSED_INSTRUCTIONS = (
     " Results may be condensed (footer names result_id; use hub__get_full_result only if evidence is missing). "
     "With BitNet on, hub__plan may fill playbook, servers, env, and time window from task."
 )
+# The client rules the instructions end with; a cut note names this file (relative to the Hub checkout).
+_RULES_FILE = "docs/client-rules.md"
 
 
 def _repo_relative(path: Path) -> str:
@@ -1253,9 +1265,9 @@ def _server_instructions(runtime: HubRuntime, with_jobs: bool) -> str:
     # Codex reads only the first 512 characters of the summary; Claude Code cuts instructions at 4096.
     summary = f"{INSTRUCTIONS_SUMMARY}{_JOB_INSTRUCTIONS if with_jobs else ''}{_CONDENSED_INSTRUCTIONS}"
     groups = [f"- {sid}: {', '.join(tools)}" for sid, tools in runtime.tools_by_server().items()]
-    rules = HUB_ROOT / "docs" / "client-rules.md"
+    rules = HUB_ROOT / _RULES_FILE
     rule_lines = rules.read_text(encoding="utf-8").splitlines() if rules.is_file() else []
-    return build_instructions(summary, [("Tools by child MCP (server ID: tools):", groups), ("", rule_lines)])
+    return build_instructions(summary, [("Tools by child MCP (server ID: tools):", groups), ("", rule_lines, _RULES_FILE)])
 
 
 def create_mcp_server(runtime: HubRuntime, job_runner: Any | None = None) -> Server:

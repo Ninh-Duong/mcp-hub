@@ -532,6 +532,20 @@ class RepeatAfterTest(unittest.TestCase):
         self.now[0] = 10_000.0
         self.assertEqual(self.repeat_rule(plan), "repeat")
 
+    def test_a_repeat_that_fails_counts_and_the_retry_limit_applies(self) -> None:
+        plan = self.plan(60)
+        self.now[0] = 60.0
+        policy.record(plan, "logs__query", {"env": "stg"}, ok=False)
+        self.assertIsNone(self.repeat_rule(plan))
+        policy.record(plan, "logs__query", {"env": "stg"}, ok=False)
+        self.assertEqual(self.repeat_rule(plan), "retry")
+
+    def test_a_failure_while_the_repeat_is_still_refused_keeps_the_success(self) -> None:
+        plan = self.plan(60)
+        self.now[0] = 30.0
+        policy.record(plan, "logs__query", {"env": "stg"}, ok=False)
+        self.assertEqual(self.repeat_rule(plan), "repeat")
+
     def test_the_defaults_come_from_the_settings_and_the_monotonic_clock(self) -> None:
         import time
 

@@ -45,7 +45,7 @@ class ToolChangeAnnouncementTest(unittest.IsolatedAsyncioTestCase):
 
     def sent_lines(self) -> int:
         lines = (self.root / "audit.jsonl").read_text(encoding="utf-8").splitlines()
-        return sum(json.loads(line)["event"] == "tools.list_changed.sent" for line in lines)
+        return sum(json.loads(line)["event"] == "tools.list_changed.published" for line in lines)
 
     def count_publishes(self) -> AsyncMock:
         publish = AsyncMock()
