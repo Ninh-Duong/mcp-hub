@@ -208,3 +208,4 @@ Phase 2 is `10-track-w-wiring.md`; Phase 3 is `11-track-q-quality.md`.
 - 2026-11-15 (review fix, arch/review-fix): F1 done: `validate_args` never raises and builds one validator per schema content (bounded cache); tests in `tests/test_schema_rewrite.py`.
 - 2026-11-15 (review fix, arch/review-fix): F2 done: `PinStore.check` keeps the pin of a tool missing from a listing (T52 wording changed on purpose); `tests/test_tool_pins.py` and `docs/architecture.md` updated.
 - 2026-11-15 (review fix, arch/review-fix): F3 done: pin saves go through an `asyncio.Lock` in scheduling order, so the newest snapshot is written last; the pin setup moved to `HubRuntime._setup_pins` to keep `__init__` at 50 lines; test in `tests/test_tool_pins_snapshot.py`.
+- 2026-11-15 (review fix, arch/review-fix): F4 done: `PlanBook.record` clears a permitted repeat's success and counts its failure (`policy:retry` applies); tests in `tests/test_policy.py`; `docs/usage-policy.md` updated.

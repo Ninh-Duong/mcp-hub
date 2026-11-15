@@ -64,7 +64,7 @@ The Hub checks a call against the rules below in this order, and the first rule 
 | `policy:target` | The call passes an `organization`, `stream`, `field`, or `project` other than the plan's targets. |
 | `policy:write` | The tool may write (its child does not mark it `readOnlyHint: true`), and the plan does not list it in `writes`. `writes` is meant for writes the user explicitly asked for. |
 | `policy:health_check` | The tool is a connection check (`settings.policy.healthCheckTools`), no call of the plan has failed yet, and the plan does not set `connection_checks: true`. That flag is meant for when the user asked to check connections. |
-| `policy:repeat` | The same tool already succeeded with the same arguments in this plan. Within one `hub__batch`, it is also refused when the same call appears twice. `settings.policy.repeatAfterSeconds` (default `0`, which refuses every repeat) lets an identical successful call run again once that many seconds have passed. |
+| `policy:repeat` | The same tool already succeeded with the same arguments in this plan. Within one `hub__batch`, it is also refused when the same call appears twice. `settings.policy.repeatAfterSeconds` (default `0`, which refuses every repeat) lets an identical successful call run again once that many seconds have passed. A repeat that runs and fails counts as a failed attempt, so `policy:retry` applies to it. |
 | `policy:retry` | The same call already failed twice. |
 
 An invalid `hub__plan` is refused with `policy:plan`. That covers an unknown server ID, empty `steps`, or a `writes` entry that is read-only or belongs to another child.
