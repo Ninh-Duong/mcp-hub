@@ -14,6 +14,14 @@ Do not edit `server.py`, `service.py`, `docs/` (Phase 2 owns the docs for this t
 
 Read first: `src/mcp_hub/agents/specialists.py` (`MAX_TOOL_RESULT_CHARS` around line 21; `max_rounds` around line 157), `src/mcp_hub/agents/providers.py`, `src/mcp_hub/jobs/runner.py` (`COORDINATOR_SECONDS` around line 37).
 
+## Task checklist
+
+- [x] T60 `build_instructions` (commit on `arch/track-f`)
+- [x] T61 `ContextBudget`
+- [x] T62 use in the specialist loop
+- [x] T63 settings values, not constants
+- [x] T64 prompt caching
+
 ## T60 `build_instructions`
 
 File: `src/mcp_hub/instructions.py`. Test: `tests/test_instructions.py`.
@@ -98,3 +106,9 @@ uv run --no-sync python scripts/package_qc.py
 ## Progress log
 
 - (agent: add one line per task here)
+- 2026-11-15 (track F): T60 done. `instructions.py` and `tests/test_instructions.py` (9 tests); ruff and code standards pass.
+- 2026-11-15 (track F): T61 done. `agents/harness.py` (`Exchange`, `ContextBudget`) and `tests/test_agent_harness.py` (9 tests). Cleared text cuts the first line to 120 characters; a result with no evidence (a failed call) clears to `[cleared: ...]` with no source ID. Ruff and code standards pass.
+- 2026-11-15 (track F): T62 done. `SpecialistExecutor` keeps one `Exchange` per tool call (failed calls too, with an empty source ID) and rebuilds the messages before each model call through `ContextBudget`; the budget is `context_chars` minus the fixed messages. Provider adapters are unchanged; `JobRunner` passes `limits.context_chars`. Test: 10 rounds under 3000 characters (`tests/test_agent_harness.py`). Suites pass.
+- 2026-11-15 (track F): T63 done. `SpecialistExecutor` takes `max_rounds`, `context_chars` and `tool_result_chars` (defaults from `JobSettings`); `MAX_TOOL_RESULT_CHARS` and `COORDINATOR_SECONDS` are aliases of the settings defaults. The task text keeps the default limit, not `tool_result_chars`, so a small tool limit does not cut the question. `JobRunner` uses `limits.coordinator_seconds`. Tests: truncation to 100 characters, defaults, and a coordinator cut off at 0.2 s (`tests/test_job_runner_hardening.py`).
+- 2026-11-15 (track F): T64 claude-api skill (`shared/prompt-caching.md`): render order is tools, system, messages; a breakpoint on the last system block caches tools and system together; at most 4 breakpoints; the minimum cacheable prefix is model-dependent (512 tokens on Opus 5.5 and 5, Sonnet 5.5, Haiku 5.5; 1024 on Opus 4.8, Sonnet 5 and 4.6; 2048 on Opus 4.7; 4096 on Opus 4.6, Opus 4.5 and Haiku 4.5); a shorter prefix silently does not cache; verify with `usage.cache_read_input_tokens`; serialize tools sorted by name.
+- 2026-11-15 (track F): T64 done. `AnthropicProvider(prompt_cache=JobSettings().prompt_cache)` puts a breakpoint on the last tool and on the system block. Both adapters send tools sorted by name. The OpenAI adapter is otherwise unchanged (its caching is automatic). Gemini: not done (no change in this plan). Wire format unchanged. Tests: `tests/test_agent_harness.py` (6 provider tests). Suites pass.

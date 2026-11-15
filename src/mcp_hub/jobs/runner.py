@@ -34,7 +34,7 @@ from .store import JobStore, TERMINAL_STATES
 # Job limits (active and queued jobs, the job time window, child calls per job, the approval-code lifetime)
 # come from settings.jobs. The coordinator's summary runs after the specialists finish or reach the job
 # window, bounded by this.
-COORDINATOR_SECONDS = 90
+COORDINATOR_SECONDS = JobSettings().coordinator_seconds
 # The approval preview shows the full arguments up to this many characters, then marks the cut.
 MAX_PREVIEW_CHARS = 64 * 1024
 EVENT_PAGE_LIMIT = 100
@@ -676,7 +676,7 @@ class JobRunner:
         audit = getattr(self.runtime, "audit", None)
         redactor = (lambda text: audit.redact_content(text, limit=12000)) if audit is not None else None
         try:
-            async with asyncio.timeout(COORDINATOR_SECONDS):
+            async with asyncio.timeout(self.limits.coordinator_seconds):
                 summary = await synthesize(
                     coordinator,
                     question=request["question"],
@@ -775,6 +775,7 @@ class JobRunner:
             condenser=self._observed_condenser(),
             condense_min_chars=self.condense_min_chars,
             condense_timeout_seconds=self.condense_timeout_seconds,
+            context_chars=self.limits.context_chars,
         )
         await _db(self.store.append_event, job_id, "agent.started", agent=role)
         return await executor.run(job_id, role, _specialist_task(request))
