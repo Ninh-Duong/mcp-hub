@@ -33,7 +33,7 @@ Returns a list of finding codes; an empty list means clean. Codes:
 
 Tests: one case per code; clean text gives `[]`; a text with two kinds gives both codes, in the order above.
 
-## T52 `PinStore`
+## T52 `PinStore` (done)
 
 ```python
 @dataclass(frozen=True)
@@ -76,3 +76,4 @@ uv run --no-sync python scripts/package_qc.py
 
 - T50 done: `fingerprint` in `tool_pins.py` (SHA-256 over canonical wire fields); 8 tests in `tests/test_tool_pins.py`; SDK `Tool.model_dump(by_alias=True)` gives camelCase keys.
 - T51 done: `description_findings` in `tool_pins.py` (tag-characters, bidi-control, zero-width, too-long, in that order); 7 tests added to `tests/test_tool_pins.py`.
+- T52 done: `PinVerdict` and `PinStore` in `tool_pins.py` (load, check, accept, atomic save; corrupt files load empty); 9 tests added, 24 in total in `tests/test_tool_pins.py`.

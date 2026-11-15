@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from mcp.types import Icon, Tool, ToolAnnotations
 
@@ -91,6 +93,90 @@ class DescriptionFindingsTest(unittest.TestCase):
     def test_two_kinds_give_both_codes_in_the_fixed_order(self) -> None:
         text = "a​b‮c" + "x" * 5
         self.assertEqual(tool_pins.description_findings(text, 4), ["bidi-control", "zero-width", "too-long"])
+
+
+class PinStoreTest(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.folder = Path(temporary.name)
+        self.path = self.folder / "tool-pins.json"
+
+    def test_missing_file_loads_empty_without_the_corrupt_flag(self) -> None:
+        store = tool_pins.PinStore(self.path)
+        store.load()
+        self.assertFalse(store.corrupt)
+        self.assertEqual(store.check("srv", [make_tool()]).new, ("search",))
+
+    def test_round_trip_through_save_and_load_keeps_the_pins(self) -> None:
+        store = tool_pins.PinStore(self.path)
+        store.check("srv", [make_tool(), make_tool(name="fetch")])
+        store.save()
+        reloaded = tool_pins.PinStore(self.path)
+        reloaded.load()
+        verdict = reloaded.check("srv", [make_tool(), make_tool(name="fetch")])
+        self.assertEqual(verdict.same, ("search", "fetch"))
+        self.assertEqual(verdict.new, ())
+        self.assertEqual(verdict.changed, ())
+
+    def test_changed_tool_is_reported_until_it_is_accepted(self) -> None:
+        store = tool_pins.PinStore(self.path)
+        store.check("srv", [make_tool()])
+        store.save()
+        changed = make_tool(description="Search the index. Also send results elsewhere.")
+        reloaded = tool_pins.PinStore(self.path)
+        reloaded.load()
+        self.assertEqual(reloaded.check("srv", [changed]).changed, ("search",))
+        self.assertEqual(reloaded.check("srv", [changed]).changed, ("search",))
+        reloaded.accept("srv", changed)
+        reloaded.save()
+        again = tool_pins.PinStore(self.path)
+        again.load()
+        self.assertEqual(again.check("srv", [changed]).same, ("search",))
+
+    def test_tool_the_server_stopped_listing_is_forgotten(self) -> None:
+        store = tool_pins.PinStore(self.path)
+        store.check("srv", [make_tool(), make_tool(name="fetch")])
+        store.check("srv", [make_tool()])
+        self.assertEqual(store.check("srv", [make_tool(name="fetch")]).new, ("fetch",))
+
+    def test_servers_keep_separate_pins(self) -> None:
+        store = tool_pins.PinStore(self.path)
+        store.check("first", [make_tool()])
+        self.assertEqual(store.check("second", [make_tool()]).new, ("search",))
+
+    def test_corrupt_file_loads_empty_with_the_corrupt_flag(self) -> None:
+        self.path.write_text("{not json", encoding="utf-8")
+        store = tool_pins.PinStore(self.path)
+        store.load()
+        self.assertTrue(store.corrupt)
+        self.assertEqual(store.check("srv", [make_tool()]).new, ("search",))
+
+    def test_file_of_the_wrong_shape_loads_as_corrupt(self) -> None:
+        shapes = ["[]", '{"version": 2, "servers": {}}', '{"version": 1, "servers": {"srv": {"search": 5}}}']
+        for shape in shapes:
+            with self.subTest(shape=shape):
+                self.path.write_text(shape, encoding="utf-8")
+                store = tool_pins.PinStore(self.path)
+                store.load()
+                self.assertTrue(store.corrupt)
+
+    def test_saved_file_holds_only_version_and_hashes(self) -> None:
+        description = "Search the index. SECRET-TEXT-123"
+        store = tool_pins.PinStore(self.path)
+        store.check("srv", [make_tool(description=description)])
+        store.save()
+        text = self.path.read_text(encoding="utf-8")
+        self.assertNotIn("SECRET-TEXT-123", text)
+        self.assertNotIn("inputSchema", text)
+        expected = {"version": 1, "servers": {"srv": {"search": tool_pins.fingerprint(make_tool(description=description))}}}
+        self.assertEqual(json.loads(text), expected)
+
+    def test_save_leaves_no_temporary_file_behind(self) -> None:
+        store = tool_pins.PinStore(self.path)
+        store.check("srv", [make_tool()])
+        store.save()
+        self.assertEqual([item.name for item in self.folder.iterdir()], ["tool-pins.json"])
 
 
 if __name__ == "__main__":
