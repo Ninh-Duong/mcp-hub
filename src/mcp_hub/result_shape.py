@@ -25,3 +25,36 @@ def with_condensed_meta(result: CallToolResult, result_id: str, kept: int, total
     marker = {"result_id": result_id, "kept": kept, "total": total}
     meta = {**(result.meta or {}), CONDENSED_META_KEY: marker}
     return result.model_copy(update={"meta": meta})
+
+
+def parse_page_args(arguments: Mapping[str, Any], *, default_offset: int, default_limit: int) -> tuple[int, int] | str:
+    """Read offset and limit from tool arguments; return the pair, or an error naming the bad field."""
+    offset = _page_number(arguments, "offset", default_offset, minimum=0)
+    if isinstance(offset, str):
+        return offset
+    limit = _page_number(arguments, "limit", default_limit, minimum=1)
+    if isinstance(limit, str):
+        return limit
+    return offset, limit
+
+
+def _page_number(arguments: Mapping[str, Any], field: str, default: int, *, minimum: int) -> int | str:
+    if field not in arguments:
+        return default
+    value = _whole_number(arguments[field])
+    if value is None:
+        return f"{field} must be a whole number"
+    if value < minimum:
+        return f"{field} must be {minimum} or more"
+    return value
+
+
+def _whole_number(value: Any) -> int | None:
+    """An int that is not a bool, or a string of ASCII digits; anything else is None."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isascii() and value.isdigit():
+        return int(value)
+    return None

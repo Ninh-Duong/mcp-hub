@@ -5,7 +5,7 @@ from typing import Any
 
 from mcp.types import CallToolResult, ImageContent, TextContent
 
-from mcp_hub.result_shape import is_condensable, with_condensed_meta
+from mcp_hub.result_shape import is_condensable, parse_page_args, with_condensed_meta
 
 _SCHEMA: dict[str, Any] = {"type": "object", "properties": {"n": {"type": "integer"}}}
 
@@ -57,6 +57,52 @@ class WithCondensedMetaTest(unittest.TestCase):
         original = _text_result(meta={"progressToken": "p-1"})
         with_condensed_meta(original, "r-abc", 2, 9)
         self.assertEqual(original.meta, {"progressToken": "p-1"})
+
+
+class ParsePageArgsTest(unittest.TestCase):
+    def _parse(self, arguments: dict[str, Any]) -> tuple[int, int] | str:
+        return parse_page_args(arguments, default_offset=0, default_limit=20000)
+
+    def test_missing_keys_use_defaults(self) -> None:
+        self.assertEqual(self._parse({}), (0, 20000))
+
+    def test_integers_are_accepted(self) -> None:
+        self.assertEqual(self._parse({"offset": 5, "limit": 10}), (5, 10))
+
+    def test_digit_strings_are_accepted(self) -> None:
+        self.assertEqual(self._parse({"offset": "7", "limit": "3"}), (7, 3))
+
+    def test_list_value_is_rejected_and_named(self) -> None:
+        error = self._parse({"limit": [1]})
+        self.assertIsInstance(error, str)
+        self.assertIn("limit", error)
+
+    def test_dict_value_is_rejected_and_named(self) -> None:
+        error = self._parse({"offset": {"n": 1}})
+        self.assertIsInstance(error, str)
+        self.assertIn("offset", error)
+
+    def test_letters_are_rejected(self) -> None:
+        error = self._parse({"offset": "abc"})
+        self.assertIsInstance(error, str)
+        self.assertIn("offset", error)
+
+    def test_non_ascii_digits_are_rejected(self) -> None:
+        self.assertIsInstance(self._parse({"limit": "²"}), str)
+
+    def test_negative_offset_is_rejected(self) -> None:
+        error = self._parse({"offset": -1})
+        self.assertIsInstance(error, str)
+        self.assertIn("offset", error)
+
+    def test_zero_limit_is_rejected(self) -> None:
+        error = self._parse({"limit": 0})
+        self.assertIsInstance(error, str)
+        self.assertIn("limit", error)
+
+    def test_booleans_are_rejected(self) -> None:
+        self.assertIn("offset", self._parse({"offset": True}))
+        self.assertIn("limit", self._parse({"limit": True}))
 
 
 if __name__ == "__main__":

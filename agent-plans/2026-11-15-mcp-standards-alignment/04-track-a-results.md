@@ -33,7 +33,7 @@ Returns `result.model_copy(update=...)` with `content` unchanged and `meta` set 
 
 Tests: content is identical; old meta keys survive; the input object is unchanged.
 
-## T12 `parse_page_args`
+## T12 `parse_page_args` (done)
 
 ```python
 def parse_page_args(arguments: Mapping[str, Any], *, default_offset: int, default_limit: int) -> tuple[int, int] | str:
@@ -72,3 +72,4 @@ Start every shell call with `cd "../mcp-hub-track-<x>"` (relative to the Hub che
 
 - T10 done: `is_condensable` in `result_shape.py` with 5 tests in `tests/test_result_shape.py`; ruff and code standards pass.
 - T11 done: `with_condensed_meta` in `result_shape.py`, 3 more tests (8 in the file); ruff and code standards pass.
+- T12 done: `parse_page_args` in `result_shape.py`, 10 more tests (18 in the file); defaults checked against `server.py` (offset 0, limit 20000, server-side max 50000 stays in server); ruff and code standards pass.
