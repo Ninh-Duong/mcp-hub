@@ -14,7 +14,7 @@ Do not edit `server.py` or `activity_ui/` (Phase 2 wires them).
 
 SDK facts already verified in the Hub's venv (`mcp` 2.2.0): `mcp.server.subscriptions` exports `InMemorySubscriptionBus`, `ListenHandler`, `SubscriptionBus`, `ToolsListChanged`. `mcp.Client.__init__` takes `message_handler`. Read the SDK source under `.venv/Lib/site-packages/mcp/` to confirm the publish method and the listen-handler constructor, and the notification type for a child's tools list change (`ToolListChangedNotification` is the likely name). If a name differs, use the real one and say so in the progress log.
 
-## T20 `HubEvents`
+## T20 `HubEvents` (done)
 
 File: `src/mcp_hub/events.py`. Test: `tests/test_events.py`.
 
@@ -64,4 +64,5 @@ uv run --no-sync python scripts/package_qc.py
 
 ## Progress log
 
+- T20 done: `HubEvents` in `src/mcp_hub/events.py` with 5 tests in `tests/test_events.py`. SDK names match the card (mcp 2.2.0): `InMemorySubscriptionBus`, `ListenHandler`, `ToolsListChanged` from `mcp.server.subscriptions`; `bus.subscribe(listener)` is the test's counting API.
 - (agent: add one line per task here)
