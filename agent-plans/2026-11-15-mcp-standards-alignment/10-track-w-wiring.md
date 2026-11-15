@@ -14,6 +14,22 @@ Owns:
 
 Read first: `src/mcp_hub/server.py` (`_maybe_condense`, `_finish_condensed`, `_pack_batch_items`, `_get_full_result`, `_register_routes`, `call_child_tool`, `_invoke_child`, `create_mcp_server`, `_ERROR_PREFIXES` near line 58), and the Phase 1 modules: `result_shape.py`, `events.py`, `schema_rewrite.py`, `tool_pins.py`, `instructions.py`, `full_results.py`, and the new policy and cache behaviour.
 
+## Carried forward from Phase 1 (read before starting)
+
+These came out of the Phase 1 reports. Each one is a requirement on this track.
+
+1. `FullResultStore.put` returns `str | None`. It returns `None` when one entry is larger than `max_bytes`. The caller in `_maybe_condense` (server.py, around line 556) must return the uncondensed result in that case. Test it.
+2. Legacy delivery is unverified for Hub-side list changes. The SDK sends standalone notifications (no related request) to `_NoChannelOutbound` on a stdio legacy session, so they are dropped. T73 must test delivery per protocol era, over stdio and HTTP. If a legacy client cannot receive them, do not claim it; document the limitation in `docs/child-mcp-compatibility.md` and record it in the progress log.
+3. Progress reaches the child only after T76 is in place. Track C's bridge side is done (it forwards `progress_token` and relays progress), but the Hub emits none until `_call_child` passes `progress_callback`.
+4. `PinStore.load()` runs before the first `check()`. `save()` runs through `asyncio.to_thread`. Pass tools in the same stable order used for `tools/list`.
+5. `ChildSupervisor.tools` is a read-only property (Track B). The `on_tools_changed(server_id)` callback reads `supervisor.tools` to see the relisted tools.
+6. `ChildOpener` is a `typing.Protocol` whose call accepts a keyword-only `message_handler`. Custom openers must accept it. server.py uses `ChildOpener` only as an annotation, so only pass the new handler where the supervisor builds its client.
+7. A `$ref` root whose target definition has `additionalProperties: false` still refuses `hub_plan_id` (Track D). This is a known gap; record it in `docs/usage-policy.md` or handle it in `with_plan_id` with a test. Do not leave it silent.
+8. Wire the repeat window: `PlanBook` needs `repeat_after_seconds` from `Settings().policy.repeat_after_seconds` (T44 default is 0, so behaviour is unchanged until set). Add the `policy:repeat` window line to `docs/usage-policy.md` (around line 67).
+9. Prompt caching (Track F, T64) is verified offline only. A specialist prefix may fall below the model's minimum cacheable size, in which case it caches silently. Do not claim savings in docs. Record that a live run must check `cache_read_input_tokens`; that check belongs to Track Q or a manual smoke run.
+10. `build_instructions` (Track F, T60) is not yet used by server.py. T80 wires it.
+11. Result text with no evidence ID (validation error, child exception) clears to a note with an empty `source_id` (Track F). Keep that behaviour in any server.py wiring.
+
 ## Tasks
 
 - [ ] T070 `_maybe_condense` calls `result_shape.is_condensable(tool_output_schema, result)` first and returns the result untouched when it is False. `_finish_condensed` builds its result with `with_condensed_meta`. The batch packing applies the same rule. Test: a tool with `outputSchema` returns a result that validates against that schema with `jsonschema`, including after a large text result.
