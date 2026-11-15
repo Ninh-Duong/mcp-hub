@@ -11,7 +11,7 @@ Owns:
 
 Read first: `src/mcp_hub/policy.py` (`PLAN_ID_ARG`, `_PLAN_ID_SCHEMA` and `with_plan_id` around line 162; `token_hex(6)` around line 189; the repeat refusal around line 321). Do not edit `server.py`.
 
-## T40 `schema_rewrite.with_plan_id`
+## [x] T40 `schema_rewrite.with_plan_id`
 
 File: `src/mcp_hub/schema_rewrite.py`. Test: `tests/test_schema_rewrite.py`.
 
@@ -28,11 +28,11 @@ Rules:
 
 Tests (use `jsonschema.Draft202012Validator`): for each shape, a valid instance that includes `hub_plan_id` passes; the same instance without it passes when the original would have accepted it; an unknown key is still refused when the original refused it.
 
-## T41 re-export
+## [x] T41 re-export
 
 `policy.py` imports `PLAN_ID_ARG` and `with_plan_id` from `schema_rewrite`, so existing imports keep working. Existing tests pass unchanged.
 
-## T42 `validate_args`
+## [x] T42 `validate_args`
 
 File: `src/mcp_hub/schema_rewrite.py`.
 
@@ -44,11 +44,11 @@ Uses `jsonschema.Draft202012Validator(schema).iter_errors(args)`. Each error bec
 
 Tests: a wrong type on a nested field gives its dotted path; a missing required key gives `"<root>"`; a broken schema gives `[]`; a valid argument gives `[]`.
 
-## T43 plan id length
+## [x] T43 plan id length
 
 `policy.py`: change `token_hex(6)` to `token_hex(16)` (128 bits). Check that no existing test asserts the old length; if one does, stop and report.
 
-## T44 repeat after seconds
+## [x] T44 repeat after seconds
 
 The policy refuses an identical call that already succeeded. Add an optional clock to the policy object (default `time.monotonic`) and remember when the identical success happened. When `repeat_after_seconds` is greater than 0 and that many seconds have passed, the repeat is allowed. When it is 0 (the default), behaviour is unchanged.
 
@@ -73,4 +73,8 @@ uv run --no-sync python scripts/package_qc.py
 
 ## Progress log
 
-- (agent: add one line per task here)
+- T40 done: `schema_rewrite.py` with `with_plan_id` (flat, allOf/anyOf/oneOf/$ref, closed roots) and 6 tests. Deviation: the wrapper also takes `$defs`/`definitions` from the root, so `$ref` roots resolve.
+- T41 done: `policy.py` drops its copies of `PLAN_ID_ARG`, `_PLAN_ID_SCHEMA`, `with_plan_id` and re-exports the two names from `schema_rewrite` (redundant aliases). Identity test added in `tests/test_policy.py`.
+- T42 done: `schema_rewrite.validate_args` returns dotted paths (or `<root>`), `[]` for a missing or broken schema; 7 tests.
+- T43 done: `PlanBook.create` uses `token_hex(16)`; no existing test asserted the old length; test `PlanIdLengthTest`.
+- T44 done: `PlanBook(max_plans, *, clock=time.monotonic, repeat_after_seconds=PolicySettings().repeat_after_seconds)`; each plan keeps its clock and window, and a success stamps its time; the repeat is allowed once the window has passed. No signature used by server.py changed; 5 tests with a fake clock.

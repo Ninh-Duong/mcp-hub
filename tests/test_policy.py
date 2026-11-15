@@ -480,5 +480,66 @@ class SummaryTest(unittest.TestCase):
         self.assertIn("hub__plan", INSTRUCTIONS_SUMMARY)
 
 
+class SchemaRewriteReexportTest(unittest.TestCase):
+    def test_policy_reexports_the_schema_rewrite_names(self) -> None:
+        from mcp_hub import schema_rewrite
+
+        self.assertIs(policy.with_plan_id, schema_rewrite.with_plan_id)
+        self.assertIs(policy.PLAN_ID_ARG, schema_rewrite.PLAN_ID_ARG)
+
+
+class PlanIdLengthTest(unittest.TestCase):
+    def test_plan_ids_carry_128_bits(self) -> None:
+        plan = PlanBook(max_plans=2).create(plan_args(), CATALOG)
+        self.assertRegex(plan.plan_id, r"^plan-[0-9a-f]{32}$")
+
+
+class RepeatAfterTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.now = [0.0]
+
+    def plan(self, repeat_after_seconds: float) -> policy.Plan:
+        book = PlanBook(max_plans=2, clock=lambda: self.now[0], repeat_after_seconds=repeat_after_seconds)
+        plan = book.create(plan_args(env="stg"), CATALOG)
+        policy.record(plan, "logs__query", {"env": "stg"}, ok=True)
+        return plan
+
+    def repeat_rule(self, plan: policy.Plan) -> str | None:
+        violation = policy.check(plan, FACTS["logs__query"], {"env": "stg"}, HEALTH, plan.plan_id)
+        return None if violation is None else violation.rule
+
+    def test_a_repeat_is_refused_at_zero_seconds(self) -> None:
+        self.assertEqual(self.repeat_rule(self.plan(60)), "repeat")
+
+    def test_a_repeat_is_allowed_once_the_window_has_passed(self) -> None:
+        plan = self.plan(60)
+        self.now[0] = 59.0
+        self.assertEqual(self.repeat_rule(plan), "repeat")
+        self.now[0] = 60.0
+        self.assertIsNone(self.repeat_rule(plan))
+
+    def test_a_repeat_that_succeeds_starts_a_new_window(self) -> None:
+        plan = self.plan(60)
+        self.now[0] = 60.0
+        policy.record(plan, "logs__query", {"env": "stg"}, ok=True)
+        self.now[0] = 90.0
+        self.assertEqual(self.repeat_rule(plan), "repeat")
+        self.now[0] = 120.0
+        self.assertIsNone(self.repeat_rule(plan))
+
+    def test_a_zero_window_keeps_every_repeat_refused(self) -> None:
+        plan = self.plan(0)
+        self.now[0] = 10_000.0
+        self.assertEqual(self.repeat_rule(plan), "repeat")
+
+    def test_the_defaults_come_from_the_settings_and_the_monotonic_clock(self) -> None:
+        import time
+
+        book = PlanBook(max_plans=2)
+        self.assertEqual(book.repeat_after_seconds, PolicySettings().repeat_after_seconds)
+        self.assertEqual(PolicySettings().repeat_after_seconds, 0.0)
+        self.assertIs(book.clock, time.monotonic)
+
+
 if __name__ == "__main__":
     unittest.main()
