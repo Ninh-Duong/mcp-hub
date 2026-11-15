@@ -34,7 +34,7 @@ When the presence stream reports a tools list change, send `notifications/tools/
 
 Test: one upstream event produces one downstream notification; the not-supported case does not crash.
 
-## T34 timeouts and defaults
+## T34 timeouts and defaults [x]
 
 The bridge runs as a separate process that clients start, and it must not read the Hub config. So its tunables take their defaults from `mcp_hub.settings.BridgeSettings()`. Replace the module constants with:
 
@@ -70,3 +70,5 @@ uv run --no-sync python scripts/package_qc.py
 - T33 BLOCKED (stop rule: a design decision the card does not state). Verified with the SDK: a 2025-11-25 stdio client receives `notifications/tools/list_changed` when the relay sends it through the session. A 2026-07-28 client receives nothing, because the SDK drops session-level notifications on modern connections (`NotifyOnlyOutbound`: delivered via `subscriptions/listen` at that era). The overview (Edge cases) says 2026 clients get changes through `subscriptions/listen`, so the bridge must also serve `subscriptions/listen` (SDK `ListenHandler` plus a bus that publishes `ToolsListChanged`). The card does not name the bus, and D6 names `HubEvents` as the one bus. Orchestrator decision needed: which bus the bridge uses, or whether the card should add the listen path. No T33 code is committed; the branch holds T30 to T32 only. T34 is not started.
 - T33 DECISION (orchestrator): the bridge serves `subscriptions/listen` with the SDK `ListenHandler` on an `InMemorySubscriptionBus`, both from `mcp.server.subscriptions`. Not `events.py`, which is Track B's and is not on `arch/base`. Upstream `ToolsListChanged` is published on that bus (2026-era clients) and also sent as the session notification (2025-era clients). Upstream already debounces, so the bridge does not. The bus is process-local to the bridge; D6 (one bus) concerns the Hub process.
 - T33 done: tests cover one 2025 session notification, one 2026 `subscriptions/listen` event (the prompts event is ignored), and the not-supported case, which logs once and stops presence.
+- T34 done: `PRESENCE_RETRY_SECONDS = BridgeSettings().presence_retry_seconds`; `BRIDGE_TIMEOUT = httpx2.Timeout(BridgeSettings().connect_timeout_seconds, read=None)`. Deviation from the card snippet, as the orchestrator approved: the bare float would break the existing `BRIDGE_TIMEOUT.read` test. Deviation from the general "passed at start" rule, recorded as the card asks: the bridge has no start-time settings channel. Two tests: the defaults (5, 60, read None), and values taken from `BridgeSettings` (the module is reloaded with a patched settings class).
+- Request for the docs owner (not in Track C's Owns): `docs/architecture.md`, the `bridge.py` row, should also name `bridge_proxy.py`, the instructions pass-through, the progress relay, and the bridge's own `subscriptions/listen` bus (process-local). `docs/connecting-a-client.md` and `docs/settings.md` stay accurate.

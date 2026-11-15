@@ -258,6 +258,35 @@ class BridgeListChangedTest(unittest.TestCase):
         self.assertEqual(len(logs.records), 1)
 
 
+class BridgeTunablesTest(unittest.TestCase):
+    def test_constants_equal_the_bridge_settings_defaults(self) -> None:
+        from mcp_hub import bridge
+        from mcp_hub.settings import BridgeSettings
+
+        defaults = BridgeSettings()
+        self.assertEqual(bridge.PRESENCE_RETRY_SECONDS, defaults.presence_retry_seconds)
+        self.assertEqual(bridge.BRIDGE_TIMEOUT.connect, defaults.connect_timeout_seconds)
+        self.assertEqual(defaults.presence_retry_seconds, 5.0)
+        self.assertEqual(defaults.connect_timeout_seconds, 60.0)
+        self.assertIsNone(bridge.BRIDGE_TIMEOUT.read)
+
+    def test_constants_take_their_values_from_bridge_settings(self) -> None:
+        import importlib
+        from types import SimpleNamespace
+
+        from mcp_hub import bridge
+
+        tuned = SimpleNamespace(presence_retry_seconds=7.5, connect_timeout_seconds=42.0)
+        try:
+            with patch("mcp_hub.settings.BridgeSettings", return_value=tuned):
+                reloaded = importlib.reload(bridge)
+                self.assertEqual(reloaded.PRESENCE_RETRY_SECONDS, 7.5)
+                self.assertEqual(reloaded.BRIDGE_TIMEOUT.connect, 42.0)
+                self.assertIsNone(reloaded.BRIDGE_TIMEOUT.read)
+        finally:
+            importlib.reload(bridge)
+
+
 class PresenceTest(unittest.TestCase):
     def test_main_client_has_no_read_timeout_so_long_child_calls_finish(self) -> None:
         from mcp_hub.bridge import BRIDGE_TIMEOUT

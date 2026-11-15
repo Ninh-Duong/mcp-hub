@@ -19,11 +19,13 @@ from mcp.types import METHOD_NOT_FOUND, Implementation
 from .bridge_proxy import DownstreamLink, create_bridge_server
 from .service_config import load_service_config
 from .server import normalize_client_name
+from .settings import BridgeSettings
 
 logger = logging.getLogger(__name__)
-PRESENCE_RETRY_SECONDS = 5.0
+# The bridge runs without the Hub config, so its tunables take the BridgeSettings defaults.
+PRESENCE_RETRY_SECONDS = BridgeSettings().presence_retry_seconds
 # Connect and write limits only: a child tool may run longer than 60 s (its own timeoutSeconds applies).
-BRIDGE_TIMEOUT = httpx2.Timeout(60.0, read=None)
+BRIDGE_TIMEOUT = httpx2.Timeout(BridgeSettings().connect_timeout_seconds, read=None)
 
 
 def hub_http_client(token: str) -> httpx2.AsyncClient:
