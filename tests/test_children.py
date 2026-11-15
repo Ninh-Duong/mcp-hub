@@ -15,7 +15,7 @@ from typing import Any
 
 from mcp_hub.audit import AuditLog, describe_exception
 from mcp_hub.child_logs import CappedLog
-from mcp_hub.children import Backoff, open_stdio_client
+from mcp_hub.children import CONNECTED, Backoff, ChildSupervisor, open_stdio_client
 from mcp_hub.config import HUB_ROOT, HubConfig, ServerConfig, ToolRoute
 from mcp_hub.server import HubRuntime
 
@@ -182,6 +182,59 @@ class SupervisedChildTest(unittest.IsolatedAsyncioTestCase):
         retry = self.audit.named("server.reconnect.failed", "broken")[0]
         self.assertEqual(retry["retry_in_seconds"], FAST.delay(1))
         self.assertEqual([tool.name for tool in runtime.public_tools], ["hub__status", "hub__plan", "hub__batch"])
+
+
+class ToolListChangeTest(unittest.IsolatedAsyncioTestCase):
+    """A child that announces `notifications/tools/list_changed` is relisted without a reconnect."""
+
+    async def asyncSetUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        self.audit = RecordingAudit(self.tmp / "audit.jsonl")
+        self.supervisors: list[ChildSupervisor] = []
+        self.connected: list[Any] = []
+        self.changes: list[str] = []
+
+    async def asyncTearDown(self) -> None:
+        for supervisor in self.supervisors:
+            await supervisor.stop()
+
+    def on_connected(self, server_id: str, client: Any, tools: dict[str, Any]) -> None:
+        self.connected.append(client)
+
+    async def record_change(self, server_id: str) -> None:
+        self.changes.append(server_id)
+
+    def supervise(self, server: ServerConfig, on_tools_changed: Any) -> ChildSupervisor:
+        supervisor = ChildSupervisor(
+            server, self.audit, self.on_connected, lambda server_id: None,
+            log_dir=self.tmp / "children", backoff=SLOW, on_tools_changed=on_tools_changed,
+        )
+        self.supervisors.append(supervisor)
+        supervisor.start()
+        return supervisor
+
+    async def test_announced_change_is_relisted_and_reported_once(self) -> None:
+        supervisor = self.supervise(child("fake", FAKE_CHILD_TOOL_CHANGE="1"), self.record_change)
+        await wait_until(lambda: self.changes)
+        await asyncio.sleep(0.2)
+        self.assertEqual(self.changes, ["fake"])
+        self.assertEqual(sorted(supervisor.tools), ["added_tool", "echo_unicode"])
+        self.assertEqual(supervisor.state, CONNECTED)
+        self.assertEqual(self.audit.named("server.reconnected"), [])
+
+    async def test_a_callback_that_raises_is_logged_and_the_session_keeps_serving(self) -> None:
+        async def fail(server_id: str) -> None:
+            self.changes.append(server_id)
+            raise RuntimeError("callback broke")
+
+        supervisor = self.supervise(child("fake", FAKE_CHILD_TOOL_CHANGE="1"), fail)
+        with self.assertLogs("mcp_hub.children", level="WARNING"):
+            await wait_until(lambda: self.changes)
+            await asyncio.sleep(0.1)
+        self.assertEqual(supervisor.state, CONNECTED)
+        result = await self.connected[0].call_tool("echo_unicode", {"text": "after"})
+        self.assertFalse(result.is_error)
+        self.assertEqual(result.content[0].text, "naïve café 🌺 after")
 
 
 class CappedLogTest(unittest.TestCase):

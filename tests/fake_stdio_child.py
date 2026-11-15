@@ -5,6 +5,9 @@ Test-only behaviors, controlled by environment variables:
 - FAKE_CHILD_HANG_INITIALIZE=1: write `pid=<pid>` to stderr and never answer (not even initialize).
 - FAKE_CHILD_HOOKS=1: `echo_unicode` with text `exit` exits the process; `badutf8` writes invalid
   UTF-8 to stdout before answering; `badutf8-exit` writes invalid UTF-8 and exits.
+- FAKE_CHILD_TOOL_CHANGE=1: its first tools/list sends one notifications/tools/list_changed on
+  that request's stream (mcp 2.2.0 drops standalone notifications on a stdio session), and every
+  later tools/list also lists `added_tool`.
 """
 from __future__ import annotations
 
@@ -28,15 +31,34 @@ from mcp.types import (
     PromptMessage,
     TextContent,
     Tool,
+    ToolListChangedNotification,
 )
 
+_LIST_TOOLS_CALLS = 0
 
-async def list_tools(_ctx: ServerRequestContext, _params: PaginatedRequestParams | None) -> ListToolsResult:
-    return ListToolsResult(tools=[Tool(
+
+def _added_tool() -> Tool:
+    return Tool(
+        name="added_tool",
+        description="Listed after the child announced a tool change.",
+        inputSchema={"type": "object", "properties": {}},
+    )
+
+
+async def list_tools(ctx: ServerRequestContext, _params: PaginatedRequestParams | None) -> ListToolsResult:
+    global _LIST_TOOLS_CALLS
+    _LIST_TOOLS_CALLS += 1
+    tools = [Tool(
         name="echo_unicode",
         description="Echo a string with Unicode text.",
         inputSchema={"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
-    )])
+    )]
+    if os.environ.get("FAKE_CHILD_TOOL_CHANGE") == "1":
+        if _LIST_TOOLS_CALLS == 1:
+            await ctx.session.send_notification(ToolListChangedNotification(), related_request_id=ctx.request_id)
+        else:
+            tools.append(_added_tool())
+    return ListToolsResult(tools=tools)
 
 
 # The protocol pipe, duplicated before the SDK diverts fd 1 to stderr while serving.
