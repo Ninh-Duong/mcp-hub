@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -35,11 +36,13 @@ from mcp.types import (
 )
 
 from .audit import AuditLog, default_log_dir, describe_exception, redact
+from .audit_events import TOOLS_LIST_CHANGED_SENT
 from .batch import BATCH_TOOL, BatchItem, BatchRefused, batch_result, batch_tool, parse_calls, run_batch
 from .children import Backoff, ChildOpener, ChildSupervisor, ChildUnavailable, open_stdio_client
 from .condense import RuleCondenser, condense_text_rules
 from .config import HUB_ROOT, HubConfig, ServerConfig, ToolRoute, is_sensitive_key, load_config
 from datetime import UTC, datetime
+from .events import HubEvents
 from .extensions import ActivitySource, CallObserver, PlanAssistant, PlanContext, PlanHints, ResultCondenser, empty_activity
 from .extensions import ProcessingEvent, ProcessingObserver, emit_processing, processing_step
 from .full_results import FullResultStore
@@ -51,6 +54,7 @@ from .projects import ProjectConfig, load_projects
 from .result_cache import ResultCache
 from .result_shape import is_condensable, parse_page_args, with_condensed_meta
 from .settings import Settings, load_settings
+from .tool_pins import fingerprint
 
 
 _CLIENT_LABEL_RE = re.compile(r"[^A-Za-z0-9_. -]")
@@ -132,6 +136,8 @@ class HubRuntime:
         self.plan_assistant: PlanAssistant | None = None
         self.condenser: ResultCondenser | None = None
         self.full_results: FullResultStore | None = None
+        self.events = HubEvents(settings.protocol.list_changed_debounce_seconds)
+        self._announcements: set[asyncio.Task[None]] = set()
         self._starting = False
 
     def add_observer(self, observer: CallObserver) -> None:
@@ -166,7 +172,7 @@ class HubRuntime:
             supervisor.start()
         await asyncio.gather(*(supervisor.wait_first_attempt() for supervisor in self.supervisors.values()))
         self._starting = False
-        self._register_routes()
+        self.events.prime(self._register_routes())
         self.audit.write(
             "hub.tools.registered",
             tool_count=len(self.public_tools),
@@ -200,17 +206,34 @@ class HubRuntime:
         if self._starting:
             return  # `connect` registers all routes once the first attempts are done
         before = [tool.name for tool in self.public_tools]
-        self._register_routes(server_id)
+        signature = self._register_routes(server_id)
         after = [tool.name for tool in self.public_tools]
         if after != before:
             self.audit.write("hub.tools.registered", tool_count=len(after), tools=after)
+        self._schedule_announcement(signature)
 
     def child_lost(self, server_id: str) -> None:
         """Withdraw a child's session (called by its supervisor)."""
         # Routes stay: calls fail fast with ChildUnavailable until the child reconnects.
         self.clients.pop(server_id, None)
 
-    def _register_routes(self, only_server: str | None = None) -> None:
+    def _schedule_announcement(self, signature: str) -> None:
+        """Announce a changed tool set from sync code: the debounced publish runs as a task on the event loop."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:  # no loop: nothing can be sent, so only the baseline moves
+            self.events.prime(signature)
+            return
+        task = asyncio.ensure_future(self.announce_tools(signature))
+        self._announcements.add(task)
+        task.add_done_callback(self._announcements.discard)
+
+    async def announce_tools(self, signature: str) -> None:
+        """Schedule one debounced tools/list_changed for a new tool signature, and audit the scheduling (FR-006)."""
+        if await self.events.tools_changed(signature):
+            self.audit.write(TOOLS_LIST_CHANGED_SENT, tools_count=len(self.public_tools))
+
+    def _register_routes(self, only_server: str | None = None) -> str:
         """Rebuild routes and public tools from the latest tools of each child.
 
         `route.skipped` is written for every missing tool, or only for `only_server`'s after a reconnect.
@@ -221,6 +244,7 @@ class HubRuntime:
         public_tools = [_hub_status_tool(), policy.plan_tool(self.playbooks), batch]
         read_only: set[str] = set()
         facts: dict[str, CallFacts] = {}
+        parts: list[tuple[str, str, str]] = []
         for route in self.config.routes:
             child_tool = self._discovered.get(route.server_id, {}).get(route.tool_name)
             if child_tool is None:
@@ -235,6 +259,7 @@ class HubRuntime:
                     )
                 continue
             routes[route.exposed_name] = route
+            parts.append((route.server_id, route.tool_name, fingerprint(child_tool)))
             public_tools.append(_public_tool(route, child_tool))
             if is_read_only_tool(child_tool):
                 read_only.add(route.exposed_name)
@@ -242,6 +267,7 @@ class HubRuntime:
                 route.exposed_name, route.server_id, route.exposed_name in read_only, policy.tool_accepts_env(child_tool),
             )
         self.routes, self.public_tools, self._read_only, self._call_facts = routes, public_tools, read_only, facts
+        return _tools_signature(parts)
 
     async def list_tools(
         self,
@@ -932,6 +958,11 @@ def _full_result_tool() -> Tool:
         },
         annotations={"readOnlyHint": True},
     )
+
+
+def _tools_signature(parts: list[tuple[str, str, str]]) -> str:
+    """One digest over each exposed tool's server, name and definition fingerprint, in server then name order."""
+    return hashlib.sha256(json.dumps(sorted(parts), separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
 def _join_text(content: list[Any]) -> str:
