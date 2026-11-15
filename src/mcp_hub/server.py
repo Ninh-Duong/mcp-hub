@@ -16,6 +16,7 @@ from typing import Any, NamedTuple
 import anyio
 from mcp import Client
 from mcp.server import Server, ServerRequestContext
+from mcp.server.caching import CacheHint
 from mcp.server.stdio import stdio_server
 from mcp.shared.exceptions import MCPError
 from mcp.types import (
@@ -254,11 +255,12 @@ class HubRuntime:
         routes: dict[str, ToolRoute] = {}
         batch = batch_tool(self.settings.batch.max_calls)
         batch = batch.model_copy(update={"input_schema": policy.with_plan_id(batch.input_schema)})
-        public_tools = [_hub_status_tool(), policy.plan_tool(self.playbooks), batch]
+        hub_tools = [_hub_status_tool(), policy.plan_tool(self.playbooks), batch]
+        child_tools: list[Tool] = []
         read_only: set[str] = set()
         facts: dict[str, CallFacts] = {}
         parts: list[tuple[str, str, str]] = []
-        for route in self.config.routes:
+        for route in _in_list_order(self.config.routes, self.config.servers):
             child_tool = self._discovered.get(route.server_id, {}).get(route.tool_name)
             if child_tool is None:
                 if only_server in (None, route.server_id):
@@ -273,13 +275,13 @@ class HubRuntime:
                 continue
             routes[route.exposed_name] = route
             parts.append((route.server_id, route.tool_name, fingerprint(child_tool)))
-            public_tools.append(_public_tool(route, child_tool))
+            child_tools.append(_public_tool(route, child_tool))
             if is_read_only_tool(child_tool):
                 read_only.add(route.exposed_name)
             facts[route.exposed_name] = CallFacts(
                 route.exposed_name, route.server_id, route.exposed_name in read_only, policy.tool_accepts_env(child_tool),
             )
-        self.routes, self.public_tools, self._read_only, self._call_facts = routes, public_tools, read_only, facts
+        self.routes, self.public_tools, self._read_only, self._call_facts = routes, [*hub_tools, *child_tools], read_only, facts
         return _tools_signature(parts)
 
     async def list_tools(
@@ -973,6 +975,12 @@ def _full_result_tool() -> Tool:
     )
 
 
+def _in_list_order(routes: tuple[ToolRoute, ...], servers: Mapping[str, ServerConfig]) -> list[ToolRoute]:
+    """Routes in `tools/list` order: each child in config order, then its tools by exposed name (FR-008)."""
+    rank = {server_id: index for index, server_id in enumerate(servers)}
+    return sorted(routes, key=lambda route: (rank.get(route.server_id, len(rank)), route.exposed_name))
+
+
 def _tools_signature(parts: list[tuple[str, str, str]]) -> str:
     """One digest over each exposed tool's server, name and definition fingerprint, in server then name order."""
     return hashlib.sha256(json.dumps(sorted(parts), separators=(",", ":")).encode("utf-8")).hexdigest()
@@ -1105,6 +1113,7 @@ def create_mcp_server(runtime: HubRuntime, job_runner: Any | None = None) -> Ser
     server = Server(
         "mcp-hub",
         instructions=_server_instructions(runtime, job_runner is not None),
+        cache_hints={"tools/list": CacheHint(ttl_ms=runtime.settings.protocol.tools_list_ttl_ms)},
         on_list_tools=list_tools,
         on_call_tool=call_tool,
         on_list_prompts=runtime.list_prompts,
