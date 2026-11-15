@@ -488,5 +488,11 @@ class SchemaRewriteReexportTest(unittest.TestCase):
         self.assertIs(policy.PLAN_ID_ARG, schema_rewrite.PLAN_ID_ARG)
 
 
+class PlanIdLengthTest(unittest.TestCase):
+    def test_plan_ids_carry_128_bits(self) -> None:
+        plan = PlanBook(max_plans=2).create(plan_args(), CATALOG)
+        self.assertRegex(plan.plan_id, r"^plan-[0-9a-f]{32}$")
+
+
 if __name__ == "__main__":
     unittest.main()

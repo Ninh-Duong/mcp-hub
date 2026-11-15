@@ -177,7 +177,7 @@ class PlanBook:
         return plan
 
     def create(self, arguments: Mapping[str, Any], catalog: PlanCatalog) -> Plan:
-        plan = parse_plan(arguments, catalog, f"plan-{secrets.token_hex(6)}")
+        plan = parse_plan(arguments, catalog, f"plan-{secrets.token_hex(16)}")
         self._plans[plan.plan_id] = plan
         while len(self._plans) > self.max_plans:
             self._plans.popitem(last=False)

@@ -44,7 +44,7 @@ Uses `jsonschema.Draft202012Validator(schema).iter_errors(args)`. Each error bec
 
 Tests: a wrong type on a nested field gives its dotted path; a missing required key gives `"<root>"`; a broken schema gives `[]`; a valid argument gives `[]`.
 
-## T43 plan id length
+## [x] T43 plan id length
 
 `policy.py`: change `token_hex(6)` to `token_hex(16)` (128 bits). Check that no existing test asserts the old length; if one does, stop and report.
 
@@ -76,4 +76,5 @@ uv run --no-sync python scripts/package_qc.py
 - T40 done: `schema_rewrite.py` with `with_plan_id` (flat, allOf/anyOf/oneOf/$ref, closed roots) and 6 tests. Deviation: the wrapper also takes `$defs`/`definitions` from the root, so `$ref` roots resolve.
 - T41 done: `policy.py` drops its copies of `PLAN_ID_ARG`, `_PLAN_ID_SCHEMA`, `with_plan_id` and re-exports the two names from `schema_rewrite` (redundant aliases). Identity test added in `tests/test_policy.py`.
 - T42 done: `schema_rewrite.validate_args` returns dotted paths (or `<root>`), `[]` for a missing or broken schema; 7 tests.
+- T43 done: `PlanBook.create` uses `token_hex(16)`; no existing test asserted the old length; test `PlanIdLengthTest`.
 - (agent: add one line per task here)
