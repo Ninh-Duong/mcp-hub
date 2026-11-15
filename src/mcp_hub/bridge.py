@@ -1,34 +1,31 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
+from collections.abc import AsyncIterable, Awaitable, Callable
 from contextlib import suppress
-from typing import Any
 
 import httpx2
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.client.subscriptions import ListenNotSupportedError
-from mcp.server import Server, ServerRequestContext
 from mcp.server.stdio import stdio_server
+from mcp.server.subscriptions import ToolsListChanged
 from mcp.shared.exceptions import MCPError
+from mcp.shared.subscriptions import ServerEvent
 from mcp.types import METHOD_NOT_FOUND, Implementation
-from mcp.types import (
-    CallToolRequestParams,
-    CallToolResult,
-    GetPromptRequestParams,
-    GetPromptResult,
-    ListPromptsResult,
-    ListToolsResult,
-    PaginatedRequestParams,
-)
 
+from .bridge_proxy import DownstreamLink, create_bridge_server
 from .service_config import load_service_config
 from .server import normalize_client_name
+from .settings import BridgeSettings
 
-PRESENCE_RETRY_SECONDS = 5.0
+logger = logging.getLogger(__name__)
+# The bridge runs without the Hub config, so its tunables take the BridgeSettings defaults.
+PRESENCE_RETRY_SECONDS = BridgeSettings().presence_retry_seconds
 # Connect and write limits only: a child tool may run longer than 60 s (its own timeoutSeconds applies).
-BRIDGE_TIMEOUT = httpx2.Timeout(60.0, read=None)
+BRIDGE_TIMEOUT = httpx2.Timeout(BridgeSettings().connect_timeout_seconds, read=None)
 
 
 def hub_http_client(token: str) -> httpx2.AsyncClient:
@@ -41,35 +38,6 @@ def bridge_client_info(client_name: str | None = None) -> Implementation:
     return Implementation(name=normalize_client_name(name), version="0.1.0")
 
 
-def create_bridge_server(remote: Any) -> Server:
-    async def list_tools(
-        _ctx: ServerRequestContext,
-        params: PaginatedRequestParams | None,
-    ) -> ListToolsResult:
-        return await remote.list_tools(cursor=params.cursor if params else None)
-
-    async def call_tool(_ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
-        return await remote.call_tool(params.name, params.arguments or {})
-
-    async def list_prompts(
-        _ctx: ServerRequestContext,
-        params: PaginatedRequestParams | None,
-    ) -> ListPromptsResult:
-        return await remote.list_prompts(cursor=params.cursor if params else None)
-
-    async def get_prompt(_ctx: ServerRequestContext, params: GetPromptRequestParams) -> GetPromptResult:
-        return await remote.get_prompt(params.name, params.arguments or {})
-
-    return Server(
-        "mcp-hub-stdio-bridge",
-        instructions="Forwards MCP requests to the authenticated local mcp-hub service.",
-        on_list_tools=list_tools,
-        on_call_tool=call_tool,
-        on_list_prompts=list_prompts,
-        on_get_prompt=get_prompt,
-    )
-
-
 def is_method_not_found(exc: BaseException) -> bool:
     """True when the Hub rejected a request as unknown, possibly wrapped in an exception group."""
     if isinstance(exc, MCPError):
@@ -79,24 +47,44 @@ def is_method_not_found(exc: BaseException) -> bool:
     return False
 
 
-async def _listen_once(url: str, token: str, client_info: Implementation) -> None:
+async def relay_tool_changes(
+    events: AsyncIterable[ServerEvent],
+    on_tools_changed: Callable[[], Awaitable[None]] | None,
+) -> None:
+    """Call `on_tools_changed` once for each tools/list_changed event; other event kinds are ignored."""
+    async for event in events:
+        if on_tools_changed is not None and isinstance(event, ToolsListChanged):
+            await on_tools_changed()
+
+
+async def _listen_once(
+    url: str,
+    token: str,
+    client_info: Implementation,
+    on_tools_changed: Callable[[], Awaitable[None]] | None = None,
+) -> None:
     # No read timeout: the stream stays idle until the Hub ends it.
     async with hub_http_client(token) as http_client:
         async with Client(streamable_http_client(url, http_client=http_client), client_info=client_info) as presence:
             async with presence.listen(tools_list_changed=True) as subscription:
-                async for _event in subscription:
-                    pass
+                await relay_tool_changes(subscription, on_tools_changed)
 
 
-async def hold_presence(url: str, token: str, client_info: Implementation) -> None:
-    """Keep a listen stream open so the Hub dashboard shows this client as connected.
+async def hold_presence(
+    url: str,
+    token: str,
+    client_info: Implementation,
+    on_tools_changed: Callable[[], Awaitable[None]] | None = None,
+) -> None:
+    """Keep a listen stream open so the Hub dashboard shows this client as connected, and relay tool changes.
 
     Stops when the Hub does not serve presence (it runs without the activity UI).
     """
     while True:
         try:
-            await _listen_once(url, token, client_info)
+            await _listen_once(url, token, client_info, on_tools_changed)
         except ListenNotSupportedError:
+            logger.warning("The Hub does not support subscriptions/listen; tool list changes are not relayed.")
             return
         except Exception as exc:
             if is_method_not_found(exc):
@@ -115,8 +103,9 @@ async def serve_bridge() -> None:
             client_info=client_info,
         ) as remote:
             await remote.list_tools()
-            server = create_bridge_server(remote)
-            presence = asyncio.create_task(hold_presence(url, config.token, client_info))
+            link = DownstreamLink()
+            server = create_bridge_server(remote, link)
+            presence = asyncio.create_task(hold_presence(url, config.token, client_info, link.tools_changed))
             try:
                 async with stdio_server() as (read_stream, write_stream):
                     await server.run(read_stream, write_stream, server.create_initialization_options())
