@@ -171,7 +171,7 @@ class HubRuntime:
         self._starting = True
         for supervisor in self.supervisors.values():
             supervisor.start()
-        await asyncio.gather(*(supervisor.wait_first_attempt() for supervisor in self.supervisors.values()))
+        await self._wait_for_first_attempts()
         self._starting = False
         self.events.prime(self._register_routes())
         self.audit.write(
@@ -179,6 +179,21 @@ class HubRuntime:
             tool_count=len(self.public_tools),
             tools=[tool.name for tool in self.public_tools],
         )
+
+    async def _wait_for_first_attempts(self) -> None:
+        """Wait for each child's first attempt, but no longer than `children.startupWaitSeconds` (SC-004).
+
+        A child still connecting then joins later, through `child_connected`. The waiters are cancelled, not the
+        supervisors, so a child keeps connecting in the background.
+        """
+        if not self.supervisors:
+            return
+        waiters = [asyncio.ensure_future(supervisor.wait_first_attempt()) for supervisor in self.supervisors.values()]
+        try:
+            await asyncio.wait(waiters, timeout=self.settings.children.startup_wait_seconds)
+        finally:
+            for waiter in waiters:
+                waiter.cancel()
 
     def enable_core_condenser(self) -> None:
         """Install core deterministic condensing and full-result storage when not set."""
