@@ -23,7 +23,7 @@ Returns False when any of these holds: `output_schema` is truthy; `result.struct
 
 Tests: one case per False rule, and one True case. Types come from `mcp.types`.
 
-## T11 `with_condensed_meta`
+## T11 `with_condensed_meta` (done)
 
 ```python
 def with_condensed_meta(result: CallToolResult, result_id: str, kept: int, total: int) -> CallToolResult:
@@ -71,3 +71,4 @@ Start every shell call with `cd "../mcp-hub-track-<x>"` (relative to the Hub che
 ## Progress log
 
 - T10 done: `is_condensable` in `result_shape.py` with 5 tests in `tests/test_result_shape.py`; ruff and code standards pass.
+- T11 done: `with_condensed_meta` in `result_shape.py`, 3 more tests (8 in the file); ruff and code standards pass.
