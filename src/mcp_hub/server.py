@@ -1227,6 +1227,8 @@ _CONDENSED_INSTRUCTIONS = (
     " Results may be condensed (footer names result_id; use hub__get_full_result only if evidence is missing). "
     "With BitNet on, hub__plan may fill playbook, servers, env, and time window from task."
 )
+# The client rules the instructions end with; a cut note names this file (relative to the Hub checkout).
+_RULES_FILE = "docs/client-rules.md"
 
 
 def _repo_relative(path: Path) -> str:
@@ -1263,9 +1265,9 @@ def _server_instructions(runtime: HubRuntime, with_jobs: bool) -> str:
     # Codex reads only the first 512 characters of the summary; Claude Code cuts instructions at 4096.
     summary = f"{INSTRUCTIONS_SUMMARY}{_JOB_INSTRUCTIONS if with_jobs else ''}{_CONDENSED_INSTRUCTIONS}"
     groups = [f"- {sid}: {', '.join(tools)}" for sid, tools in runtime.tools_by_server().items()]
-    rules = HUB_ROOT / "docs" / "client-rules.md"
+    rules = HUB_ROOT / _RULES_FILE
     rule_lines = rules.read_text(encoding="utf-8").splitlines() if rules.is_file() else []
-    return build_instructions(summary, [("Tools by child MCP (server ID: tools):", groups), ("", rule_lines)])
+    return build_instructions(summary, [("Tools by child MCP (server ID: tools):", groups), ("", rule_lines, _RULES_FILE)])
 
 
 def create_mcp_server(runtime: HubRuntime, job_runner: Any | None = None) -> Server:
