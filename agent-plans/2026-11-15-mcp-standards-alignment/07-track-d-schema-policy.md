@@ -11,7 +11,7 @@ Owns:
 
 Read first: `src/mcp_hub/policy.py` (`PLAN_ID_ARG`, `_PLAN_ID_SCHEMA` and `with_plan_id` around line 162; `token_hex(6)` around line 189; the repeat refusal around line 321). Do not edit `server.py`.
 
-## T40 `schema_rewrite.with_plan_id`
+## [x] T40 `schema_rewrite.with_plan_id`
 
 File: `src/mcp_hub/schema_rewrite.py`. Test: `tests/test_schema_rewrite.py`.
 
@@ -73,4 +73,5 @@ uv run --no-sync python scripts/package_qc.py
 
 ## Progress log
 
+- T40 done: `schema_rewrite.py` with `with_plan_id` (flat, allOf/anyOf/oneOf/$ref, closed roots) and 6 tests. Deviation: the wrapper also takes `$defs`/`definitions` from the root, so `$ref` roots resolve.
 - (agent: add one line per task here)
