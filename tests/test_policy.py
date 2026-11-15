@@ -480,5 +480,13 @@ class SummaryTest(unittest.TestCase):
         self.assertIn("hub__plan", INSTRUCTIONS_SUMMARY)
 
 
+class SchemaRewriteReexportTest(unittest.TestCase):
+    def test_policy_reexports_the_schema_rewrite_names(self) -> None:
+        from mcp_hub import schema_rewrite
+
+        self.assertIs(policy.with_plan_id, schema_rewrite.with_plan_id)
+        self.assertIs(policy.PLAN_ID_ARG, schema_rewrite.PLAN_ID_ARG)
+
+
 if __name__ == "__main__":
     unittest.main()

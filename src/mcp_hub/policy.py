@@ -33,9 +33,10 @@ from mcp.types import Tool
 from .playbooks import Playbook
 from .projects import LogTarget, ProjectConfig, SqlTarget
 from .result_cache import cache_key
+# Re-exported: server.py and the tests use policy.PLAN_ID_ARG and policy.with_plan_id.
+from .schema_rewrite import PLAN_ID_ARG as PLAN_ID_ARG, with_plan_id as with_plan_id
 
 PLAN_TOOL = "hub__plan"
-PLAN_ID_ARG = "hub_plan_id"
 MAX_TEXT = 2000
 MAX_STEPS = 50
 # A failed call may be retried once (two attempts in all); a succeeded call is never repeated.
@@ -46,9 +47,6 @@ _PLAN_REQUIRED = (
     f"Call {PLAN_TOOL} first (task, child server IDs, environment, planned steps), then pass the "
     f"{PLAN_ID_ARG} it returns with every call. It also returns the rules for those children."
 )
-_PLAN_ID_SCHEMA = {"type": "string", "description": f"The plan ID that {PLAN_TOOL} returned; required."}
-
-
 class PolicyRefused(ValueError):
     """An invalid plan; the message is safe to show to the client."""
 
@@ -157,13 +155,6 @@ def plan_tool(playbooks: Mapping[str, Playbook] | None = None) -> Tool:
 def tool_accepts_env(tool: Tool) -> bool:
     properties = (tool.input_schema or {}).get("properties")
     return isinstance(properties, Mapping) and "env" in properties
-
-
-def with_plan_id(schema: Mapping[str, Any] | None) -> dict[str, Any]:
-    """A copy of a tool's input schema that also accepts `hub_plan_id`."""
-    copied = dict(schema or {"type": "object"})
-    copied["properties"] = {**(copied.get("properties") or {}), PLAN_ID_ARG: _PLAN_ID_SCHEMA}
-    return copied
 
 
 def split_plan_id(arguments: Mapping[str, Any]) -> tuple[Any, dict[str, Any]]:
