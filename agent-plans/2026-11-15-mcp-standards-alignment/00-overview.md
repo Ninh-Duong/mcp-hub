@@ -190,3 +190,5 @@ Phase 2 is `10-track-w-wiring.md`; Phase 3 is `11-track-q-quality.md`.
 ## Progress log
 
 - 2026-11-15 (orchestrator): Phase 0 committed on `arch/base`: settings keys with tests, `audit_events.py` with tests, docs rows, AGENTS.md private-file row, and `.claude/worktrees/` ignored. Baseline before the change: 953 tests passed, one skipped.
+- 2026-11-15 (orchestrator): Phase 1 merged into `arch/base` (tracks A, B, C, D, E, F). Decisions taken during Phase 1: `FullResultStore.put` returns `None` only for an entry larger than `max_bytes`; the bridge keeps its own process-local `subscriptions/listen` bus (`events.py` is the Hub's bus, D6 concerns the Hub process). `package_qc.py` on the merge: 1069 tests passed, one skipped; coverage 92%.
+- Open for Phase 2 (see the wiring card, carry-forward list): legacy-era delivery of Hub-side list changes is unverified; progress end-to-end needs `_call_child`; the `$ref` closure gap in `hub_plan_id`.

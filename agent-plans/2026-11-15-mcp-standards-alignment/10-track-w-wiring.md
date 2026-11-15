@@ -29,6 +29,9 @@ These came out of the Phase 1 reports. Each one is a requirement on this track.
 9. Prompt caching (Track F, T64) is verified offline only. A specialist prefix may fall below the model's minimum cacheable size, in which case it caches silently. Do not claim savings in docs. Record that a live run must check `cache_read_input_tokens`; that check belongs to Track Q or a manual smoke run.
 10. `build_instructions` (Track F, T60) is not yet used by server.py. T80 wires it.
 11. Result text with no evidence ID (validation error, child exception) clears to a note with an empty `source_id` (Track F). Keep that behaviour in any server.py wiring.
+12. The bridge stops its presence stream when the upstream Hub negotiates the 2025 protocol, and logs one line. Hub list changes are then not relayed on that connection (Track C, card behaviour). Confirm the bridge's client negotiates the 2026 protocol in the wiring tests; if it cannot, record the limitation in `docs/architecture.md`.
+13. `docs/architecture.md` must name `bridge_proxy.py`, the instructions pass-through, the progress relay, and the bridge's own process-local `subscriptions/listen` bus. Track C asked for this; it is part of T081.
+14. One unit-test run on an earlier merge printed an SDK trace, `Error parsing SSE message` (anyio `BrokenResourceError`), while every test passed. It did not reproduce on the full merge. If it appears again, find the teardown that causes it before adding any suppression.
 
 ## Tasks
 
