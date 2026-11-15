@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from pathlib import Path
 
 HUB_ROOT = Path(__file__).resolve().parents[1]
@@ -21,7 +21,7 @@ def load_report_script():
     return module
 
 
-BASE = datetime(2026, 10, 31, 9, 0, tzinfo=timezone.utc)
+BASE = datetime(2026, 10, 31, 9, 0, tzinfo=UTC)
 
 
 def line(seconds: float, event: str, request_id: str, tool: str, feature: str = "logs") -> str:

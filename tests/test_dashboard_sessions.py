@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 
 
 class DashboardSessionsTest(unittest.TestCase):
     def test_pairing_token_is_short_lived_single_use_and_creates_dashboard_session(self) -> None:
         from mcp_hub.dashboard.sessions import DashboardSessions
 
-        now = datetime(2026, 10, 28, tzinfo=timezone.utc)
+        now = datetime(2026, 10, 28, tzinfo=UTC)
         sessions = DashboardSessions(clock=lambda: now)
         pairing = sessions.issue_pairing_token()
         self.assertTrue(sessions.is_pairing_valid(pairing))
@@ -21,7 +21,7 @@ class DashboardSessionsTest(unittest.TestCase):
     def test_expired_pairing_token_is_rejected(self) -> None:
         from mcp_hub.dashboard.sessions import DashboardSessions
 
-        now = datetime(2026, 10, 28, tzinfo=timezone.utc)
+        now = datetime(2026, 10, 28, tzinfo=UTC)
         sessions = DashboardSessions(clock=lambda: now)
         pairing = sessions.issue_pairing_token()
         now += timedelta(minutes=3)

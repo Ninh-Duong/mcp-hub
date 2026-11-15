@@ -40,7 +40,7 @@ def release_json(**changes: object) -> dict:
 
 
 class FakeResponse(io.BytesIO):
-    def __enter__(self) -> "FakeResponse":
+    def __enter__(self) -> FakeResponse:
         return self
 
     def __exit__(self, *_exc: object) -> None:

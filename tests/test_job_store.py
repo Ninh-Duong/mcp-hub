@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from pathlib import Path
 
 from mcp_hub.activity_ui.tracker import ToolCallRecord
@@ -29,7 +29,7 @@ class JobStoreTest(unittest.TestCase):
         from mcp_hub.jobs.store import JobStore
 
         self.temp = tempfile.TemporaryDirectory()
-        self.now = datetime(2026, 10, 28, tzinfo=timezone.utc)
+        self.now = datetime(2026, 10, 28, tzinfo=UTC)
         self.store = JobStore(
             Path(self.temp.name) / "jobs.sqlite3",
             protector=FakeProtector(),
@@ -78,7 +78,7 @@ class JobStoreTest(unittest.TestCase):
 
     def test_evidence_refs_cover_every_source_id_and_filter_by_agent(self) -> None:
         job_id = self.store.create_job(project="orders", question="q")
-        for index in range(150):
+        for _ in range(150):
             self.store.append_event(job_id, "agent.started", agent="logs")
         self.store.append_event(job_id, "tool.call.succeeded", agent="logs", tool="logs__query_logs", source_id="logs-1")
         self.store.append_event(job_id, "tool.call.failed", agent="jira", tool="jira__read_ticket", source_id="jira-1")
@@ -117,8 +117,8 @@ class JobStoreTest(unittest.TestCase):
         raw_db = (Path(self.temp.name) / "jobs.sqlite3").read_bytes()
 
         report = self.store.activity_report(
-            datetime(2026, 10, 28, tzinfo=timezone.utc),
-            datetime(2026, 10, 29, tzinfo=timezone.utc),
+            datetime(2026, 10, 28, tzinfo=UTC),
+            datetime(2026, 10, 29, tzinfo=UTC),
         )
 
         self.assertEqual(report["summary"]["total_calls"], 1)
@@ -136,8 +136,8 @@ class JobStoreTest(unittest.TestCase):
     def test_activity_pagination_reports_whether_more_rows_exist(self) -> None:
         self.store.record_tool_calls([_call("first_tool"), _call("second_tool")])
 
-        start = datetime(2026, 10, 28, tzinfo=timezone.utc)
-        end = datetime(2026, 10, 29, tzinfo=timezone.utc)
+        start = datetime(2026, 10, 28, tzinfo=UTC)
+        end = datetime(2026, 10, 29, tzinfo=UTC)
         first_page = self.store.activity_report(start, end, offset=0, limit=1)
         last_page = self.store.activity_report(start, end, offset=1, limit=1)
 
@@ -149,8 +149,8 @@ class JobStoreTest(unittest.TestCase):
     def test_activity_report_rejects_an_unbounded_offset(self) -> None:
         with self.assertRaises(ValueError):
             self.store.activity_report(
-                datetime(2026, 10, 28, tzinfo=timezone.utc),
-                datetime(2026, 10, 29, tzinfo=timezone.utc),
+                datetime(2026, 10, 28, tzinfo=UTC),
+                datetime(2026, 10, 29, tzinfo=UTC),
                 offset=2**63,
             )
 
@@ -158,7 +158,7 @@ class JobStoreTest(unittest.TestCase):
         self.assertEqual(self.store.record_tool_calls([]), 0)
         self.store.record_tool_calls([_call(f"tool_{index}") for index in range(50)])
         report = self.store.activity_report(
-            datetime(2026, 10, 28, tzinfo=timezone.utc), datetime(2026, 10, 29, tzinfo=timezone.utc),
+            datetime(2026, 10, 28, tzinfo=UTC), datetime(2026, 10, 29, tzinfo=UTC),
         )
         self.assertEqual(report["summary"]["total_calls"], 50)
         with self.assertRaises(ValueError):
@@ -179,7 +179,7 @@ class JobStoreTest(unittest.TestCase):
         reopened = JobStore(Path(self.temp.name) / "jobs.sqlite3", protector=FakeProtector(), clock=lambda: self.now)
         try:
             report = reopened.activity_report(
-                datetime(2026, 10, 28, tzinfo=timezone.utc), datetime(2026, 10, 29, tzinfo=timezone.utc),
+                datetime(2026, 10, 28, tzinfo=UTC), datetime(2026, 10, 29, tzinfo=UTC),
             )
         finally:
             reopened.close()
@@ -190,8 +190,8 @@ class JobStoreTest(unittest.TestCase):
         self.now += timedelta(days=31)
         self.store.purge_expired()
         expired = self.store.activity_report(
-            datetime(2026, 10, 28, tzinfo=timezone.utc),
-            datetime(2026, 10, 29, tzinfo=timezone.utc),
+            datetime(2026, 10, 28, tzinfo=UTC),
+            datetime(2026, 10, 29, tzinfo=UTC),
         )
         self.assertEqual(expired["summary"]["total_calls"], 0)
 

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from itertools import count
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 from mcp.server.streamable_http_manager import DEFAULT_SESSION_IDLE_TIMEOUT
 
@@ -65,7 +66,7 @@ class ClientSessions:
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.idle_timeout = timedelta(seconds=idle_timeout)
-        self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self.clock = clock or (lambda: datetime.now(UTC))
         self._sessions: dict[str, _Session] = {}
         self._streams: dict[int, _Stream] = {}
         self._stream_ids = count(1)

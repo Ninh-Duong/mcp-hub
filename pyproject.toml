@@ -62,8 +62,8 @@ target-version = "py312"
 extend-exclude = ["docs"]
 
 [tool.ruff.lint]
-# Conservative: syntax errors and pyflakes (undefined names, unused imports and variables).
-select = ["E9", "F"]
+# Syntax errors, pyflakes (undefined names, unused imports and variables), bugbear (likely bugs), and pyupgrade (UP).
+select = ["E9", "F", "B", "UP"]
 
 [tool.coverage.run]
 source = ["src/mcp_hub"]

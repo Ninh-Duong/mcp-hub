@@ -13,7 +13,7 @@ import urllib.request
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
 
@@ -67,7 +67,7 @@ def _parse_time(value: Any) -> datetime | None:
         moment = datetime.fromisoformat(str(value))
     except ValueError:
         return None
-    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
 
 
 class UsageBoard:

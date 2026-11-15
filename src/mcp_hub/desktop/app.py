@@ -16,7 +16,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -49,7 +49,7 @@ def thread_worker(job: Callable[[], None]) -> None:
 
 
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 HUB = hub_api.HubClient()
@@ -533,7 +533,7 @@ class StatusWindow(QWidget):
         self.clients_count.setText(str(len(self.snapshot.clients)))
         live = self.snapshot.clients
         names = self.snapshot.client_names if len(self.snapshot.client_names) == len(live) else live
-        for name, text in zip(names, live):
+        for name, text in zip(names, live, strict=True):
             self._client_row(name, "ok", text, "")
         for name in self.snapshot.recent:
             self._client_row(name, "off", name, self.t("clients.recent"))

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import tempfile
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -61,8 +61,8 @@ class ActivityRuntimeTest(unittest.IsolatedAsyncioTestCase):
 
         await self.ui.close()
         report = self.store.activity_report(
-            datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0),
-            datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1),
+            datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0),
+            datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1),
         )
         self.assertEqual(report["summary"]["total_calls"], 1)
         self.assertEqual(report["events"][0]["tool"], "inspect")
@@ -103,8 +103,8 @@ class ActivityRuntimeTest(unittest.IsolatedAsyncioTestCase):
             client_name="investigation", agent_role="logs",
         )
 
-        start = datetime.now(timezone.utc) - timedelta(minutes=1)
-        end = datetime.now(timezone.utc) + timedelta(minutes=1)
+        start = datetime.now(UTC) - timedelta(minutes=1)
+        end = datetime.now(UTC) + timedelta(minutes=1)
         await self.ui.close()
         report = self.store.activity_report(start, end)
         self.assertEqual(report["events"][0]["client"], "investigation")
@@ -120,8 +120,8 @@ class ActivityRuntimeTest(unittest.IsolatedAsyncioTestCase):
         )
         await self.runtime.call_tool(ctx, CallToolRequestParams(name="sample-child__inspect", arguments={}))
 
-        start = datetime.now(timezone.utc) - timedelta(minutes=1)
-        end = datetime.now(timezone.utc) + timedelta(minutes=1)
+        start = datetime.now(UTC) - timedelta(minutes=1)
+        end = datetime.now(UTC) + timedelta(minutes=1)
         await self.ui.close()
         report = self.store.activity_report(start, end)
         self.assertEqual(report["events"][0]["client"], "Antigravity local")
@@ -141,8 +141,8 @@ class ActivityRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.runtime.activity_snapshot()["children"]["sample-child"]["active_calls"], 2)
         await self.ui.close()
         report = self.store.activity_report(
-            datetime.now(timezone.utc) - timedelta(minutes=1),
-            datetime.now(timezone.utc) + timedelta(minutes=1),
+            datetime.now(UTC) - timedelta(minutes=1),
+            datetime.now(UTC) + timedelta(minutes=1),
         )
         # Running calls stay in memory; a row is written once the call finishes.
         self.assertEqual(report["events"], [])
@@ -152,8 +152,8 @@ class ActivityRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.runtime.activity_snapshot()["children"]["sample-child"]["active_calls"], 0)
         await self.ui.close()
         report = self.store.activity_report(
-            datetime.now(timezone.utc) - timedelta(minutes=1),
-            datetime.now(timezone.utc) + timedelta(minutes=1),
+            datetime.now(UTC) - timedelta(minutes=1),
+            datetime.now(UTC) + timedelta(minutes=1),
         )
         self.assertEqual(report["summary"]["total_calls"], 2)
 
@@ -170,8 +170,8 @@ class ActivityRuntimeTest(unittest.IsolatedAsyncioTestCase):
 
         await self.ui.close()
         report = self.store.activity_report(
-            datetime.now(timezone.utc) - timedelta(minutes=1),
-            datetime.now(timezone.utc) + timedelta(minutes=1),
+            datetime.now(UTC) - timedelta(minutes=1),
+            datetime.now(UTC) + timedelta(minutes=1),
         )
         self.assertEqual(report["events"][0]["state"], "interrupted")
         self.assertEqual(self.runtime.activity_snapshot()["children"]["sample-child"]["active_calls"], 0)
@@ -186,8 +186,8 @@ class ActivityRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("private-value-from-child", str(self.runtime.activity_snapshot()))
         await self.ui.close()
         report = self.store.activity_report(
-            datetime.now(timezone.utc) - timedelta(minutes=1),
-            datetime.now(timezone.utc) + timedelta(minutes=1),
+            datetime.now(UTC) - timedelta(minutes=1),
+            datetime.now(UTC) + timedelta(minutes=1),
         )
         self.assertEqual(report["events"][0]["state"], "failed")
         self.assertEqual(report["events"][0]["error_type"], "RuntimeError")

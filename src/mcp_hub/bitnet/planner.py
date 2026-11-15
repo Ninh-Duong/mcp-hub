@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Any
 
 from ..extensions import PlanAssistant, PlanContext, PlanHints
@@ -68,7 +68,7 @@ def _validate_model_reply(
     if "window" in unresolved:
         val = reply.get("window_hours")
         if isinstance(val, int) and 1 <= val <= 168:
-            now_utc = context.now.astimezone(timezone.utc)
+            now_utc = context.now.astimezone(UTC)
             since = now_utc - timedelta(hours=val)
             until = now_utc
 

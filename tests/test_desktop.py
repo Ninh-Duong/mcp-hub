@@ -276,7 +276,7 @@ def _rgb(color: str) -> tuple[float, float, float]:
 
 
 def _over(top: tuple[float, ...], bottom: tuple[float, ...], alpha: float) -> tuple[float, ...]:
-    return tuple(upper * alpha + lower * (1 - alpha) for upper, lower in zip(top, bottom))
+    return tuple(upper * alpha + lower * (1 - alpha) for upper, lower in zip(top, bottom, strict=True))
 
 
 def card_over_desktop(look: theme.Appearance, desktop: str) -> str:

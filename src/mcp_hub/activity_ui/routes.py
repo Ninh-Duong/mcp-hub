@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import date, datetime, time, timedelta, timezone
-from typing import Any, AsyncIterator
+from datetime import date, datetime, time, timedelta, UTC
+from typing import Any
+from collections.abc import AsyncIterator
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response, StreamingResponse
@@ -50,7 +51,7 @@ class ActivityRoutes:
             while True:
                 try:
                     event = await asyncio.wait_for(subscriber.get(), timeout=STREAM_KEEPALIVE_SECONDS)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     yield ": keep-alive\n\n"
                     continue
                 if event.get("resync"):
@@ -99,8 +100,8 @@ def _parse_activity_page(request: Request) -> tuple[date, int, int, str]:
 
 
 def _local_day_bounds(selected: date) -> tuple[datetime, datetime]:
-    start = datetime.combine(selected, time.min).astimezone().astimezone(timezone.utc)
-    end = datetime.combine(selected + timedelta(days=1), time.min).astimezone().astimezone(timezone.utc)
+    start = datetime.combine(selected, time.min).astimezone().astimezone(UTC)
+    end = datetime.combine(selected + timedelta(days=1), time.min).astimezone().astimezone(UTC)
     return start, end
 
 

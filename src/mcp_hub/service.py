@@ -4,7 +4,8 @@ import asyncio
 import logging
 from contextlib import AsyncExitStack, suppress
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 import uvicorn
 

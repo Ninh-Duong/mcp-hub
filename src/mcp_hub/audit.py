@@ -5,10 +5,11 @@ import logging
 import os
 import re
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
+from collections.abc import Iterable
 
 from .config import HUB_ROOT
 from .settings import LogSettings
@@ -94,10 +95,13 @@ def _release_handler(path: Path) -> None:
     handler.close()
 
 
+_DEFAULT_LOG_SETTINGS = LogSettings()
+
+
 class AuditLog:
     """Redacted JSONL audit events, written to `path` (default: `default_audit_path()`)."""
 
-    def __init__(self, path: Path | None = None, logs: LogSettings = LogSettings()) -> None:
+    def __init__(self, path: Path | None = None, logs: LogSettings = _DEFAULT_LOG_SETTINGS) -> None:
         self.path = path or default_audit_path()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._key = self.path.resolve()
@@ -121,7 +125,7 @@ class AuditLog:
         if handler is None or level < logging.INFO:
             return
         record = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "event": event,
             **fields,
         }

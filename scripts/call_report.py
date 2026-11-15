@@ -71,7 +71,7 @@ def split_tasks(calls: list[Call]) -> list[list[Call]]:
 
 
 def turn_gaps(tasks: list[list[Call]]) -> list[float]:
-    return [later.start - earlier.end for task in tasks for earlier, later in zip(task, task[1:])
+    return [later.start - earlier.end for task in tasks for earlier, later in zip(task, task[1:], strict=False)
             if later.start - earlier.end >= SCRIPTED_GAP_SECONDS]
 
 

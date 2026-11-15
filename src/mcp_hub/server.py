@@ -100,6 +100,9 @@ def tool_pins_path() -> Path:
     return hub_config.PRIVATE_ROOT / "tool_pins.json"
 
 
+_DEFAULT_SETTINGS = Settings()
+
+
 class HubRuntime:
     """Child connections, the allowlist, and routing.
 
@@ -107,7 +110,7 @@ class HubRuntime:
     """
 
     def __init__(
-        self, config: HubConfig, audit: AuditLog, settings: Settings = Settings(), *,
+        self, config: HubConfig, audit: AuditLog, settings: Settings = _DEFAULT_SETTINGS, *,
         playbooks: Mapping[str, Playbook] | None = None, projects: Mapping[str, ProjectConfig] | None = None,
         processing_observer: ProcessingObserver | None = None, pin_path: Path | None = None,
     ) -> None:
@@ -939,7 +942,7 @@ class HubRuntime:
         return tuple(tokens)
 
     def _observe_finish(self, tokens: tuple[Any, ...], state: str, error_type: str | None, duration_ms: int) -> None:
-        for observer, token in zip(self.observers, tokens):
+        for observer, token in zip(self.observers, tokens, strict=False):
             if token is None:
                 continue
             try:
@@ -1108,9 +1111,9 @@ def _format_full_results(ids: list[str], pages: list[dict[str, Any] | None], fmt
         text = json.dumps(page) if fmt == "json" else _format_raw_page(page)
         return CallToolResult(content=[TextContent(type="text", text=text)])
     if fmt == "json":
-        payload = [p if p is not None else {"result_id": rid, "error": "Result expired or unknown."} for rid, p in zip(ids, pages)]
+        payload = [p if p is not None else {"result_id": rid, "error": "Result expired or unknown."} for rid, p in zip(ids, pages, strict=True)]
         return CallToolResult(content=[TextContent(type="text", text=json.dumps({"results": payload}))], is_error=not any(pages))
-    blocks = [_format_raw_page(p) if p is not None else f"[result_id={rid} error: Result expired or unknown.]" for rid, p in zip(ids, pages)]
+    blocks = [_format_raw_page(p) if p is not None else f"[result_id={rid} error: Result expired or unknown.]" for rid, p in zip(ids, pages, strict=True)]
     return CallToolResult(content=[TextContent(type="text", text="\n\n".join(blocks))], is_error=not any(pages))
 
 

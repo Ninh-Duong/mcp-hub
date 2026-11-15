@@ -16,7 +16,7 @@ import os
 import re
 import sys
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 from mcp import Client, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -265,13 +265,13 @@ def main() -> None:
         enabled = list(load_config().servers)
     except Exception as exc:
         print(f"smoke=FAIL ({type(exc).__name__}: Hub config is invalid; see logs/mcp-hub.jsonl)")
-        raise SystemExit(1)
+        raise SystemExit(1) from exc
 
     if not enabled:
         print("No enabled child MCPs; Hub exposes hub__status.")
         raise SystemExit(0)
 
-    started = datetime.now(timezone.utc).isoformat()
+    started = datetime.now(UTC).isoformat()
     try:
         connected, calls = asyncio.run(_probe(enabled))
     except Exception:

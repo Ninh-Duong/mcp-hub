@@ -76,7 +76,7 @@ class ProcessingTest(unittest.TestCase):
         self.assertEqual(output, [])
         for code in [401, 404]:
             stop = FakeStop(2)
-            def old_hub():
+            def old_hub(code=code):
                 raise HTTPError("http://127.0.0.1", code, "absent", {}, None)
             processing.stream_processing(output.append, stop, connect=old_hub)
             self.assertEqual(stop.delays, [1, 2])
@@ -86,7 +86,7 @@ class ProcessingTest(unittest.TestCase):
         for failure in (IncompleteRead(b"partial"), HTTPException("interrupted response")):
             with self.subTest(transport=type(failure).__name__):
                 class TruncatedResponse(FakeResponse):
-                    def __iter__(self):
+                    def __iter__(self, failure=failure):
                         yield b"event: event\n"
                         yield b'data: {"stream_id": "partial"'
                         raise failure
@@ -96,7 +96,7 @@ class ProcessingTest(unittest.TestCase):
                     FakeResponse([line.encode() for line in lines("snapshot", snapshot(3))]),
                 ])
                 output, stop = [], FakeStop(2)
-                processing.stream_processing(output.append, stop, connect=lambda: next(responses))
+                processing.stream_processing(output.append, stop, connect=lambda responses=responses: next(responses))
                 self.assertEqual(stop.delays, [1, 1])
                 self.assertEqual(len(output), 1)
                 self.assertEqual(output[0][0], "processing")

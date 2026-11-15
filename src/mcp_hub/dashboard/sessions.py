@@ -2,20 +2,23 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 
 from ..settings import DashboardSettings
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
+
+
+_DEFAULT_SETTINGS = DashboardSettings()
 
 
 class DashboardSessions:
     """A pairing token opens the dashboard once, shortly after `hubctl open`; the browser session it starts
     lasts a day's work. Both lifetimes come from settings.dashboard."""
 
-    def __init__(self, *, clock=_now, settings: DashboardSettings = DashboardSettings()) -> None:
+    def __init__(self, *, clock=_now, settings: DashboardSettings = _DEFAULT_SETTINGS) -> None:
         self.clock = clock
         self.pairing_ttl = timedelta(seconds=settings.pairing_seconds)
         self.session_ttl = timedelta(hours=settings.session_hours)

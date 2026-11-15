@@ -7,7 +7,7 @@ import tempfile
 import time
 import unittest
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -327,7 +327,7 @@ class OffloadAndRestartTest(unittest.TestCase):
         )
 
     def test_restart_settles_expired_approvals_and_times_out_the_younger_ones(self) -> None:
-        start = datetime(2026, 10, 28, tzinfo=timezone.utc)
+        start = datetime(2026, 10, 28, tzinfo=UTC)
         clock = SimpleNamespace(now=start)
         with _runner(_Runtime([]), {}, clock=lambda: clock.now) as runner:
             store = runner.store
@@ -359,7 +359,7 @@ class OffloadAndRestartTest(unittest.TestCase):
 
         with _runner(_Runtime([]), {}) as runner:
             job_id = runner.store.create_job(project="orders", question="busy", env="dev")
-            for index in range(EVENT_PAGE_LIMIT + 20):
+            for _ in range(EVENT_PAGE_LIMIT + 20):
                 runner.store.append_event(job_id, "agent.started", agent="logs")
             for index in range(5):
                 runner.store.append_event(job_id, "tool.call.succeeded", agent="logs", tool="logs__query_logs",

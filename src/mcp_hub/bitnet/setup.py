@@ -149,7 +149,7 @@ class BitnetSetup:
             while True:
                 try:
                     record = await asyncio.wait_for(queue.get(), timeout=PROCESSING_HEARTBEAT_SECONDS)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     yield ": keep-alive\n\n"
                     continue
                 if record.get("resync"):
@@ -169,7 +169,7 @@ class BitnetSetup:
         if self._task is not None and not self._task.done():
             try:
                 await asyncio.wait_for(asyncio.shield(self._task), timeout=5.0)
-            except (asyncio.TimeoutError, Exception):
+            except (TimeoutError, Exception):
                 pass
 
 

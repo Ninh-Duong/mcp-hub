@@ -76,7 +76,7 @@ class ActivityRecorder:
                 return False
             try:
                 item = await asyncio.wait_for(self._queue.get(), remaining)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 return False
             if item is _STOP:
                 return True

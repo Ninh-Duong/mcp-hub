@@ -24,7 +24,8 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppres
 from dataclasses import dataclass
 from pathlib import Path
 from types import TracebackType
-from typing import Any, AsyncIterator, Literal, Protocol, TextIO
+from typing import Any, Literal, Protocol, TextIO
+from collections.abc import AsyncIterator
 
 import anyio
 from mcp import Client, StdioServerParameters
@@ -80,6 +81,9 @@ class Backoff:
 
     def delay(self, failures: int) -> float:
         return min(self.maximum, self.initial * 2 ** min(failures, 32))
+
+
+_DEFAULT_BACKOFF = Backoff()
 
 
 def child_environment(config: ServerConfig) -> dict[str, str]:
@@ -176,7 +180,7 @@ class ChildSupervisor:
         *,
         log_dir: Path,
         opener: ChildOpener = open_stdio_client,
-        backoff: Backoff = Backoff(),
+        backoff: Backoff = _DEFAULT_BACKOFF,
         log_max_bytes: int | None = None,
         on_tools_changed: ToolsChangedCallback | None = None,
     ) -> None:
