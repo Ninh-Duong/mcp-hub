@@ -48,6 +48,7 @@ from .events import HubEvents
 from .extensions import ActivitySource, CallObserver, PlanAssistant, PlanContext, PlanHints, ResultCondenser, empty_activity
 from .extensions import ProcessingEvent, ProcessingObserver, emit_processing, processing_step
 from .full_results import FullResultStore
+from .instructions import build_instructions
 from .plan_merge import merge_plan_arguments
 from . import plan_confirm, policy
 from .playbooks import Playbook, load_playbooks
@@ -1228,15 +1229,13 @@ def _result_error_summary(result: CallToolResult) -> str | None:
 
 
 def _server_instructions(runtime: HubRuntime, with_jobs: bool) -> str:
-    # Essentials first; Codex reads the first 512 chars; Claude Code cuts instructions at 4096.
-    groups = "\n".join(f"- {sid}: {', '.join(tools)}" for sid, tools in runtime.tools_by_server().items())
+    """The summary, then the tools per child, then client-rules.md; at most 4096 characters, essentials first."""
+    # Codex reads only the first 512 characters of the summary; Claude Code cuts instructions at 4096.
+    summary = f"{INSTRUCTIONS_SUMMARY}{_JOB_INSTRUCTIONS if with_jobs else ''}{_CONDENSED_INSTRUCTIONS}"
+    groups = [f"- {sid}: {', '.join(tools)}" for sid, tools in runtime.tools_by_server().items()]
     rules = HUB_ROOT / "docs" / "client-rules.md"
-    return (
-        f"{INSTRUCTIONS_SUMMARY}{_JOB_INSTRUCTIONS if with_jobs else ''}{_CONDENSED_INSTRUCTIONS}\n\nDetected siblings: {len(runtime.config.detected)}; "
-        f"connected children: {len(runtime.clients)}."
-        f"\nTools by child MCP (server ID: tools):\n{groups}\n\n"
-        + (rules.read_text(encoding="utf-8") if rules.is_file() else "")
-    )
+    rule_lines = rules.read_text(encoding="utf-8").splitlines() if rules.is_file() else []
+    return build_instructions(summary, [("Tools by child MCP (server ID: tools):", groups), ("", rule_lines)])
 
 
 def create_mcp_server(runtime: HubRuntime, job_runner: Any | None = None) -> Server:
