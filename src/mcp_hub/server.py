@@ -147,7 +147,7 @@ class HubRuntime:
         self.plan_assistant: PlanAssistant | None = None
         self.condenser: ResultCondenser | None = None
         self.full_results: FullResultStore | None = None
-        self.events = HubEvents(settings.protocol.list_changed_debounce_seconds)
+        self.events = HubEvents(settings.protocol.list_changed_debounce_seconds, on_publish=self._audit_tools_sent)
         self._background: set[asyncio.Task[None]] = set()
         # Pins are kept only when a pin file is given (the service passes the private one) and the mode is warn.
         self.pins: PinStore | None = (
@@ -279,9 +279,12 @@ class HubRuntime:
         task.add_done_callback(self._background.discard)
 
     async def announce_tools(self, signature: str) -> None:
-        """Schedule one debounced tools/list_changed for a new tool signature, and audit the scheduling (FR-006)."""
-        if await self.events.tools_changed(signature):
-            self.audit.write(TOOLS_LIST_CHANGED_SENT, tools_count=len(self.public_tools))
+        """Schedule one debounced tools/list_changed for a new tool signature (FR-006)."""
+        await self.events.tools_changed(signature)
+
+    def _audit_tools_sent(self) -> None:
+        """Called by the event bus once per publish: one `tools.list_changed.sent` line per notification sent."""
+        self.audit.write(TOOLS_LIST_CHANGED_SENT, tools_count=len(self.public_tools))
 
     def _check_tools(self, only_server: str | None) -> None:
         """Screen each child's tool descriptions and, when pins are on, check its definitions (warn mode)."""
