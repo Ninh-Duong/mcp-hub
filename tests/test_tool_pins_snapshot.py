@@ -77,7 +77,7 @@ class SaveErrorTest(unittest.IsolatedAsyncioTestCase):
         runtime = HubRuntime(HubConfig(root / "hub.json", {"child": child}, (route,)), audit, settings,
                              pin_path=root / "tool_pins.json")
         self.addCleanup(runtime.events.close)
-        secret_text = "disk full at D:/private/location"
+        secret_text = "disk full, marker abc123"
         with self.assertLogs("mcp_hub.server", level="WARNING") as logs, \
                 _failing_replace(OSError(secret_text)):
             runtime.child_connected("child", object(), {"alpha": TOOL_A})
@@ -87,7 +87,7 @@ class SaveErrorTest(unittest.IsolatedAsyncioTestCase):
                 await asyncio.sleep(0.02)
         message = logs.output[0]
         self.assertIn("OSError", message)
-        self.assertNotIn("private", message)
+        self.assertNotIn("abc123", message)
         self.assertNotIn("disk full", message)
 
 
