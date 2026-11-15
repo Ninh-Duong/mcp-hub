@@ -36,8 +36,9 @@ from mcp.types import (
     Tool,
 )
 
+from . import config as hub_config
 from .audit import AuditLog, default_log_dir, describe_exception, redact
-from .audit_events import TOOLS_LIST_CHANGED_SENT
+from .audit_events import TOOL_DEFINITION_CHANGED, TOOL_DESCRIPTION_SUSPICIOUS, TOOLS_LIST_CHANGED_SENT
 from .batch import BATCH_TOOL, BatchItem, BatchRefused, batch_result, batch_tool, parse_calls, run_batch
 from .children import Backoff, ChildOpener, ChildSupervisor, ChildUnavailable, open_stdio_client
 from .condense import RuleCondenser, condense_text_rules
@@ -55,7 +56,7 @@ from .projects import ProjectConfig, load_projects
 from .result_cache import ResultCache
 from .result_shape import is_condensable, parse_page_args, with_condensed_meta
 from .settings import Settings, load_settings
-from .tool_pins import fingerprint
+from .tool_pins import PinStore, description_findings, fingerprint
 
 
 _CLIENT_LABEL_RE = re.compile(r"[^A-Za-z0-9_. -]")
@@ -90,6 +91,11 @@ def request_client_name(ctx: Any) -> str:
     return normalize_client_name(getattr(client_info, "name", None)) if client_info is not None else "unknown"
 
 
+def tool_pins_path() -> Path:
+    """The tool pin file: config/private/tool_pins.json under the private root."""
+    return hub_config.PRIVATE_ROOT / "tool_pins.json"
+
+
 class HubRuntime:
     """Child connections, the allowlist, and routing.
 
@@ -99,7 +105,7 @@ class HubRuntime:
     def __init__(
         self, config: HubConfig, audit: AuditLog, settings: Settings = Settings(), *,
         playbooks: Mapping[str, Playbook] | None = None, projects: Mapping[str, ProjectConfig] | None = None,
-        processing_observer: ProcessingObserver | None = None,
+        processing_observer: ProcessingObserver | None = None, pin_path: Path | None = None,
     ) -> None:
         self.config = config
         self.audit = audit
@@ -138,7 +144,13 @@ class HubRuntime:
         self.condenser: ResultCondenser | None = None
         self.full_results: FullResultStore | None = None
         self.events = HubEvents(settings.protocol.list_changed_debounce_seconds)
-        self._announcements: set[asyncio.Task[None]] = set()
+        self._background: set[asyncio.Task[None]] = set()
+        # Pins are kept only when a pin file is given (the service passes the private one) and the mode is warn.
+        self.pins: PinStore | None = (
+            PinStore(pin_path) if pin_path is not None and settings.security.tool_pin_mode != "off" else None
+        )
+        self._max_description_chars = settings.security.max_description_chars
+        self._pin_changes: dict[str, tuple[str, ...]] = {}
         self._starting = False
 
     def add_observer(self, observer: CallObserver) -> None:
@@ -168,6 +180,8 @@ class HubRuntime:
                 log_max_bytes=self.settings.logs.max_bytes, on_tools_changed=self.child_tools_changed,
             )
         stack.push_async_callback(self.close_children)
+        if self.pins is not None:
+            await asyncio.to_thread(self.pins.load)  # before the first check of any child's tools
         self._starting = True
         for supervisor in self.supervisors.values():
             supervisor.start()
@@ -253,20 +267,66 @@ class HubRuntime:
         except RuntimeError:  # no loop: nothing can be sent, so only the baseline moves
             self.events.prime(signature)
             return
-        task = asyncio.ensure_future(self.announce_tools(signature))
-        self._announcements.add(task)
-        task.add_done_callback(self._announcements.discard)
+        self._keep_background(asyncio.ensure_future(self.announce_tools(signature)))
+
+    def _keep_background(self, task: asyncio.Task[None]) -> None:
+        """Hold a task until it ends: the event loop keeps only weak references to tasks."""
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
 
     async def announce_tools(self, signature: str) -> None:
         """Schedule one debounced tools/list_changed for a new tool signature, and audit the scheduling (FR-006)."""
         if await self.events.tools_changed(signature):
             self.audit.write(TOOLS_LIST_CHANGED_SENT, tools_count=len(self.public_tools))
 
+    def _check_tools(self, only_server: str | None) -> None:
+        """Screen each child's tool descriptions and, when pins are on, check its definitions (warn mode)."""
+        for server_id, found in self._discovered.items():
+            if only_server not in (None, server_id):
+                continue
+            tools = [found[name] for name in sorted(found)]
+            for tool in tools:
+                self._screen_description(server_id, tool)
+            if self.pins is not None:
+                self._check_pins(server_id, tools)
+
+    def _screen_description(self, server_id: str, tool: Tool) -> None:
+        findings = description_findings(tool.description or "", self._max_description_chars)
+        if findings:
+            self.audit.write(
+                TOOL_DESCRIPTION_SUSPICIOUS, level=logging.WARNING, server=server_id, tool=tool.name,
+                reason=", ".join(findings),
+            )
+
+    def _check_pins(self, server_id: str, tools: list[Tool]) -> None:
+        """A changed tool is audited and keeps running; a tool seen for the first time gets its pin saved."""
+        assert self.pins is not None
+        verdict = self.pins.check(server_id, tools)
+        self._pin_changes[server_id] = verdict.changed
+        for name in verdict.changed:
+            self.audit.write(TOOL_DEFINITION_CHANGED, level=logging.WARNING, server=server_id, tool=name)
+        if verdict.new:
+            self._save_pins()
+
+    def _save_pins(self) -> None:
+        """Write the pins on a worker thread when the event loop runs; otherwise write them right here."""
+        assert self.pins is not None
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            self.pins.save()
+            return
+        self._keep_background(asyncio.ensure_future(asyncio.to_thread(self.pins.save)))
+
+    def _changed_pins(self) -> list[dict[str, str]]:
+        return [{"server": server_id, "tool": name} for server_id, names in self._pin_changes.items() for name in names]
+
     def _register_routes(self, only_server: str | None = None) -> str:
         """Rebuild routes and public tools from the latest tools of each child.
 
         `route.skipped` is written for every missing tool, or only for `only_server`'s after a reconnect.
         """
+        self._check_tools(only_server)
         routes: dict[str, ToolRoute] = {}
         batch = batch_tool(self.settings.batch.max_calls)
         batch = batch.model_copy(update={"input_schema": policy.with_plan_id(batch.input_schema)})
@@ -530,12 +590,16 @@ class HubRuntime:
         self.audit.write("tool.call.started", **fields)
         children = self.child_states()
         self.audit.write("tool.call.succeeded", **fields, duration_ms=0)
-        return CallToolResult(content=[TextContent(type="text", text=json.dumps({
+        status: dict[str, Any] = {
             "detected": len(self.config.detected),
             "connected": len(self.clients),
             "children": children,
             "result_cache": self.result_cache.stats(),
-        }))])
+        }
+        changed = self._changed_pins()
+        if changed:  # the field appears only while a pinned definition differs from its pin
+            status["tool_pins"] = {"changed": changed}
+        return CallToolResult(content=[TextContent(type="text", text=json.dumps(status))])
 
     def _get_full_result(self, arguments: dict[str, Any], request_id: str) -> CallToolResult:
         fields = {"request_id": request_id, "feature": "hub", "server": "mcp-hub", "tool": FULL_RESULT_TOOL}
@@ -1207,7 +1271,7 @@ async def serve() -> None:
         audit.write("config.load.failed", level=logging.ERROR, error_type=type(exc).__name__, error=str(exc))
         raise
 
-    runtime = HubRuntime(config, audit, settings, playbooks=playbooks, projects=projects)
+    runtime = HubRuntime(config, audit, settings, playbooks=playbooks, projects=projects, pin_path=tool_pins_path())
     async with AsyncExitStack() as stack:
         await runtime.connect(stack)
         runtime.enable_core_condenser()
