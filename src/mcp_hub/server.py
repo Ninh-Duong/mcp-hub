@@ -152,13 +152,18 @@ class HubRuntime:
         self.full_results: FullResultStore | None = None
         self.events = HubEvents(settings.protocol.list_changed_debounce_seconds, on_publish=self._audit_tools_sent)
         self._background: set[asyncio.Task[None]] = set()
-        # Pins are kept only when a pin file is given (the service passes the private one) and the mode is warn.
+        self._setup_pins(pin_path, settings)
+        self._starting = False
+
+    def _setup_pins(self, pin_path: Path | None, settings: Settings) -> None:
+        """Pins are kept only when a pin file is given (the service passes the private one) and the mode is warn."""
         self.pins: PinStore | None = (
             PinStore(pin_path) if pin_path is not None and settings.security.tool_pin_mode != "off" else None
         )
         self._max_description_chars = settings.security.max_description_chars
         self._pin_changes: dict[str, tuple[str, ...]] = {}
-        self._starting = False
+        # Pin saves take turns in the order they were scheduled, so the newest snapshot is written last (F3).
+        self._pin_save_lock = asyncio.Lock()
 
     def add_observer(self, observer: CallObserver) -> None:
         self.observers = (*self.observers, observer)
@@ -330,7 +335,12 @@ class HubRuntime:
         except RuntimeError:
             self._write_pins(snapshot)
             return
-        self._keep_background(asyncio.ensure_future(asyncio.to_thread(self._write_pins, snapshot)))
+        self._keep_background(asyncio.ensure_future(self._save_pins_in_turn(snapshot)))
+
+    async def _save_pins_in_turn(self, snapshot: dict[str, dict[str, str]]) -> None:
+        """Wait for the saves scheduled before this one, then write this snapshot on a worker thread."""
+        async with self._pin_save_lock:
+            await asyncio.to_thread(self._write_pins, snapshot)
 
     def _write_pins(self, snapshot: dict[str, dict[str, str]]) -> None:
         """Write one snapshot; a failure is logged at WARNING with the exception type only, and the Hub keeps running."""
