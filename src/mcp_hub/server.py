@@ -49,7 +49,7 @@ from .playbooks import Playbook, load_playbooks
 from .policy import PLAN_TOOL, CallFacts, PlanBook, PlanCatalog, PolicyRefused, Violation
 from .projects import ProjectConfig, load_projects
 from .result_cache import ResultCache
-from .result_shape import is_condensable, with_condensed_meta
+from .result_shape import is_condensable, parse_page_args, with_condensed_meta
 from .settings import Settings, load_settings
 
 
@@ -483,22 +483,26 @@ class HubRuntime:
         self.audit.write("tool.call.started", **fields)
         ids = _extract_result_ids(arguments)
         fmt = arguments.get("format", "raw")
-        if ids is None or fmt not in ("raw", "json"):
+        page = parse_page_args(arguments, default_offset=0, default_limit=20000)
+        error = _input_error(ids, fmt, page)
+        if error is not None:
             self.audit.write("tool.call.succeeded", **fields, duration_ms=0)
-            msg = "Provide 'result_id' or 'result_ids' (1-8 IDs)." if ids is None else "'format' must be 'raw' or 'json'."
-            return _error_result(msg)
+            return _error_result(error)
+        assert ids is not None and not isinstance(page, str)
+        offset, limit = page
         try:
-            pages = [self._fetch_one_result(rid, arguments) for rid in ids]
+            pages = [self._fetch_one_result(rid, arguments, offset, limit) for rid in ids]
         except ValueError as exc:
             self.audit.write("tool.call.succeeded", **fields, duration_ms=0)
             return _error_result(str(exc))
         self.audit.write("tool.call.succeeded", **fields, duration_ms=0)
         return _format_full_results(ids, pages, fmt)
 
-    def _fetch_one_result(self, rid: str, arguments: dict[str, Any]) -> dict[str, Any] | None:
+    def _fetch_one_result(
+        self, rid: str, arguments: dict[str, Any], offset: int, limit: int,
+    ) -> dict[str, Any] | None:
         assert self.full_results is not None
-        offset = max(0, int(arguments.get("offset", 0)))
-        limit = max(1, min(50000, int(arguments.get("limit", 20000))))
+        limit = min(limit, 50000)
         contains = arguments.get("contains")
         regex = arguments.get("regex")
         proj = arguments.get("fields")
@@ -868,6 +872,15 @@ def _extract_result_ids(arguments: dict[str, Any]) -> list[str] | None:
         return list(rids)
     rid = arguments.get("result_id")
     return [rid] if isinstance(rid, str) and rid else None
+
+
+def _input_error(ids: list[str] | None, fmt: Any, page: tuple[int, int] | str) -> str | None:
+    """The first problem with a hub__get_full_result call, or None when the call can run."""
+    if ids is None:
+        return "Provide 'result_id' or 'result_ids' (1-8 IDs)."
+    if fmt not in ("raw", "json"):
+        return "'format' must be 'raw' or 'json'."
+    return page if isinstance(page, str) else None
 
 
 def _format_raw_page(page: dict[str, Any]) -> str:

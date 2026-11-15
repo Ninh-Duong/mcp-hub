@@ -36,7 +36,7 @@ These came out of the Phase 1 reports. Each one is a requirement on this track.
 ## Tasks
 
 - [x] T070 `_maybe_condense` calls `result_shape.is_condensable(tool_output_schema, result)` first and returns the result untouched when it is False. `_finish_condensed` builds its result with `with_condensed_meta`. The batch packing applies the same rule. Test: a tool with `outputSchema` returns a result that validates against that schema with `jsonschema`, including after a large text result.
-- [ ] T071 `hub__get_full_result` uses `parse_page_args` and returns `isError=true` with the error text for bad input (FR-003). Test: `limit` set to a list gives an error result, not an exception.
+- [x] T071 `hub__get_full_result` uses `parse_page_args` and returns `isError=true` with the error text for bad input (FR-003). Test: `limit` set to a list gives an error result, not an exception.
 - [ ] T072 `create_mcp_server` installs `runtime.events.listen_handler` on the server (the `subscriptions/listen` handler). `activity_ui/extension.py` wraps that handler for its presence feed instead of registering its own. Test: with the activity UI on and off, `subscriptions/listen` answers, and only one handler is registered.
 - [ ] T073 `_register_routes` computes a signature from `tool_pins.fingerprint` over every exposed tool (sorted by server id then tool name) and calls `events.tools_changed(signature)`. The first build calls `events.prime(signature)` instead. Audit `tools.list_changed.sent` (constant from `audit_events`) when a publish is scheduled. Test: a fake child that reconnects with one new tool yields exactly one notification (SC-003).
 - [ ] T074 The supervisor callback from Track B (`on_tools_changed(server_id)`) is passed when children are created; the callback relists routes through `_register_routes`. Test: a child-sent change updates the tool list.
@@ -70,3 +70,4 @@ At the end, run the Hub in this checkout with `MCP_HUB_PRIVATE_DIR`, `MCP_HUB_LO
 
 - (agent: add one line per task here)
 - 2026-11-15 (track W, T070): done. _maybe_condense gates on result_shape.is_condensable with the child's outputSchema; the footer path adds _meta mcp-hub/condensed; batch packing uses the same gate. Carry-forward 1 done in the same commit: FullResultStore.put returning None returns the original result, and no tool.result.condensed line is written for it. Lossless compaction has no stored result, so it carries no _meta. Tests: tests/test_server_condense_shape.py.
+- 2026-11-15 (track W, T071): done. hub__get_full_result reads offset and limit with parse_page_args; a bad value (list, text, zero, boolean) returns isError with the message and never raises. Tests: tests/test_server_full_result.py.
