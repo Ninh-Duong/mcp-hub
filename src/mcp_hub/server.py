@@ -1173,6 +1173,7 @@ def create_mcp_server(runtime: HubRuntime, job_runner: Any | None = None) -> Ser
         on_list_tools=list_tools,
         on_call_tool=call_tool,
         on_list_prompts=runtime.list_prompts,
+        on_subscriptions_listen=runtime.events.listen_handler,
         on_get_prompt=runtime.get_prompt,
     )
     # Names a client to observers as soon as it connects, before its first tool call.

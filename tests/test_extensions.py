@@ -184,7 +184,8 @@ class ActivityUiTest(_AuditCase):
 
     async def test_attach_server_serves_presence_listen(self) -> None:
         server = create_mcp_server(self.runtime)
-        self.assertIsNone(server.get_request_handler("subscriptions/listen"))
+        # D9: the Hub answers subscriptions/listen with or without the activity UI; the UI only wraps that handler.
+        self.assertIsNotNone(server.get_request_handler("subscriptions/listen"))
         install(self.runtime, store=None, audit=self.audit).attach_server(server)
         self.assertIsNotNone(server.get_request_handler("subscriptions/listen"))
 

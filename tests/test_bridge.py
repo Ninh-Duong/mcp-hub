@@ -339,12 +339,36 @@ class PresenceTest(unittest.TestCase):
             async def exercise() -> None:
                 http_server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="critical"))
                 task = asyncio.create_task(http_server.serve())
+                relayed = asyncio.Event()
+
+                async def on_tools_changed() -> None:
+                    relayed.set()
+
+                async def announce_until_relayed() -> None:
+                    """Announce a tool-set change until the presence stream relays one; the stream may still be opening."""
+                    for attempt in range(10):
+                        await runtime.announce_tools(f"tools-changed-{attempt}")
+                        try:
+                            await asyncio.wait_for(relayed.wait(), 1.5)
+                        except TimeoutError:
+                            continue
+                        return
+                    raise AssertionError("the presence stream never relayed the tool change")
+
+                presence = None
                 try:
                     await asyncio.wait_for(wait_until_started(http_server, task), 10)
-                    await asyncio.wait_for(hold_presence(
+                    # D9: the Hub serves subscriptions/listen without the activity UI, so presence waits and relays changes.
+                    presence = asyncio.create_task(hold_presence(
                         f"http://127.0.0.1:{port}/mcp", "token", Implementation(name="bridge", version="1"),
-                    ), 10)
+                        on_tools_changed,
+                    ))
+                    await asyncio.wait_for(announce_until_relayed(), 20)
+                    self.assertFalse(presence.done())
                 finally:
+                    if presence is not None:
+                        presence.cancel()
+                        await asyncio.gather(presence, return_exceptions=True)
                     http_server.should_exit = True
                     await task
 
