@@ -9,7 +9,7 @@ Owns:
 
 This track is standalone. It does not touch `server.py`; Phase 2 calls it from `_register_routes`. Also do not touch `config.py`.
 
-## T50 `fingerprint`
+## T50 `fingerprint` (done)
 
 ```python
 def fingerprint(tool: Tool) -> str:
@@ -74,4 +74,4 @@ uv run --no-sync python scripts/package_qc.py
 
 ## Progress log
 
-- (agent: add one line per task here)
+- T50 done: `fingerprint` in `tool_pins.py` (SHA-256 over canonical wire fields); 8 tests in `tests/test_tool_pins.py`; SDK `Tool.model_dump(by_alias=True)` gives camelCase keys.
