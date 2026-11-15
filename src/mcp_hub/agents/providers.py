@@ -5,6 +5,8 @@ import json
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from ..settings import JobSettings
+
 
 # One request is retried at most this many times by the SDK, each attempt bounded by the provider timeout.
 MAX_RETRIES = 2
@@ -85,7 +87,7 @@ class OpenAIProvider(_Provider):
             response = await client.responses.create(
                 model=self.model,
                 input=_openai_messages(messages),
-                tools=[_openai_tool(tool) for tool in tools],
+                tools=_openai_tools(tools),
                 max_output_tokens=max_output_tokens,
                 store=False,
             )
@@ -105,6 +107,15 @@ class OpenAIProvider(_Provider):
 class AnthropicProvider(_Provider):
     provider_name = "Anthropic"
 
+    def __init__(
+        self, model: str, api_key: str, *, client: Any = None,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS, max_retries: int = MAX_RETRIES,
+        prompt_cache: bool = JobSettings().prompt_cache,
+    ) -> None:
+        super().__init__(model, api_key, client=client, timeout_seconds=timeout_seconds, max_retries=max_retries)
+        # On: a cache breakpoint closes the tool list and the system prompt (settings.jobs.promptCache).
+        self.prompt_cache = prompt_cache
+
     async def complete(
         self, messages: list[dict[str, Any]], tools: list[Any], *, max_output_tokens: int = 2048,
     ) -> ModelTurn:
@@ -114,9 +125,9 @@ class AnthropicProvider(_Provider):
             response = await client.messages.create(
                 model=self.model,
                 max_tokens=max_output_tokens,
-                system=system,
+                system=_anthropic_system(system, cache=self.prompt_cache),
                 messages=request_messages,
-                tools=[_anthropic_tool(tool) for tool in tools],
+                tools=_anthropic_tools(tools, cache=self.prompt_cache),
             )
             return _parse_anthropic(response)
         except ProviderError:
@@ -194,6 +205,30 @@ def _openai_tool(tool: Any) -> dict[str, Any]:
 def _anthropic_tool(tool: Any) -> dict[str, Any]:
     name, description, schema = _tool_fields(tool)
     return {"name": name, "description": description, "input_schema": schema}
+
+
+def _tool_name(tool: Any) -> str:
+    return _tool_fields(tool)[0]
+
+
+def _openai_tools(tools: list[Any]) -> list[dict[str, Any]]:
+    """Tool definitions sorted by name, so the request prefix is byte-stable between calls."""
+    return [_openai_tool(tool) for tool in sorted(tools, key=_tool_name)]
+
+
+def _anthropic_tools(tools: list[Any], *, cache: bool) -> list[dict[str, Any]]:
+    """Tool definitions sorted by name; with `cache`, the last one carries a breakpoint that caches the list."""
+    declared = [_anthropic_tool(tool) for tool in sorted(tools, key=_tool_name)]
+    if cache and declared:
+        declared[-1]["cache_control"] = {"type": "ephemeral"}
+    return declared
+
+
+def _anthropic_system(system: str, *, cache: bool) -> str | list[dict[str, Any]]:
+    """The system prompt as a plain string; with `cache`, one text block that carries the breakpoint."""
+    if not cache or not system:
+        return system
+    return [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
 
 
 def _gemini_tool(tool: Any) -> dict[str, Any]:

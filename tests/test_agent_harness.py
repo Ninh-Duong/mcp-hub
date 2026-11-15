@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from types import SimpleNamespace
 
@@ -7,7 +8,7 @@ from mcp.types import CallToolResult, TextContent
 
 from mcp_hub.agents import specialists
 from mcp_hub.agents.harness import ContextBudget, Exchange
-from mcp_hub.agents.providers import ModelProvider, ModelToolCall, ModelTurn
+from mcp_hub.agents.providers import AnthropicProvider, ModelProvider, ModelToolCall, ModelTurn, OpenAIProvider
 from mcp_hub.agents.specialists import SpecialistExecutor
 from mcp_hub.settings import JobSettings
 
@@ -155,6 +156,90 @@ class SpecialistLimitsTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(executor.tool_result_chars, JobSettings().tool_result_chars)
         self.assertEqual(executor.context_chars, JobSettings().context_chars)
         self.assertEqual(specialists.MAX_TOOL_RESULT_CHARS, JobSettings().tool_result_chars)
+
+
+class _FakeCreate:
+    """Records each request's keyword arguments and answers with a plain text reply."""
+
+    def __init__(self) -> None:
+        self.requests: list[dict] = []
+
+    async def create(self, **kwargs) -> SimpleNamespace:
+        self.requests.append(kwargs)
+        return SimpleNamespace(content=[SimpleNamespace(type="text", text="ok")], output=[], output_text="ok")
+
+
+class _FakeClient:
+    def __init__(self) -> None:
+        self.calls = _FakeCreate()
+        self.messages = self.calls
+        self.responses = self.calls
+
+
+def _read_only(name: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        name=name, description=f"{name} tool", inputSchema={"type": "object"},
+        annotations=SimpleNamespace(read_only_hint=True),
+    )
+
+
+LOG_TOOLS = [_read_only("logs__search"), _read_only("logs__query")]
+SYSTEM_MESSAGE = {"role": "system", "content": "You are the logs specialist."}
+USER_MESSAGE = {"role": "user", "content": "Analyze logs"}
+
+
+class AnthropicPromptCacheTest(unittest.IsolatedAsyncioTestCase):
+    async def _request(self, prompt_cache: bool) -> dict:
+        client = _FakeClient()
+        provider = AnthropicProvider("test-model", "test-only-key", client=client, prompt_cache=prompt_cache)
+        await provider.complete([SYSTEM_MESSAGE, USER_MESSAGE], LOG_TOOLS)
+        return client.calls.requests[0]
+
+    def test_prompt_cache_defaults_to_the_settings_value(self) -> None:
+        provider = AnthropicProvider("test-model", "test-only-key")
+        self.assertIs(provider.prompt_cache, JobSettings().prompt_cache)
+
+    async def test_no_cache_control_when_prompt_cache_is_off(self) -> None:
+        request = await self._request(prompt_cache=False)
+        self.assertNotIn("cache_control", json.dumps(request))
+        self.assertEqual(request["system"], "You are the logs specialist.")
+
+    async def test_breakpoints_on_the_last_tool_and_the_system_block(self) -> None:
+        request = await self._request(prompt_cache=True)
+        self.assertEqual([tool["name"] for tool in request["tools"]], ["logs__query", "logs__search"])
+        self.assertNotIn("cache_control", request["tools"][0])
+        self.assertEqual(request["tools"][-1]["cache_control"], {"type": "ephemeral"})
+        self.assertEqual(request["system"], [{
+            "type": "text", "text": "You are the logs specialist.", "cache_control": {"type": "ephemeral"},
+        }])
+
+    async def test_no_empty_system_block_without_a_system_prompt(self) -> None:
+        client = _FakeClient()
+        provider = AnthropicProvider("test-model", "test-only-key", client=client, prompt_cache=True)
+        await provider.complete([USER_MESSAGE], [])
+        self.assertEqual(client.calls.requests[0]["system"], "")
+
+    async def test_stable_prefix_is_the_same_for_two_jobs(self) -> None:
+        client = _FakeClient()
+        provider = AnthropicProvider("test-model", "test-only-key", client=client, prompt_cache=True)
+        executor = SpecialistExecutor(
+            runtime=SimpleNamespace(public_tools=LOG_TOOLS, audit=None), provider=provider,
+            save_result=lambda *args: None, call_tool=lambda *args: None,
+        )
+        await executor.run("job-1", "logs", "Analyze logs")
+        await executor.run("job-2", "logs", "Analyze logs")
+        first, second = client.calls.requests
+        self.assertEqual(json.dumps(first["tools"]), json.dumps(second["tools"]))
+        self.assertEqual(json.dumps(first["system"]), json.dumps(second["system"]))
+
+
+class OpenAIToolOrderTest(unittest.IsolatedAsyncioTestCase):
+    async def test_tools_are_sent_sorted_by_name(self) -> None:
+        client = _FakeClient()
+        provider = OpenAIProvider("test-model", "test-only-key", client=client)
+        await provider.complete([SYSTEM_MESSAGE, USER_MESSAGE], LOG_TOOLS)  # declared as search, then query
+        request = client.calls.requests[0]
+        self.assertEqual([tool["name"] for tool in request["tools"]], ["logs__query", "logs__search"])
 
 
 if __name__ == "__main__":
