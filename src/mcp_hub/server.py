@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -9,12 +10,13 @@ from contextlib import AsyncExitStack
 from dataclasses import replace
 from pathlib import Path
 from time import monotonic, perf_counter
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, NamedTuple
 
 import anyio
 from mcp import Client
 from mcp.server import Server, ServerRequestContext
+from mcp.server.caching import CacheHint
 from mcp.server.stdio import stdio_server
 from mcp.shared.exceptions import MCPError
 from mcp.types import (
@@ -34,22 +36,29 @@ from mcp.types import (
     Tool,
 )
 
+from . import config as hub_config
 from .audit import AuditLog, default_log_dir, describe_exception, redact
+from .audit_events import TOOL_ARGUMENTS_INVALID, TOOL_DEFINITION_CHANGED, TOOL_DESCRIPTION_SUSPICIOUS, TOOLS_LIST_CHANGED_SENT
 from .batch import BATCH_TOOL, BatchItem, BatchRefused, batch_result, batch_tool, parse_calls, run_batch
 from .children import Backoff, ChildOpener, ChildSupervisor, ChildUnavailable, open_stdio_client
 from .condense import RuleCondenser, condense_text_rules
 from .config import HUB_ROOT, HubConfig, ServerConfig, ToolRoute, is_sensitive_key, load_config
 from datetime import UTC, datetime
+from .events import HubEvents
 from .extensions import ActivitySource, CallObserver, PlanAssistant, PlanContext, PlanHints, ResultCondenser, empty_activity
 from .extensions import ProcessingEvent, ProcessingObserver, emit_processing, processing_step
 from .full_results import FullResultStore
+from .instructions import build_instructions
 from .plan_merge import merge_plan_arguments
 from . import plan_confirm, policy
 from .playbooks import Playbook, load_playbooks
 from .policy import PLAN_TOOL, CallFacts, PlanBook, PlanCatalog, PolicyRefused, Violation
 from .projects import ProjectConfig, load_projects
 from .result_cache import ResultCache
+from .result_shape import is_condensable, parse_page_args, with_condensed_meta
+from .schema_rewrite import validate_args
 from .settings import Settings, load_settings
+from .tool_pins import PinStore, description_findings, fingerprint
 
 
 _CLIENT_LABEL_RE = re.compile(r"[^A-Za-z0-9_. -]")
@@ -68,7 +77,9 @@ def enable_core_condenser(runtime: Any) -> None:
     if getattr(runtime, "condenser", None) is None:
         runtime.condenser = RuleCondenser(max_chars=bitnet.condense_min_chars)
     if getattr(runtime, "full_results", None) is None:
-        runtime.full_results = FullResultStore(bitnet.full_result_max_entries, bitnet.full_result_ttl_seconds)
+        runtime.full_results = FullResultStore(
+            bitnet.full_result_max_entries, bitnet.full_result_ttl_seconds, max_bytes=bitnet.full_result_max_bytes,
+        )
 
 
 def normalize_client_name(value: Any) -> str:
@@ -84,6 +95,11 @@ def request_client_name(ctx: Any) -> str:
     return normalize_client_name(getattr(client_info, "name", None)) if client_info is not None else "unknown"
 
 
+def tool_pins_path() -> Path:
+    """The tool pin file: config/private/tool_pins.json under the private root."""
+    return hub_config.PRIVATE_ROOT / "tool_pins.json"
+
+
 class HubRuntime:
     """Child connections, the allowlist, and routing.
 
@@ -93,7 +109,7 @@ class HubRuntime:
     def __init__(
         self, config: HubConfig, audit: AuditLog, settings: Settings = Settings(), *,
         playbooks: Mapping[str, Playbook] | None = None, projects: Mapping[str, ProjectConfig] | None = None,
-        processing_observer: ProcessingObserver | None = None,
+        processing_observer: ProcessingObserver | None = None, pin_path: Path | None = None,
     ) -> None:
         self.config = config
         self.audit = audit
@@ -122,7 +138,7 @@ class HubRuntime:
         self._read_only: set[str] = set()
         # What the usage policy knows about each routed tool, and the recent plans from hub__plan.
         self._call_facts: dict[str, CallFacts] = {}
-        self.plans = PlanBook(settings.policy.max_plans)
+        self.plans = PlanBook(settings.policy.max_plans, repeat_after_seconds=settings.policy.repeat_after_seconds)
         self.confirm_tokens = plan_confirm.ConfirmTokens(settings.policy.confirm_token_seconds)
         # Playbooks come from docs/playbooks (read once, here at start); projects from the caller's config load.
         self.playbooks: Mapping[str, Playbook] = load_playbooks() if playbooks is None else playbooks
@@ -131,6 +147,14 @@ class HubRuntime:
         self.plan_assistant: PlanAssistant | None = None
         self.condenser: ResultCondenser | None = None
         self.full_results: FullResultStore | None = None
+        self.events = HubEvents(settings.protocol.list_changed_debounce_seconds, on_publish=self._audit_tools_sent)
+        self._background: set[asyncio.Task[None]] = set()
+        # Pins are kept only when a pin file is given (the service passes the private one) and the mode is warn.
+        self.pins: PinStore | None = (
+            PinStore(pin_path) if pin_path is not None and settings.security.tool_pin_mode != "off" else None
+        )
+        self._max_description_chars = settings.security.max_description_chars
+        self._pin_changes: dict[str, tuple[str, ...]] = {}
         self._starting = False
 
     def add_observer(self, observer: CallObserver) -> None:
@@ -157,20 +181,37 @@ class HubRuntime:
             self.supervisors[server_config.server_id] = ChildSupervisor(
                 server_config, self.audit, self.child_connected, self.child_lost,
                 log_dir=self.child_log_dir, opener=self.child_opener, backoff=self.child_backoff,
-                log_max_bytes=self.settings.logs.max_bytes,
+                log_max_bytes=self.settings.logs.max_bytes, on_tools_changed=self.child_tools_changed,
             )
         stack.push_async_callback(self.close_children)
+        if self.pins is not None:
+            await asyncio.to_thread(self.pins.load)  # before the first check of any child's tools
         self._starting = True
         for supervisor in self.supervisors.values():
             supervisor.start()
-        await asyncio.gather(*(supervisor.wait_first_attempt() for supervisor in self.supervisors.values()))
+        await self._wait_for_first_attempts()
         self._starting = False
-        self._register_routes()
+        self.events.prime(self._register_routes())
         self.audit.write(
             "hub.tools.registered",
             tool_count=len(self.public_tools),
             tools=[tool.name for tool in self.public_tools],
         )
+
+    async def _wait_for_first_attempts(self) -> None:
+        """Wait for each child's first attempt, but no longer than `children.startupWaitSeconds` (SC-004).
+
+        A child still connecting then joins later, through `child_connected`. The waiters are cancelled, not the
+        supervisors, so a child keeps connecting in the background.
+        """
+        if not self.supervisors:
+            return
+        waiters = [asyncio.ensure_future(supervisor.wait_first_attempt()) for supervisor in self.supervisors.values()]
+        try:
+            await asyncio.wait(waiters, timeout=self.settings.children.startup_wait_seconds)
+        finally:
+            for waiter in waiters:
+                waiter.cancel()
 
     def enable_core_condenser(self) -> None:
         """Install core deterministic condensing and full-result storage when not set."""
@@ -198,29 +239,122 @@ class HubRuntime:
         self.clients[server_id] = client
         if self._starting:
             return  # `connect` registers all routes once the first attempts are done
+        self._schedule_announcement(self._rebuild_child_routes(server_id))
+
+    async def child_tools_changed(self, server_id: str) -> None:
+        """A child sent tools/list_changed and its supervisor relisted it: rebuild its routes and announce them."""
+        tools = self.supervisors[server_id].tools
+        self._discovered[server_id] = tools
+        self.discovered_tool_counts[server_id] = len(tools)
+        if self._starting:
+            return  # `connect` registers all routes once the first attempts are done
+        await self.announce_tools(self._rebuild_child_routes(server_id))
+
+    def _rebuild_child_routes(self, server_id: str) -> str:
+        """Rebuild one child's routes; `hub.tools.registered` is written when the exposed names change."""
         before = [tool.name for tool in self.public_tools]
-        self._register_routes(server_id)
+        signature = self._register_routes(server_id)
         after = [tool.name for tool in self.public_tools]
         if after != before:
             self.audit.write("hub.tools.registered", tool_count=len(after), tools=after)
+        return signature
 
     def child_lost(self, server_id: str) -> None:
         """Withdraw a child's session (called by its supervisor)."""
         # Routes stay: calls fail fast with ChildUnavailable until the child reconnects.
         self.clients.pop(server_id, None)
 
-    def _register_routes(self, only_server: str | None = None) -> None:
+    def _schedule_announcement(self, signature: str) -> None:
+        """Announce a changed tool set from sync code: the debounced publish runs as a task on the event loop."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:  # no loop: nothing can be sent, so only the baseline moves
+            self.events.prime(signature)
+            return
+        self._keep_background(asyncio.ensure_future(self.announce_tools(signature)))
+
+    def _keep_background(self, task: asyncio.Task[None]) -> None:
+        """Hold a task until it ends: the event loop keeps only weak references to tasks."""
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
+
+    async def announce_tools(self, signature: str) -> None:
+        """Schedule one debounced tools/list_changed for a new tool signature (FR-006)."""
+        await self.events.tools_changed(signature)
+
+    def _audit_tools_sent(self) -> None:
+        """Called by the event bus once per publish: one `tools.list_changed.sent` line per notification sent."""
+        self.audit.write(TOOLS_LIST_CHANGED_SENT, tools_count=len(self.public_tools))
+
+    def _check_tools(self, only_server: str | None) -> None:
+        """Screen each child's tool descriptions and, when pins are on, check its definitions (warn mode)."""
+        for server_id, found in self._discovered.items():
+            if only_server not in (None, server_id):
+                continue
+            tools = [found[name] for name in sorted(found)]
+            for tool in tools:
+                self._screen_description(server_id, tool)
+            if self.pins is not None:
+                self._check_pins(server_id, tools)
+
+    def _screen_description(self, server_id: str, tool: Tool) -> None:
+        findings = description_findings(tool.description or "", self._max_description_chars)
+        if findings:
+            self.audit.write(
+                TOOL_DESCRIPTION_SUSPICIOUS, level=logging.WARNING, server=server_id, tool=tool.name,
+                reason=", ".join(findings),
+            )
+
+    def _check_pins(self, server_id: str, tools: list[Tool]) -> None:
+        """A changed tool is audited and keeps running; a tool seen for the first time gets its pin saved."""
+        assert self.pins is not None
+        verdict = self.pins.check(server_id, tools)
+        self._pin_changes[server_id] = verdict.changed
+        for name in verdict.changed:
+            self.audit.write(TOOL_DEFINITION_CHANGED, level=logging.WARNING, server=server_id, tool=name)
+        if verdict.new:
+            self._save_pins()
+
+    def _save_pins(self) -> None:
+        """Write the pins on a worker thread when the event loop runs; otherwise write them right here.
+
+        The snapshot is taken on this thread, so a check that runs while the write waits cannot change it.
+        """
+        assert self.pins is not None
+        snapshot = self.pins.snapshot()
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            self._write_pins(snapshot)
+            return
+        self._keep_background(asyncio.ensure_future(asyncio.to_thread(self._write_pins, snapshot)))
+
+    def _write_pins(self, snapshot: dict[str, dict[str, str]]) -> None:
+        """Write one snapshot; a failure is logged at WARNING with the exception type only, and the Hub keeps running."""
+        assert self.pins is not None
+        try:
+            self.pins.save(snapshot)
+        except Exception as exc:
+            logging.getLogger(__name__).warning("Saving the tool pins failed: %s", type(exc).__name__)
+
+    def _changed_pins(self) -> list[dict[str, str]]:
+        return [{"server": server_id, "tool": name} for server_id, names in self._pin_changes.items() for name in names]
+
+    def _register_routes(self, only_server: str | None = None) -> str:
         """Rebuild routes and public tools from the latest tools of each child.
 
         `route.skipped` is written for every missing tool, or only for `only_server`'s after a reconnect.
         """
+        self._check_tools(only_server)
         routes: dict[str, ToolRoute] = {}
         batch = batch_tool(self.settings.batch.max_calls)
         batch = batch.model_copy(update={"input_schema": policy.with_plan_id(batch.input_schema)})
-        public_tools = [_hub_status_tool(), policy.plan_tool(self.playbooks), batch]
+        hub_tools = [_hub_status_tool(), policy.plan_tool(self.playbooks), batch]
+        child_tools: list[Tool] = []
         read_only: set[str] = set()
         facts: dict[str, CallFacts] = {}
-        for route in self.config.routes:
+        parts: list[tuple[str, str, str]] = []
+        for route in _in_list_order(self.config.routes, self.config.servers):
             child_tool = self._discovered.get(route.server_id, {}).get(route.tool_name)
             if child_tool is None:
                 if only_server in (None, route.server_id):
@@ -234,13 +368,15 @@ class HubRuntime:
                     )
                 continue
             routes[route.exposed_name] = route
-            public_tools.append(_public_tool(route, child_tool))
+            parts.append((route.server_id, route.tool_name, fingerprint(child_tool)))
+            child_tools.append(_public_tool(route, child_tool))
             if is_read_only_tool(child_tool):
                 read_only.add(route.exposed_name)
             facts[route.exposed_name] = CallFacts(
                 route.exposed_name, route.server_id, route.exposed_name in read_only, policy.tool_accepts_env(child_tool),
             )
-        self.routes, self.public_tools, self._read_only, self._call_facts = routes, public_tools, read_only, facts
+        self.routes, self.public_tools, self._read_only, self._call_facts = routes, [*hub_tools, *child_tools], read_only, facts
+        return _tools_signature(parts)
 
     async def list_tools(
         self,
@@ -341,7 +477,7 @@ class HubRuntime:
             return await self._create_plan(arguments, request_id)
         if params.name == BATCH_TOOL:
             return await self._call_batch(arguments, request_id, client_name)
-        return await self._call_planned(params.name, arguments, request_id, client_name)
+        return await self._call_planned(params.name, arguments, request_id, client_name, _child_options(ctx, params))
 
     @property
     def policy_mode(self) -> str:
@@ -435,6 +571,7 @@ class HubRuntime:
 
     async def _call_planned(
         self, name: str, arguments: dict[str, Any], request_id: str, client_name: str,
+        options: ChildOptions | None = None,
     ) -> CallToolResult:
         """A client's direct child call, checked against its plan before it reaches the child."""
         plan_id, arguments = policy.split_plan_id(arguments)
@@ -445,7 +582,9 @@ class HubRuntime:
             violation = policy.check(plan, facts, arguments, self._health_tools, plan_id)
         if violation is not None and self.policy_mode == "enforce":
             return self._policy_denied(name, request_id, violation)
-        result = await self.call_child_tool(name, arguments, request_id=request_id, client_name=client_name)
+        result = await self.call_child_tool(
+            name, arguments, request_id=request_id, client_name=client_name, options=options,
+        )
         policy.record(plan, name, arguments, result_succeeded(result))
         result = await self._maybe_condense(name, result, plan.task if plan else None, request_id)
         if violation is None:
@@ -470,34 +609,42 @@ class HubRuntime:
         self.audit.write("tool.call.started", **fields)
         children = self.child_states()
         self.audit.write("tool.call.succeeded", **fields, duration_ms=0)
-        return CallToolResult(content=[TextContent(type="text", text=json.dumps({
+        status: dict[str, Any] = {
             "detected": len(self.config.detected),
             "connected": len(self.clients),
             "children": children,
             "result_cache": self.result_cache.stats(),
-        }))])
+        }
+        changed = self._changed_pins()
+        if changed:  # the field appears only while a pinned definition differs from its pin
+            status["tool_pins"] = {"changed": changed}
+        return CallToolResult(content=[TextContent(type="text", text=json.dumps(status))])
 
     def _get_full_result(self, arguments: dict[str, Any], request_id: str) -> CallToolResult:
         fields = {"request_id": request_id, "feature": "hub", "server": "mcp-hub", "tool": FULL_RESULT_TOOL}
         self.audit.write("tool.call.started", **fields)
         ids = _extract_result_ids(arguments)
         fmt = arguments.get("format", "raw")
-        if ids is None or fmt not in ("raw", "json"):
+        page = parse_page_args(arguments, default_offset=0, default_limit=20000)
+        error = _input_error(ids, fmt, page)
+        if error is not None:
             self.audit.write("tool.call.succeeded", **fields, duration_ms=0)
-            msg = "Provide 'result_id' or 'result_ids' (1-8 IDs)." if ids is None else "'format' must be 'raw' or 'json'."
-            return _error_result(msg)
+            return _error_result(error)
+        assert ids is not None and not isinstance(page, str)
+        offset, limit = page
         try:
-            pages = [self._fetch_one_result(rid, arguments) for rid in ids]
+            pages = [self._fetch_one_result(rid, arguments, offset, limit) for rid in ids]
         except ValueError as exc:
             self.audit.write("tool.call.succeeded", **fields, duration_ms=0)
             return _error_result(str(exc))
         self.audit.write("tool.call.succeeded", **fields, duration_ms=0)
         return _format_full_results(ids, pages, fmt)
 
-    def _fetch_one_result(self, rid: str, arguments: dict[str, Any]) -> dict[str, Any] | None:
+    def _fetch_one_result(
+        self, rid: str, arguments: dict[str, Any], offset: int, limit: int,
+    ) -> dict[str, Any] | None:
         assert self.full_results is not None
-        offset = max(0, int(arguments.get("offset", 0)))
-        limit = max(1, min(50000, int(arguments.get("limit", 20000))))
+        limit = min(limit, 50000)
         contains = arguments.get("contains")
         regex = arguments.get("regex")
         proj = arguments.get("fields")
@@ -516,7 +663,7 @@ class HubRuntime:
         """Condense a large read-only success result; any failure returns `result` unchanged."""
         if self.condenser is None or self.full_results is None:
             return result
-        if name not in self._read_only or result.is_error:
+        if name not in self._read_only or not is_condensable(self._output_schema(name), result):
             return result
         total_len = sum(len(getattr(item, "text", "")) for item in result.content if isinstance(item, TextContent))
         if total_len < self.settings.bitnet.condense_min_chars:
@@ -539,26 +686,43 @@ class HubRuntime:
                 kept_lines=0, total_lines=0, source="fallback", duration_ms=duration_ms,
             )
             return result
-        return self._finish_condensed(text, condensed, request_id, server, name, duration_ms)
+        return self._finish_condensed(result, text, condensed, request_id, server, name, duration_ms)
+
+    def _output_schema(self, name: str) -> Mapping[str, Any] | None:
+        """The output schema the child declared for a routed tool, or None."""
+        route = self.routes.get(name)
+        if route is None:
+            return None
+        child_tool = self._discovered.get(route.server_id, {}).get(route.tool_name)
+        return getattr(child_tool, "output_schema", None)
 
     def _finish_condensed(
-        self, text: str, condensed: Any, request_id: str, server: str, name: str, duration_ms: int,
+        self, original: CallToolResult, text: str, condensed: Any, request_id: str, server: str, name: str,
+        duration_ms: int,
     ) -> CallToolResult:
+        """The condensed result; `original` when the store cannot hold the full text (one entry over its byte limit)."""
         assert self.full_results is not None
+        if getattr(condensed, "lossless", False):
+            self._audit_condensed(condensed, request_id, server, name, duration_ms)
+            note = "\n[Compacted losslessly by mcp-hub.]"
+            return CallToolResult(content=[TextContent(type="text", text=condensed.text + note)], is_error=False)
+        rid = self.full_results.put(text)
+        if rid is None:
+            return original
+        self._audit_condensed(condensed, request_id, server, name, duration_ms)
+        footer = (
+            f"\n\n[Condensed by mcp-hub: kept {condensed.kept_lines} of {condensed.total_lines} lines. "
+            f"Full result: {FULL_RESULT_TOOL} result_id=\"{rid}\" ({len(text)} chars).]"
+        )
+        condensed_result = CallToolResult(content=[TextContent(type="text", text=condensed.text + footer)], is_error=False)
+        return with_condensed_meta(condensed_result, rid, condensed.kept_lines, condensed.total_lines)
+
+    def _audit_condensed(self, condensed: Any, request_id: str, server: str, name: str, duration_ms: int) -> None:
         self.audit.write(
             "tool.result.condensed", request_id=request_id, server=server, tool=name,
             kept_lines=condensed.kept_lines, total_lines=condensed.total_lines,
             source=condensed.source, duration_ms=duration_ms,
         )
-        if getattr(condensed, "lossless", False):
-            note = "\n[Compacted losslessly by mcp-hub.]"
-            return CallToolResult(content=[TextContent(type="text", text=condensed.text + note)], is_error=False)
-        rid = self.full_results.put(text)
-        footer = (
-            f"\n\n[Condensed by mcp-hub: kept {condensed.kept_lines} of {condensed.total_lines} lines. "
-            f"Full result: {FULL_RESULT_TOOL} result_id=\"{rid}\" ({len(text)} chars).]"
-        )
-        return CallToolResult(content=[TextContent(type="text", text=condensed.text + footer)], is_error=False)
 
     async def _call_batch(self, arguments: dict[str, Any], request_id: str, client_name: str) -> CallToolResult:
         """Run independent read-only calls in parallel; each one is audited as `<request_id>.<i>`."""
@@ -615,6 +779,7 @@ class HubRuntime:
             and "[Condensed by mcp-hub:" not in _join_text(item.result.content)
             and "[Compacted losslessly by mcp-hub.]" not in _join_text(item.result.content)
             and len(_join_text(item.result.content)) >= 1200
+            and is_condensable(self._output_schema(item.call.tool), item.result)
         ]
         if not eligible:
             return items
@@ -626,7 +791,9 @@ class HubRuntime:
                 condensed = self._pack_condense(text, budget, task)
                 route = self.routes.get(item.call.tool)
                 server = route.server_id if route else "unknown"
-                new_res = self._finish_condensed(text, condensed, f"{request_id}.{item.call.index}", server, item.call.tool, 0)
+                new_res = self._finish_condensed(
+                    item.result, text, condensed, f"{request_id}.{item.call.index}", server, item.call.tool, 0,
+                )
                 packed[idx] = BatchItem(item.call, new_res, item.ok, item.duration_ms)
         return packed
 
@@ -668,6 +835,18 @@ class HubRuntime:
         self.audit.write("tool.call.denied", level=logging.WARNING, **fields, reason=f"policy:{violation.rule}")
         return _error_result(f"Policy: call {index}: {violation.message}")
 
+    def _screen_arguments(self, route: ToolRoute, arguments: dict[str, Any], request_id: str) -> None:
+        """In warn mode, audit arguments that do not match the child's input schema; the call still runs (FR-012)."""
+        if self.settings.protocol.validate_arguments != "warn":
+            return
+        child_tool = self._discovered.get(route.server_id, {}).get(route.tool_name)
+        paths = validate_args(getattr(child_tool, "input_schema", None), arguments)
+        if paths:
+            self.audit.write(
+                TOOL_ARGUMENTS_INVALID, level=logging.WARNING, request_id=request_id, feature=route.feature,
+                server=route.server_id, tool=route.tool_name, fields=paths,
+            )
+
     async def call_child_tool(
         self,
         name: str,
@@ -676,6 +855,7 @@ class HubRuntime:
         request_id: str = "unknown",
         client_name: str = "unknown",
         agent_role: str | None = None,
+        options: ChildOptions | None = None,
     ) -> CallToolResult:
         # A caller that copied a client tool schema may pass the plan ID along; a child never receives it.
         arguments = policy.split_plan_id(arguments)[1]
@@ -684,6 +864,7 @@ class HubRuntime:
             denied = redact(str(name)[:DENIED_NAME_LIMIT + _SUMMARY_REDACTION_MARGIN], limit=DENIED_NAME_LIMIT)
             self.audit.write("tool.call.denied", level=logging.WARNING, request_id=request_id, tool=denied)
             return _error_result("This tool is not enabled in the Hub configuration.")
+        self._screen_arguments(route, arguments, request_id)
         tokens = self._observe_start(route, client_name, agent_role) if self.observers else None
         call = _ChildCall(route, request_id, tokens, perf_counter())
         if self.processing_observer is not None:
@@ -694,7 +875,7 @@ class HubRuntime:
             "tool.call.started", request_id=request_id, feature=route.feature, server=route.server_id, tool=route.tool_name,
         )
         try:
-            result, cached = await self._invoke_child(route, arguments)
+            result, cached = await self._invoke_child(route, arguments, options)
         except asyncio.CancelledError:
             self._complete_call(call, "interrupted", "CancelledError",
                                 "tool.call.interrupted", logging.WARNING, error_type="CancelledError")
@@ -717,27 +898,31 @@ class HubRuntime:
             self._complete_call(call, "succeeded", None, event, logging.INFO)
         return result
 
-    async def _invoke_child(self, route: ToolRoute, arguments: dict[str, Any]) -> tuple[CallToolResult, bool]:
+    async def _invoke_child(
+        self, route: ToolRoute, arguments: dict[str, Any], options: ChildOptions | None = None,
+    ) -> tuple[CallToolResult, bool]:
         """Reach the child, through the result cache for read-only tools with a TTL; returns (result, cached)."""
         name = route.exposed_name
         if route.cache_seconds > 0 and name in self._read_only:
             return await self.result_cache.get_or_call(
-                name, arguments, route.cache_seconds, lambda: self._call_child(route, arguments),
+                name, arguments, route.cache_seconds, lambda: self._call_child(route, arguments, options),
                 store_if=result_succeeded,
             )
         try:
-            return await self._call_child(route, arguments), False
+            return await self._call_child(route, arguments, options), False
         finally:
             if name not in self._read_only:
                 # A tool that may write makes this child's cached reads stale, whatever its outcome.
                 self.result_cache.invalidate(self._server_tools(route.server_id))
 
-    async def _call_child(self, route: ToolRoute, arguments: dict[str, Any]) -> CallToolResult:
+    async def _call_child(
+        self, route: ToolRoute, arguments: dict[str, Any], options: ChildOptions | None = None,
+    ) -> CallToolResult:
         client = self.clients.get(route.server_id)
         if client is None:
             raise ChildUnavailable(route.server_id)
         with anyio.fail_after(self.config.servers[route.server_id].timeout_seconds):
-            return await client.call_tool(route.tool_name, arguments)
+            return await client.call_tool(route.tool_name, arguments, **_child_call_kwargs(options))
 
     def _server_tools(self, server_id: str) -> list[str]:
         return [name for name, route in self.routes.items() if route.server_id == server_id]
@@ -801,6 +986,54 @@ class HubRuntime:
         ))
 
 
+ProgressRelay = Callable[[float, float | None, str | None], Awaitable[None]]
+# The client's `_meta` keys the Hub does not forward. The first three describe the client's connection (the SDK sets
+# them per connection); the progress token is read by the Hub, which relays progress itself. The SDK keys the token
+# as `progress_token` (wire name `progressToken`).
+CONNECTION_META_KEYS = frozenset({
+    "io.modelcontextprotocol/protocolVersion", "io.modelcontextprotocol/clientInfo",
+    "io.modelcontextprotocol/clientCapabilities", "progress_token",
+})
+
+
+class ChildOptions(NamedTuple):
+    """What a client's call adds for its child: a progress relay (None without a token) and the forwarded `_meta`."""
+
+    progress: ProgressRelay | None
+    meta: dict[str, Any]
+
+
+def _child_options(ctx: Any, params: CallToolRequestParams) -> ChildOptions:
+    """The progress relay and the forwarded `_meta` of a client's tool call (FR-010)."""
+    meta = dict(params.meta or {})
+    token = meta.pop("progress_token", None)
+    forwarded = {key: value for key, value in meta.items() if key not in CONNECTION_META_KEYS}
+    return ChildOptions(None if token is None else _progress_relay(ctx, token), forwarded)
+
+
+def _progress_relay(ctx: Any, token: Any) -> ProgressRelay:
+    """Send the child's progress to the client under the client's own token, on the request's own stream."""
+
+    async def relay(progress: float, total: float | None, message: str | None) -> None:
+        await ctx.session.send_progress_notification(
+            token, progress, total, message, related_request_id=ctx.request_id,
+        )
+
+    return relay
+
+
+def _child_call_kwargs(options: ChildOptions | None) -> dict[str, Any]:
+    """The optional arguments of the SDK's call_tool; a call without them looks as it always did."""
+    kwargs: dict[str, Any] = {}
+    if options is None:
+        return kwargs
+    if options.progress is not None:
+        kwargs["progress_callback"] = options.progress
+    if options.meta:
+        kwargs["meta"] = options.meta
+    return kwargs
+
+
 class _ChildCall(NamedTuple):
     route: ToolRoute
     request_id: str
@@ -847,6 +1080,15 @@ def _extract_result_ids(arguments: dict[str, Any]) -> list[str] | None:
         return list(rids)
     rid = arguments.get("result_id")
     return [rid] if isinstance(rid, str) and rid else None
+
+
+def _input_error(ids: list[str] | None, fmt: Any, page: tuple[int, int] | str) -> str | None:
+    """The first problem with a hub__get_full_result call, or None when the call can run."""
+    if ids is None:
+        return "Provide 'result_id' or 'result_ids' (1-8 IDs)."
+    if fmt not in ("raw", "json"):
+        return "'format' must be 'raw' or 'json'."
+    return page if isinstance(page, str) else None
 
 
 def _format_raw_page(page: dict[str, Any]) -> str:
@@ -898,6 +1140,17 @@ def _full_result_tool() -> Tool:
         },
         annotations={"readOnlyHint": True},
     )
+
+
+def _in_list_order(routes: tuple[ToolRoute, ...], servers: Mapping[str, ServerConfig]) -> list[ToolRoute]:
+    """Routes in `tools/list` order: each child in config order, then its tools by exposed name (FR-008)."""
+    rank = {server_id: index for index, server_id in enumerate(servers)}
+    return sorted(routes, key=lambda route: (rank.get(route.server_id, len(rank)), route.exposed_name))
+
+
+def _tools_signature(parts: list[tuple[str, str, str]]) -> str:
+    """One digest over each exposed tool's server, name and definition fingerprint, in server then name order."""
+    return hashlib.sha256(json.dumps(sorted(parts), separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
 def _join_text(content: list[Any]) -> str:
@@ -993,15 +1246,13 @@ def _result_error_summary(result: CallToolResult) -> str | None:
 
 
 def _server_instructions(runtime: HubRuntime, with_jobs: bool) -> str:
-    # Essentials first; Codex reads the first 512 chars; Claude Code cuts instructions at 4096.
-    groups = "\n".join(f"- {sid}: {', '.join(tools)}" for sid, tools in runtime.tools_by_server().items())
+    """The summary, then the tools per child, then client-rules.md; at most 4096 characters, essentials first."""
+    # Codex reads only the first 512 characters of the summary; Claude Code cuts instructions at 4096.
+    summary = f"{INSTRUCTIONS_SUMMARY}{_JOB_INSTRUCTIONS if with_jobs else ''}{_CONDENSED_INSTRUCTIONS}"
+    groups = [f"- {sid}: {', '.join(tools)}" for sid, tools in runtime.tools_by_server().items()]
     rules = HUB_ROOT / "docs" / "client-rules.md"
-    return (
-        f"{INSTRUCTIONS_SUMMARY}{_JOB_INSTRUCTIONS if with_jobs else ''}{_CONDENSED_INSTRUCTIONS}\n\nDetected siblings: {len(runtime.config.detected)}; "
-        f"connected children: {len(runtime.clients)}."
-        f"\nTools by child MCP (server ID: tools):\n{groups}\n\n"
-        + (rules.read_text(encoding="utf-8") if rules.is_file() else "")
-    )
+    rule_lines = rules.read_text(encoding="utf-8").splitlines() if rules.is_file() else []
+    return build_instructions(summary, [("Tools by child MCP (server ID: tools):", groups), ("", rule_lines)])
 
 
 def create_mcp_server(runtime: HubRuntime, job_runner: Any | None = None) -> Server:
@@ -1027,9 +1278,11 @@ def create_mcp_server(runtime: HubRuntime, job_runner: Any | None = None) -> Ser
     server = Server(
         "mcp-hub",
         instructions=_server_instructions(runtime, job_runner is not None),
+        cache_hints={"tools/list": CacheHint(ttl_ms=runtime.settings.protocol.tools_list_ttl_ms)},
         on_list_tools=list_tools,
         on_call_tool=call_tool,
         on_list_prompts=runtime.list_prompts,
+        on_subscriptions_listen=runtime.events.listen_handler,
         on_get_prompt=runtime.get_prompt,
     )
     # Names a client to observers as soon as it connects, before its first tool call.
@@ -1048,7 +1301,7 @@ async def serve() -> None:
         audit.write("config.load.failed", level=logging.ERROR, error_type=type(exc).__name__, error=str(exc))
         raise
 
-    runtime = HubRuntime(config, audit, settings, playbooks=playbooks, projects=projects)
+    runtime = HubRuntime(config, audit, settings, playbooks=playbooks, projects=projects, pin_path=tool_pins_path())
     async with AsyncExitStack() as stack:
         await runtime.connect(stack)
         runtime.enable_core_condenser()

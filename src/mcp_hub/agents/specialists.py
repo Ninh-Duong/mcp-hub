@@ -235,13 +235,13 @@ class SpecialistExecutor:
         system = await asyncio.to_thread(_role_prompt, role)
         audit = getattr(self.runtime, "audit", None)
         redactor = (
-            (lambda text: audit.redact_content(text, limit=MAX_TOOL_RESULT_CHARS))
+            (lambda text: audit.redact_content(text, limit=self.tool_result_chars))
             if audit is not None else None
         )
         return [
             {"role": "system", "content": system},
             {"role": "user", "content": minimize_model_content(
-                task, limit=MAX_TOOL_RESULT_CHARS, redactor=redactor,
+                task, limit=self.tool_result_chars, redactor=redactor,
             )},
         ]
 

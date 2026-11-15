@@ -54,7 +54,9 @@ def install(runtime: HubRuntime, job_runner: Any, *, root: Path, audit: AuditLog
     runtime.condenser = BitnetCondenser(
         client, max_chars=settings.condense_min_chars, timeout=settings.condense_timeout_seconds,
     )
-    runtime.full_results = FullResultStore(settings.full_result_max_entries, settings.full_result_ttl_seconds)
+    runtime.full_results = FullResultStore(
+        settings.full_result_max_entries, settings.full_result_ttl_seconds, max_bytes=settings.full_result_max_bytes,
+    )
     if job_runner is not None:
         job_runner.processing_observer = processing
         job_runner.plan_assistant = runtime.plan_assistant

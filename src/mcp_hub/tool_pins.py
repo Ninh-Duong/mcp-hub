@@ -103,10 +103,21 @@ class PinStore:
         """Replace a tool's stored pin with its current definition."""
         self._servers.setdefault(server_id, {})[tool.name] = fingerprint(tool)
 
-    def save(self) -> None:
-        """Write the pins atomically: a temporary file in the same folder, then os.replace."""
+    def snapshot(self) -> dict[str, dict[str, str]]:
+        """A copy of the pins, taken on the calling thread: later checks cannot change it."""
+        return {server_id: dict(tools) for server_id, tools in self._servers.items()}
+
+    def save(self, snapshot: dict[str, dict[str, str]] | None = None) -> None:
+        """Write the pins atomically: a temporary file in the same folder, then os.replace.
+
+        Pass a snapshot taken on the calling thread when this runs on a worker thread. Without one, the current pins
+        are copied here.
+        """
+        servers = self.snapshot() if snapshot is None else snapshot
+        self._write({"version": FILE_VERSION, "servers": servers})
+
+    def _write(self, payload: dict[str, Any]) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"version": FILE_VERSION, "servers": self._servers}
         fd, temporary = tempfile.mkstemp(dir=self._path.parent, prefix="tool-pins-", suffix=".tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as stream:

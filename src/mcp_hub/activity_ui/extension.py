@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any
 
 from mcp.server import Server, ServerRequestContext
-from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler
 from mcp.types import SubscriptionsListenRequestParams, SubscriptionsListenResult
 
 from ..audit import AuditLog
@@ -29,7 +28,6 @@ class ActivityUi:
         self.client_sessions = ClientSessions()
         self.recorder = ActivityRecorder(store, audit) if store is not None else None
         self._routes = ActivityRoutes(runtime, self.tracker, store)
-        self._listen_handler = ListenHandler(InMemorySubscriptionBus())
 
     # CallObserver
     def call_started(self, server_id: str, tool_name: str, client: str, agent_role: str | None) -> ActivityCall:
@@ -57,12 +55,13 @@ class ActivityUi:
         # An open listen stream is how a stateless 2026-07-28 client (the stdio bridge) shows as connected.
         stream_id = self.client_sessions.open_stream(self.client_sessions.note(ctx))
         try:
-            return await self._listen_handler(ctx, params)
+            # The Hub's handler on its one event bus (D6); this adds only the presence record around it.
+            return await self.runtime.events.listen_handler(ctx, params)
         finally:
             self.client_sessions.close_stream(stream_id)
 
     def attach_server(self, server: Server) -> None:
-        """Serve `subscriptions/listen` so bridge clients show as connected."""
+        """Wrap the Hub's `subscriptions/listen` handler so bridge clients show as connected; registers no bus."""
         server.add_request_handler("subscriptions/listen", SubscriptionsListenRequestParams, self.listen)
 
     def middleware(self) -> tuple[tuple[type, dict[str, Any]], ...]:
@@ -85,7 +84,7 @@ class ActivityUi:
 
     def close_listeners(self) -> None:
         """End open listen streams gracefully so shutdown need not wait for the drain deadline."""
-        self._listen_handler.close()
+        self.runtime.events.listen_handler.close()
 
     async def close(self) -> None:
         """Write every finished call that is still queued."""

@@ -17,6 +17,10 @@ This is the Hub's source of truth for changing a child MCP while keeping it usab
 - Keep a read-only health/check tool that verifies the required upstream connection without changing data. Register it in `scripts/smoke.py` and make its success check validate the actual success result.
 - Start, complete the MCP handshake, and list every tool when the account is not filled in yet. Do not exit on missing credentials: each tool that needs them returns an error result saying they are not configured (the Hub smoke check shows that as `WARN`, a start failure as `FAIL`). Setup downloads and checks children without any account.
 - Never put credentials or private configuration values in tool descriptions, tool results, errors, or logs. Return upstream data only when it is part of the requested tool behavior.
+- **`isError`.** Set the MCP error flag on failures. The Hub's failure check also reads an error prefix in the first text block (`_ERROR_PREFIXES`), so a result that starts with `Error:` counts as failed too. A result with `isError` is never condensed.
+- **`outputSchema`.** A tool that declares an `outputSchema` must return `structuredContent` that validates against it. The Hub forwards such a result unchanged: it is never condensed, and batch packing skips it. The Hub also does not check the result against the schema.
+- **`notifications/tools/list_changed`.** A child that adds, removes, or changes a tool may send this notification. The Hub relists that child's tools on it (no reconnect), rebuilds its routes, and announces the change to clients once per debounce window. A child whose tool definition changes without a notification is seen at its next reconnect. Changing a definition is audited (`tool.definition.changed`, warn mode) and the tool keeps running.
+- **Arguments.** The Hub checks each call's arguments against the input schema the child published (warn mode, `tool.arguments.invalid`) and still runs the call, so a schema the child publishes should match what it accepts.
 
 ## Configuration and secrets
 

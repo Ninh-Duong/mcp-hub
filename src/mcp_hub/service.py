@@ -20,7 +20,7 @@ from .projects import load_projects
 from .jobs.runner import JobRunner
 from .jobs.store import JobStore
 from .preflight import refresh_windows_path
-from .server import HubRuntime, create_mcp_server, enable_core_condenser
+from .server import HubRuntime, create_mcp_server, enable_core_condenser, tool_pins_path
 from .service_config import load_service_config, new_admin_token, write_connection_file
 from .settings import HttpSettings, Settings, load_settings
 
@@ -37,7 +37,7 @@ async def run_http() -> None:
     agent_configs = load_agent_configs()
     projects = load_projects()
     job_store = _open_job_store(settings.jobs.retention_days)
-    runtime = HubRuntime(config, audit, settings, playbooks=playbooks, projects=projects)
+    runtime = HubRuntime(config, audit, settings, playbooks=playbooks, projects=projects, pin_path=tool_pins_path())
     try:
         async with AsyncExitStack() as stack:
             await runtime.connect(stack)

@@ -12,16 +12,23 @@ from __future__ import annotations
 
 import asyncio
 
+from collections.abc import Callable
+
 from mcp.server.subscriptions import InMemorySubscriptionBus, ListenHandler, ToolsListChanged
 
 
 class HubEvents:
-    """Debounced `notifications/tools/list_changed` publisher on one subscription bus."""
+    """Debounced `notifications/tools/list_changed` publisher on one subscription bus.
 
-    def __init__(self, debounce_seconds: float) -> None:
+    `on_publish`, when given, is called once after each publish (not once per scheduled change), so an audit line
+    written there matches what was sent.
+    """
+
+    def __init__(self, debounce_seconds: float, on_publish: Callable[[], None] | None = None) -> None:
         self.bus = InMemorySubscriptionBus()
         self.listen_handler = ListenHandler(self.bus)
         self._debounce_seconds = debounce_seconds
+        self._on_publish = on_publish
         self._signature: str | None = None
         self._pending: asyncio.Task[None] | None = None
 
@@ -50,3 +57,5 @@ class HubEvents:
     async def _publish_after_debounce(self) -> None:
         await asyncio.sleep(self._debounce_seconds)
         await self.bus.publish(ToolsListChanged())
+        if self._on_publish is not None:
+            self._on_publish()

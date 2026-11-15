@@ -34,6 +34,7 @@ Each result is headed `[i] <tool>: ok|error (<ms> ms)`. The `hub_plan_id` comes 
   - redaction;
   - the result cache;
   - the child's timeout.
+- **Result shape is kept.** A batch item whose tool declares an `outputSchema`, returns `structuredContent`, or returns a non-text block is not condensed or compacted, and each item's argument check runs as for a direct call (`tool.arguments.invalid` in warn mode; the call still runs).
 - **Limits come from [settings](settings.md):**
   - `settings.batch.maxCalls` (8): the most calls in one batch;
   - `maxPerChild` (8): the most calls one child serves at the same time;
