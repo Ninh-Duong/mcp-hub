@@ -77,7 +77,9 @@ def enable_core_condenser(runtime: Any) -> None:
     if getattr(runtime, "condenser", None) is None:
         runtime.condenser = RuleCondenser(max_chars=bitnet.condense_min_chars)
     if getattr(runtime, "full_results", None) is None:
-        runtime.full_results = FullResultStore(bitnet.full_result_max_entries, bitnet.full_result_ttl_seconds)
+        runtime.full_results = FullResultStore(
+            bitnet.full_result_max_entries, bitnet.full_result_ttl_seconds, max_bytes=bitnet.full_result_max_bytes,
+        )
 
 
 def normalize_client_name(value: Any) -> str:
@@ -136,7 +138,7 @@ class HubRuntime:
         self._read_only: set[str] = set()
         # What the usage policy knows about each routed tool, and the recent plans from hub__plan.
         self._call_facts: dict[str, CallFacts] = {}
-        self.plans = PlanBook(settings.policy.max_plans)
+        self.plans = PlanBook(settings.policy.max_plans, repeat_after_seconds=settings.policy.repeat_after_seconds)
         self.confirm_tokens = plan_confirm.ConfirmTokens(settings.policy.confirm_token_seconds)
         # Playbooks come from docs/playbooks (read once, here at start); projects from the caller's config load.
         self.playbooks: Mapping[str, Playbook] = load_playbooks() if playbooks is None else playbooks
