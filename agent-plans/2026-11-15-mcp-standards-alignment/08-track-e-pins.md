@@ -19,7 +19,7 @@ Build a dict with exactly these keys, using the camelCase wire names: `name`, `d
 
 Tests: the same tool built with keys in a different order gives the same digest; changing the description, the input schema, or the annotations changes it; the `title`, `icons` and `meta` fields do not affect it.
 
-## T51 `description_findings`
+## T51 `description_findings` (done)
 
 ```python
 def description_findings(text: str, max_chars: int) -> list[str]:
@@ -75,3 +75,4 @@ uv run --no-sync python scripts/package_qc.py
 ## Progress log
 
 - T50 done: `fingerprint` in `tool_pins.py` (SHA-256 over canonical wire fields); 8 tests in `tests/test_tool_pins.py`; SDK `Tool.model_dump(by_alias=True)` gives camelCase keys.
+- T51 done: `description_findings` in `tool_pins.py` (tag-characters, bidi-control, zero-width, too-long, in that order); 7 tests added to `tests/test_tool_pins.py`.

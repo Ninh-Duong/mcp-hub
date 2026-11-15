@@ -16,3 +16,23 @@ def fingerprint(tool: Tool) -> str:
     canonical = {key: wire.get(key) for key in PIN_FIELDS}
     text = json.dumps(canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+# Finding codes in the order they are reported. Each code lists inclusive code point ranges.
+_CHARACTER_FINDINGS: tuple[tuple[str, tuple[tuple[int, int], ...]], ...] = (
+    ("tag-characters", ((0xE0000, 0xE007F),)),
+    ("bidi-control", ((0x202A, 0x202E), (0x2066, 0x2069))),
+    ("zero-width", ((0x200B, 0x200D), (0x2060, 0x2060), (0xFEFF, 0xFEFF))),
+)
+
+
+def description_findings(text: str, max_chars: int) -> list[str]:
+    """Finding codes for a tool description; an empty list means the text is clean."""
+    found = [code for code, ranges in _CHARACTER_FINDINGS if _has_codepoint(text, ranges)]
+    if len(text) > max_chars:
+        found.append("too-long")
+    return found
+
+
+def _has_codepoint(text: str, ranges: tuple[tuple[int, int], ...]) -> bool:
+    return any(low <= ord(char) <= high for char in text for low, high in ranges)

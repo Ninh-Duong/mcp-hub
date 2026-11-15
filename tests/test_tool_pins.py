@@ -66,5 +66,32 @@ class FingerprintTest(unittest.TestCase):
         self.assertEqual(tool_pins.fingerprint(make_tool()), tool_pins.fingerprint(decorated))
 
 
+class DescriptionFindingsTest(unittest.TestCase):
+    def test_clean_text_has_no_findings(self) -> None:
+        self.assertEqual(tool_pins.description_findings("Search the index.", 200), [])
+
+    def test_characters_just_outside_the_flagged_ranges_are_clean(self) -> None:
+        self.assertEqual(tool_pins.description_findings("⁥  ⁡﻾", 200), [])
+
+    def test_tag_characters_are_flagged(self) -> None:
+        self.assertEqual(tool_pins.description_findings("ok\U000e0041", 200), ["tag-characters"])
+
+    def test_bidi_controls_are_flagged(self) -> None:
+        self.assertEqual(tool_pins.description_findings("a‮b", 200), ["bidi-control"])
+        self.assertEqual(tool_pins.description_findings("a⁩b", 200), ["bidi-control"])
+
+    def test_zero_width_characters_are_flagged(self) -> None:
+        self.assertEqual(tool_pins.description_findings("a​b", 200), ["zero-width"])
+        self.assertEqual(tool_pins.description_findings("a﻿b", 200), ["zero-width"])
+
+    def test_text_longer_than_the_limit_is_flagged(self) -> None:
+        self.assertEqual(tool_pins.description_findings("x" * 11, 10), ["too-long"])
+        self.assertEqual(tool_pins.description_findings("x" * 10, 10), [])
+
+    def test_two_kinds_give_both_codes_in_the_fixed_order(self) -> None:
+        text = "a​b‮c" + "x" * 5
+        self.assertEqual(tool_pins.description_findings(text, 4), ["bidi-control", "zero-width", "too-long"])
+
+
 if __name__ == "__main__":
     unittest.main()
