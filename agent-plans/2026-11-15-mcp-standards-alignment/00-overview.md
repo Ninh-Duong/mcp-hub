@@ -28,6 +28,7 @@ A previous plan that split `HubRuntime` and added rate limiting, sandboxing, ext
 - D6. One event bus: `HubEvents` (`src/mcp_hub/events.py`). `activity_ui` reuses its listen handler instead of registering another.
 - D7. Implementation agents never review their own branch with a skill. The orchestrator reviews each branch before merge.
 - D8. Only the orchestrator merges, and only into `arch/base`. Merging into `master`, pushing, and raising the version need the user's explicit approval.
+- D9 (amendment, Phase 2). The Hub always serves `subscriptions/listen` through `HubEvents.listen_handler`, with or without the activity UI (FR-005). Two existing tests assert the old absence and are the only test changes allowed by this decision: `tests/test_extensions.py` `ActivityUiTest.test_attach_server_serves_presence_listen` (its assertion that the listen is unanswered before `attach_server` changes to answered) and `tests/test_bridge.py` `PresenceTest.test_presence_returns_against_a_hub_without_the_activity_ui` (it now waits for a change instead of returning). Keep each test's purpose; change only the assertions that encode the old absence. No other existing test changes.
 
 ## User stories (priority)
 
