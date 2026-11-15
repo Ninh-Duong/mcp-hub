@@ -80,6 +80,14 @@ class StdioBridgeTest(unittest.TestCase):
             self.assertEqual(bridge_client_info().name, "unknown")
 
 
+class BridgeProxyModuleTest(unittest.TestCase):
+    def test_forwarding_handlers_live_in_bridge_proxy(self) -> None:
+        from mcp_hub import bridge, bridge_proxy
+
+        self.assertIs(bridge.create_bridge_server, bridge_proxy.create_bridge_server)
+        self.assertEqual(bridge_proxy.create_bridge_server.__module__, "mcp_hub.bridge_proxy")
+
+
 class PresenceTest(unittest.TestCase):
     def test_main_client_has_no_read_timeout_so_long_child_calls_finish(self) -> None:
         from mcp_hub.bridge import BRIDGE_TIMEOUT

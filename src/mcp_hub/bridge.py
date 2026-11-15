@@ -3,26 +3,16 @@ from __future__ import annotations
 import asyncio
 import os
 from contextlib import suppress
-from typing import Any
 
 import httpx2
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.client.subscriptions import ListenNotSupportedError
-from mcp.server import Server, ServerRequestContext
 from mcp.server.stdio import stdio_server
 from mcp.shared.exceptions import MCPError
 from mcp.types import METHOD_NOT_FOUND, Implementation
-from mcp.types import (
-    CallToolRequestParams,
-    CallToolResult,
-    GetPromptRequestParams,
-    GetPromptResult,
-    ListPromptsResult,
-    ListToolsResult,
-    PaginatedRequestParams,
-)
 
+from .bridge_proxy import create_bridge_server
 from .service_config import load_service_config
 from .server import normalize_client_name
 
@@ -39,35 +29,6 @@ def hub_http_client(token: str) -> httpx2.AsyncClient:
 def bridge_client_info(client_name: str | None = None) -> Implementation:
     name = client_name if client_name is not None else os.environ.get("MCP_HUB_CLIENT_NAME")
     return Implementation(name=normalize_client_name(name), version="0.1.0")
-
-
-def create_bridge_server(remote: Any) -> Server:
-    async def list_tools(
-        _ctx: ServerRequestContext,
-        params: PaginatedRequestParams | None,
-    ) -> ListToolsResult:
-        return await remote.list_tools(cursor=params.cursor if params else None)
-
-    async def call_tool(_ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
-        return await remote.call_tool(params.name, params.arguments or {})
-
-    async def list_prompts(
-        _ctx: ServerRequestContext,
-        params: PaginatedRequestParams | None,
-    ) -> ListPromptsResult:
-        return await remote.list_prompts(cursor=params.cursor if params else None)
-
-    async def get_prompt(_ctx: ServerRequestContext, params: GetPromptRequestParams) -> GetPromptResult:
-        return await remote.get_prompt(params.name, params.arguments or {})
-
-    return Server(
-        "mcp-hub-stdio-bridge",
-        instructions="Forwards MCP requests to the authenticated local mcp-hub service.",
-        on_list_tools=list_tools,
-        on_call_tool=call_tool,
-        on_list_prompts=list_prompts,
-        on_get_prompt=get_prompt,
-    )
 
 
 def is_method_not_found(exc: BaseException) -> bool:

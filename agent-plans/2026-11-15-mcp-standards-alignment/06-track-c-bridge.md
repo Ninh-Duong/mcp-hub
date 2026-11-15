@@ -12,7 +12,7 @@ Read first: all of `src/mcp_hub/bridge.py` (about 90 lines). Line references fro
 
 Do not edit `server.py` or `http.py` (Phase 2 owns the Hub side).
 
-## T30 split without behaviour change
+## T30 split without behaviour change [x]
 
 Move the forwarding handlers (tools and prompts) into `src/mcp_hub/bridge_proxy.py`. `bridge.py` keeps startup and lifecycle only. Existing tests must pass unchanged.
 
@@ -64,4 +64,4 @@ uv run --no-sync python scripts/package_qc.py
 
 ## Progress log
 
-- (agent: add one line per task here)
+- T30 done: forwarding handlers moved to `bridge_proxy.py`; `bridge.py` re-imports `create_bridge_server`; 7 bridge tests pass unchanged (plus one new module-location test).
