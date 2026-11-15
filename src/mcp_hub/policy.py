@@ -9,7 +9,8 @@ the checkable ones binding for every client:
 - the plan's environment, passed explicitly to tools that take `env`;
 - a tool that may write only when the plan lists it (the user asked for it);
 - a connection check only after a failed call, or when the plan says the user asked for checks;
-- no identical repeat of a call that already succeeded, and one retry of a failed one;
+- no identical repeat of a call that already succeeded (until `repeat_after_seconds` has passed, when it is set),
+  and one retry of a failed one;
 - with a playbook (`docs/playbooks/<id>.md`): only its tools, `limit` at most its `max_limit`, and the
   project's log targets (organization, stream, request-ID field) and source project, nothing else.
 
@@ -20,8 +21,9 @@ removes it before a call reaches the child. Pure logic: the Hub runtime does the
 from __future__ import annotations
 
 import secrets
+import time
 from collections import OrderedDict
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, NamedTuple
@@ -35,6 +37,7 @@ from .projects import LogTarget, ProjectConfig, SqlTarget
 from .result_cache import cache_key
 # Re-exported: server.py and the tests use policy.PLAN_ID_ARG and policy.with_plan_id.
 from .schema_rewrite import PLAN_ID_ARG as PLAN_ID_ARG, with_plan_id as with_plan_id
+from .settings import PolicySettings
 
 PLAN_TOOL = "hub__plan"
 MAX_TEXT = 2000
@@ -47,6 +50,8 @@ _PLAN_REQUIRED = (
     f"Call {PLAN_TOOL} first (task, child server IDs, environment, planned steps), then pass the "
     f"{PLAN_ID_ARG} it returns with every call. It also returns the rules for those children."
 )
+
+
 class PolicyRefused(ValueError):
     """An invalid plan; the message is safe to show to the client."""
 
@@ -104,6 +109,11 @@ class Plan:
     # Call key -> number of failed attempts, or _SUCCEEDED once it succeeded.
     seen: dict[str, int] = field(default_factory=dict)
     had_failure: bool = False
+    # A succeeded call may run again once `repeat_after` seconds of `clock` time have passed; 0 refuses every repeat.
+    repeat_after: float = 0.0
+    clock: Callable[[], float] = time.monotonic
+    # Call key -> clock time of its latest success.
+    succeeded_at: dict[str, float] = field(default_factory=dict)
 
 
 _STRING_LIST = {"type": "array", "items": {"type": "string"}}
@@ -164,10 +174,15 @@ def split_plan_id(arguments: Mapping[str, Any]) -> tuple[Any, dict[str, Any]]:
 
 
 class PlanBook:
-    """Recent plans by ID; the oldest is dropped past `max_plans`."""
+    """Recent plans by ID; the oldest is dropped past `max_plans`. Each plan gets the clock and the repeat window."""
 
-    def __init__(self, max_plans: int) -> None:
+    def __init__(
+        self, max_plans: int, *, clock: Callable[[], float] = time.monotonic,
+        repeat_after_seconds: float = PolicySettings().repeat_after_seconds,
+    ) -> None:
         self.max_plans = max_plans
+        self.clock = clock
+        self.repeat_after_seconds = repeat_after_seconds
         self._plans: OrderedDict[str, Plan] = OrderedDict()
 
     def get(self, plan_id: Any) -> Plan | None:
@@ -178,6 +193,8 @@ class PlanBook:
 
     def create(self, arguments: Mapping[str, Any], catalog: PlanCatalog) -> Plan:
         plan = parse_plan(arguments, catalog, f"plan-{secrets.token_hex(16)}")
+        plan.clock = self.clock
+        plan.repeat_after = self.repeat_after_seconds
         self._plans[plan.plan_id] = plan
         while len(self._plans) > self.max_plans:
             self._plans.popitem(last=False)
@@ -309,12 +326,19 @@ def check(
                                              "call, or when the user asked to check connections.")
     key = cache_key(facts.name, dict(arguments))
     outcome = plan.seen.get(key) if key is not None else None
-    if outcome == _SUCCEEDED:
+    if outcome == _SUCCEEDED and not _repeat_allowed(plan, key):
         return Violation("repeat", f"{facts.name} already ran with these arguments in this plan. Reuse that result.")
     if outcome is not None and outcome >= MAX_FAILED_ATTEMPTS:
         return Violation("retry", f"{facts.name} already failed {outcome} times with these arguments. "
                                   "Report the failure instead of retrying.")
     return None
+
+
+def _repeat_allowed(plan: Plan, key: str | None) -> bool:
+    """True when a succeeded call may run again: the plan's repeat window is set and has passed since its success."""
+    if key is None or plan.repeat_after <= 0 or key not in plan.succeeded_at:
+        return False
+    return plan.clock() - plan.succeeded_at[key] >= plan.repeat_after
 
 
 def _check_env(plan: Plan, facts: CallFacts, arguments: Mapping[str, Any]) -> Violation | None:
@@ -377,12 +401,14 @@ def check_batch(
 
 
 def record(plan: Plan | None, name: str, arguments: Mapping[str, Any], ok: bool) -> None:
-    """Remember a call's outcome: a success blocks its repeat; a failure allows connection checks."""
+    """Remember a call's outcome: a success blocks its repeat until the window passes; a failure allows checks."""
     if plan is None:
         return
     key = cache_key(name, dict(arguments))
     if key is not None and plan.seen.get(key) != _SUCCEEDED:
         plan.seen[key] = _SUCCEEDED if ok else plan.seen.get(key, 0) + 1
+    if key is not None and ok:
+        plan.succeeded_at[key] = plan.clock()
     if not ok:
         plan.had_failure = True
 

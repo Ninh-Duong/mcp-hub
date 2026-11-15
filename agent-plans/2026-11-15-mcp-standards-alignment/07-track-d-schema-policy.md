@@ -48,7 +48,7 @@ Tests: a wrong type on a nested field gives its dotted path; a missing required 
 
 `policy.py`: change `token_hex(6)` to `token_hex(16)` (128 bits). Check that no existing test asserts the old length; if one does, stop and report.
 
-## T44 repeat after seconds
+## [x] T44 repeat after seconds
 
 The policy refuses an identical call that already succeeded. Add an optional clock to the policy object (default `time.monotonic`) and remember when the identical success happened. When `repeat_after_seconds` is greater than 0 and that many seconds have passed, the repeat is allowed. When it is 0 (the default), behaviour is unchanged.
 
@@ -77,4 +77,4 @@ uv run --no-sync python scripts/package_qc.py
 - T41 done: `policy.py` drops its copies of `PLAN_ID_ARG`, `_PLAN_ID_SCHEMA`, `with_plan_id` and re-exports the two names from `schema_rewrite` (redundant aliases). Identity test added in `tests/test_policy.py`.
 - T42 done: `schema_rewrite.validate_args` returns dotted paths (or `<root>`), `[]` for a missing or broken schema; 7 tests.
 - T43 done: `PlanBook.create` uses `token_hex(16)`; no existing test asserted the old length; test `PlanIdLengthTest`.
-- (agent: add one line per task here)
+- T44 done: `PlanBook(max_plans, *, clock=time.monotonic, repeat_after_seconds=PolicySettings().repeat_after_seconds)`; each plan keeps its clock and window, and a success stamps its time; the repeat is allowed once the window has passed. No signature used by server.py changed; 5 tests with a fake clock.
