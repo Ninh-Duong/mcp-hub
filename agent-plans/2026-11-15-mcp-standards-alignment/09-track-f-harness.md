@@ -17,7 +17,7 @@ Read first: `src/mcp_hub/agents/specialists.py` (`MAX_TOOL_RESULT_CHARS` around 
 ## Task checklist
 
 - [x] T60 `build_instructions` (commit on `arch/track-f`)
-- [ ] T61 `ContextBudget`
+- [x] T61 `ContextBudget`
 - [ ] T62 use in the specialist loop
 - [ ] T63 settings values, not constants
 - [ ] T64 prompt caching
@@ -107,3 +107,4 @@ uv run --no-sync python scripts/package_qc.py
 
 - (agent: add one line per task here)
 - 2026-11-15 (track F): T60 done. `instructions.py` and `tests/test_instructions.py` (9 tests); ruff and code standards pass.
+- 2026-11-15 (track F): T61 done. `agents/harness.py` (`Exchange`, `ContextBudget`) and `tests/test_agent_harness.py` (9 tests). Cleared text cuts the first line to 120 characters; a result with no evidence (a failed call) clears to `[cleared: ...]` with no source ID. Ruff and code standards pass.
