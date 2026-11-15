@@ -14,6 +14,14 @@ Do not edit `server.py`, `service.py`, `docs/` (Phase 2 owns the docs for this t
 
 Read first: `src/mcp_hub/agents/specialists.py` (`MAX_TOOL_RESULT_CHARS` around line 21; `max_rounds` around line 157), `src/mcp_hub/agents/providers.py`, `src/mcp_hub/jobs/runner.py` (`COORDINATOR_SECONDS` around line 37).
 
+## Task checklist
+
+- [x] T60 `build_instructions` (commit on `arch/track-f`)
+- [ ] T61 `ContextBudget`
+- [ ] T62 use in the specialist loop
+- [ ] T63 settings values, not constants
+- [ ] T64 prompt caching
+
 ## T60 `build_instructions`
 
 File: `src/mcp_hub/instructions.py`. Test: `tests/test_instructions.py`.
@@ -98,3 +106,4 @@ uv run --no-sync python scripts/package_qc.py
 ## Progress log
 
 - (agent: add one line per task here)
+- 2026-11-15 (track F): T60 done. `instructions.py` and `tests/test_instructions.py` (9 tests); ruff and code standards pass.
