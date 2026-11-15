@@ -5,8 +5,8 @@ Modules import the constant instead of retyping the string, so a typo fails at i
 """
 from __future__ import annotations
 
-# Sent to clients after the tool set or a tool definition changed (debounced).
-TOOLS_LIST_CHANGED_SENT = "tools.list_changed.sent"
+# The Hub published notifications/tools/list_changed after the tool set or a tool definition changed (debounced).
+TOOLS_LIST_CHANGED_PUBLISHED = "tools.list_changed.published"
 # A child's tool definition differs from the pinned one (warn mode only; the tool keeps running).
 TOOL_DEFINITION_CHANGED = "tool.definition.changed"
 # A tool description has hidden characters or is longer than security.maxDescriptionChars.
@@ -15,7 +15,7 @@ TOOL_DESCRIPTION_SUSPICIOUS = "tool.description.suspicious"
 TOOL_ARGUMENTS_INVALID = "tool.arguments.invalid"
 
 ALL = (
-    TOOLS_LIST_CHANGED_SENT,
+    TOOLS_LIST_CHANGED_PUBLISHED,
     TOOL_DEFINITION_CHANGED,
     TOOL_DESCRIPTION_SUSPICIOUS,
     TOOL_ARGUMENTS_INVALID,

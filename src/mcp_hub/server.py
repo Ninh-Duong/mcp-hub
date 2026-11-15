@@ -38,7 +38,7 @@ from mcp.types import (
 
 from . import config as hub_config
 from .audit import AuditLog, default_log_dir, describe_exception, redact
-from .audit_events import TOOL_ARGUMENTS_INVALID, TOOL_DEFINITION_CHANGED, TOOL_DESCRIPTION_SUSPICIOUS, TOOLS_LIST_CHANGED_SENT
+from .audit_events import TOOL_ARGUMENTS_INVALID, TOOL_DEFINITION_CHANGED, TOOL_DESCRIPTION_SUSPICIOUS, TOOLS_LIST_CHANGED_PUBLISHED
 from .batch import BATCH_TOOL, BatchItem, BatchRefused, batch_result, batch_tool, parse_calls, run_batch
 from .children import Backoff, ChildOpener, ChildSupervisor, ChildUnavailable, open_stdio_client
 from .condense import RuleCondenser, condense_text_rules
@@ -150,7 +150,7 @@ class HubRuntime:
         self.plan_assistant: PlanAssistant | None = None
         self.condenser: ResultCondenser | None = None
         self.full_results: FullResultStore | None = None
-        self.events = HubEvents(settings.protocol.list_changed_debounce_seconds, on_publish=self._audit_tools_sent)
+        self.events = HubEvents(settings.protocol.list_changed_debounce_seconds, on_publish=self._audit_tools_published)
         self._background: set[asyncio.Task[None]] = set()
         self._setup_pins(pin_path, settings)
         self._starting = False
@@ -290,9 +290,9 @@ class HubRuntime:
         """Schedule one debounced tools/list_changed for a new tool signature (FR-006)."""
         await self.events.tools_changed(signature)
 
-    def _audit_tools_sent(self) -> None:
-        """Called by the event bus once per publish: one `tools.list_changed.sent` line per notification sent."""
-        self.audit.write(TOOLS_LIST_CHANGED_SENT, tools_count=len(self.public_tools))
+    def _audit_tools_published(self) -> None:
+        """Called by the event bus once per publish, with or without a listener: one `tools.list_changed.published` line."""
+        self.audit.write(TOOLS_LIST_CHANGED_PUBLISHED, tools_count=len(self.public_tools))
 
     def _check_tools(self, only_server: str | None) -> None:
         """Screen each child's tool descriptions and, when pins are on, check its definitions (warn mode)."""

@@ -140,7 +140,7 @@ class HubWithFakeChildren(unittest.IsolatedAsyncioTestCase):
 
     def sent_lines(self) -> int:
         lines = self.audit_path.read_text(encoding="utf-8").splitlines()
-        return sum(json.loads(line)["event"] == "tools.list_changed.sent" for line in lines)
+        return sum(json.loads(line)["event"] == "tools.list_changed.published" for line in lines)
 
 
 class EraChecks:
