@@ -316,14 +316,26 @@ class HubRuntime:
             self._save_pins()
 
     def _save_pins(self) -> None:
-        """Write the pins on a worker thread when the event loop runs; otherwise write them right here."""
+        """Write the pins on a worker thread when the event loop runs; otherwise write them right here.
+
+        The snapshot is taken on this thread, so a check that runs while the write waits cannot change it.
+        """
         assert self.pins is not None
+        snapshot = self.pins.snapshot()
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            self.pins.save()
+            self._write_pins(snapshot)
             return
-        self._keep_background(asyncio.ensure_future(asyncio.to_thread(self.pins.save)))
+        self._keep_background(asyncio.ensure_future(asyncio.to_thread(self._write_pins, snapshot)))
+
+    def _write_pins(self, snapshot: dict[str, dict[str, str]]) -> None:
+        """Write one snapshot; a failure is logged at WARNING with the exception type only, and the Hub keeps running."""
+        assert self.pins is not None
+        try:
+            self.pins.save(snapshot)
+        except Exception as exc:
+            logging.getLogger(__name__).warning("Saving the tool pins failed: %s", type(exc).__name__)
 
     def _changed_pins(self) -> list[dict[str, str]]:
         return [{"server": server_id, "tool": name} for server_id, names in self._pin_changes.items() for name in names]
