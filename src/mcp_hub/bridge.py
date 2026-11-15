@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
+from collections.abc import AsyncIterable, Awaitable, Callable
 from contextlib import suppress
 
 import httpx2
@@ -9,13 +11,16 @@ from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.client.subscriptions import ListenNotSupportedError
 from mcp.server.stdio import stdio_server
+from mcp.server.subscriptions import ToolsListChanged
 from mcp.shared.exceptions import MCPError
+from mcp.shared.subscriptions import ServerEvent
 from mcp.types import METHOD_NOT_FOUND, Implementation
 
-from .bridge_proxy import create_bridge_server
+from .bridge_proxy import DownstreamLink, create_bridge_server
 from .service_config import load_service_config
 from .server import normalize_client_name
 
+logger = logging.getLogger(__name__)
 PRESENCE_RETRY_SECONDS = 5.0
 # Connect and write limits only: a child tool may run longer than 60 s (its own timeoutSeconds applies).
 BRIDGE_TIMEOUT = httpx2.Timeout(60.0, read=None)
@@ -40,24 +45,44 @@ def is_method_not_found(exc: BaseException) -> bool:
     return False
 
 
-async def _listen_once(url: str, token: str, client_info: Implementation) -> None:
+async def relay_tool_changes(
+    events: AsyncIterable[ServerEvent],
+    on_tools_changed: Callable[[], Awaitable[None]] | None,
+) -> None:
+    """Call `on_tools_changed` once for each tools/list_changed event; other event kinds are ignored."""
+    async for event in events:
+        if on_tools_changed is not None and isinstance(event, ToolsListChanged):
+            await on_tools_changed()
+
+
+async def _listen_once(
+    url: str,
+    token: str,
+    client_info: Implementation,
+    on_tools_changed: Callable[[], Awaitable[None]] | None = None,
+) -> None:
     # No read timeout: the stream stays idle until the Hub ends it.
     async with hub_http_client(token) as http_client:
         async with Client(streamable_http_client(url, http_client=http_client), client_info=client_info) as presence:
             async with presence.listen(tools_list_changed=True) as subscription:
-                async for _event in subscription:
-                    pass
+                await relay_tool_changes(subscription, on_tools_changed)
 
 
-async def hold_presence(url: str, token: str, client_info: Implementation) -> None:
-    """Keep a listen stream open so the Hub dashboard shows this client as connected.
+async def hold_presence(
+    url: str,
+    token: str,
+    client_info: Implementation,
+    on_tools_changed: Callable[[], Awaitable[None]] | None = None,
+) -> None:
+    """Keep a listen stream open so the Hub dashboard shows this client as connected, and relay tool changes.
 
     Stops when the Hub does not serve presence (it runs without the activity UI).
     """
     while True:
         try:
-            await _listen_once(url, token, client_info)
+            await _listen_once(url, token, client_info, on_tools_changed)
         except ListenNotSupportedError:
+            logger.warning("The Hub does not support subscriptions/listen; tool list changes are not relayed.")
             return
         except Exception as exc:
             if is_method_not_found(exc):
@@ -76,8 +101,9 @@ async def serve_bridge() -> None:
             client_info=client_info,
         ) as remote:
             await remote.list_tools()
-            server = create_bridge_server(remote)
-            presence = asyncio.create_task(hold_presence(url, config.token, client_info))
+            link = DownstreamLink()
+            server = create_bridge_server(remote, link)
+            presence = asyncio.create_task(hold_presence(url, config.token, client_info, link.tools_changed))
             try:
                 async with stdio_server() as (read_stream, write_stream):
                     await server.run(read_stream, write_stream, server.create_initialization_options())

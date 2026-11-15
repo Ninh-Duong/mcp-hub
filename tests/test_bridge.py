@@ -92,12 +92,12 @@ class FakeRemoteWithInstructions(FakeRemoteClient):
     instructions = "Call sample__echo to echo text."
 
 
-def run_downstream(remote, check) -> None:
+def run_downstream(remote, check, link=None, message_handler=None, mode="auto") -> None:
     """Serve `remote` through the bridge over memory streams and run `check(client)` as the stdio client."""
     from mcp_hub.bridge_proxy import create_bridge_server
 
     async def exercise() -> None:
-        server = create_bridge_server(remote)
+        server = create_bridge_server(remote, link)
         async with create_client_server_memory_streams() as (client_streams, server_streams):
             client_read, client_write = client_streams
             server_read, server_write = server_streams
@@ -114,7 +114,7 @@ def run_downstream(remote, check) -> None:
                     server.create_initialization_options(),
                 )
                 try:
-                    async with Client(transport()) as client:
+                    async with Client(transport(), message_handler=message_handler, mode=mode) as client:
                         await check(client)
                 finally:
                     task_group.cancel_scope.cancel()
@@ -185,6 +185,77 @@ class BridgeProgressTest(unittest.TestCase):
         self.assertNotIn("io.modelcontextprotocol/protocolVersion", forwarded)
         self.assertNotIn("io.modelcontextprotocol/clientInfo", forwarded)
         self.assertNotIn("io.modelcontextprotocol/clientCapabilities", forwarded)
+
+
+async def tool_events(*events):
+    for event in events:
+        yield event
+
+
+class BridgeListChangedTest(unittest.TestCase):
+    def test_tools_event_reaches_a_2025_stdio_client_as_one_session_notification(self) -> None:
+        from mcp.shared.subscriptions import PromptsListChanged, ToolsListChanged
+
+        from mcp_hub.bridge import relay_tool_changes
+        from mcp_hub.bridge_proxy import DownstreamLink
+
+        link = DownstreamLink()
+        notifications = []
+
+        async def message_handler(message) -> None:
+            if getattr(message, "method", None) == "notifications/tools/list_changed":
+                notifications.append("notifications/tools/list_changed")
+
+        async def check(client) -> None:
+            await client.list_tools()
+            await relay_tool_changes(tool_events(PromptsListChanged(), ToolsListChanged()), link.tools_changed)
+            with anyio.fail_after(5):
+                while not notifications:
+                    await anyio.sleep(0.01)
+            await anyio.sleep(0.1)
+
+        run_downstream(FakeRemoteClient(), check, link=link, message_handler=message_handler, mode="legacy")
+        self.assertEqual(notifications, ["notifications/tools/list_changed"])
+
+    def test_tools_event_reaches_a_2026_stdio_client_through_subscriptions_listen(self) -> None:
+        from mcp.server.subscriptions import ToolsListChanged
+        from mcp.shared.subscriptions import PromptsListChanged
+
+        from mcp_hub.bridge import relay_tool_changes
+        from mcp_hub.bridge_proxy import DownstreamLink
+
+        link = DownstreamLink()
+        received = []
+
+        async def check(client) -> None:
+            async with client.listen(tools_list_changed=True) as subscription:
+                await relay_tool_changes(tool_events(PromptsListChanged(), ToolsListChanged()), link.tools_changed)
+                with anyio.fail_after(5):
+                    received.append(await subscription.__anext__())
+                with anyio.move_on_after(0.2):
+                    received.append(await subscription.__anext__())
+
+        run_downstream(FakeRemoteClient(), check, link=link)
+        self.assertEqual(received, [ToolsListChanged()])
+
+    def test_hub_without_listen_support_logs_once_and_presence_stops(self) -> None:
+        from mcp.client.subscriptions import ListenNotSupportedError
+        from mcp.types import Implementation
+
+        from mcp_hub import bridge
+
+        attempts = []
+
+        async def listen_once(*_args):
+            attempts.append(True)
+            raise ListenNotSupportedError("2025-11-25")
+
+        with patch.object(bridge, "_listen_once", listen_once), self.assertLogs("mcp_hub.bridge", "WARNING") as logs:
+            asyncio.run(asyncio.wait_for(
+                bridge.hold_presence("url", "token", Implementation(name="x", version="1"), None), 5,
+            ))
+        self.assertEqual(len(attempts), 1)
+        self.assertEqual(len(logs.records), 1)
 
 
 class PresenceTest(unittest.TestCase):
