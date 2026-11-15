@@ -5,9 +5,11 @@ from types import SimpleNamespace
 
 from mcp.types import CallToolResult, TextContent
 
+from mcp_hub.agents import specialists
 from mcp_hub.agents.harness import ContextBudget, Exchange
 from mcp_hub.agents.providers import ModelProvider, ModelToolCall, ModelTurn
 from mcp_hub.agents.specialists import SpecialistExecutor
+from mcp_hub.settings import JobSettings
 
 
 def _exchanges(count: int, size: int) -> list[Exchange]:
@@ -126,6 +128,33 @@ class SpecialistContextBudgetTest(unittest.IsolatedAsyncioTestCase):
         first_ref = result.evidence_refs[0].source_id
         self.assertIn(f"[cleared; evidence {first_ref}:", str(provider.transcripts[-1]))
         self.assertEqual(len(result.evidence_refs), 10)
+
+
+class SpecialistLimitsTest(unittest.IsolatedAsyncioTestCase):
+    async def test_tool_result_chars_truncates_the_text_the_model_reads(self) -> None:
+        call = ModelToolCall("call-0", "logs__query", {})
+        provider = _RecordingProvider([ModelTurn(text="", tool_calls=(call,)), ModelTurn(text="Done", tool_calls=())])
+
+        async def fake_call(job_id, role, name, arguments, tool, source_id) -> CallToolResult:
+            return CallToolResult(content=[TextContent(type="text", text="word " * 200)], is_error=False)
+
+        executor = SpecialistExecutor(
+            runtime=_logs_runtime(), provider=provider, save_result=lambda *args: None, call_tool=fake_call,
+            tool_result_chars=100,
+        )
+        await executor.run("job-1", "logs", "Analyze logs")
+        tool_messages = [m for m in provider.transcripts[-1] if m["role"] == "tool"]
+        self.assertEqual(len(tool_messages[0]["content"]), 100)
+
+    def test_limits_default_to_the_settings_values(self) -> None:
+        executor = SpecialistExecutor(
+            runtime=_logs_runtime(), provider=_RecordingProvider([]),
+            save_result=lambda *args: None, call_tool=lambda *args: None,
+        )
+        self.assertEqual(executor.max_rounds, JobSettings().specialist_max_rounds)
+        self.assertEqual(executor.tool_result_chars, JobSettings().tool_result_chars)
+        self.assertEqual(executor.context_chars, JobSettings().context_chars)
+        self.assertEqual(specialists.MAX_TOOL_RESULT_CHARS, JobSettings().tool_result_chars)
 
 
 if __name__ == "__main__":

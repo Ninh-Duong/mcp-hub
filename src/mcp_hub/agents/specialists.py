@@ -20,7 +20,8 @@ from .providers import ModelProvider, ModelToolCall, ModelTurn
 
 
 ROLE_PREFIXES = {"logs": "logs__", "source": "source__", "jira": "jira__", "pr": "pr__", "sql": "sql__"}
-MAX_TOOL_RESULT_CHARS = 6000
+# Kept as a name for existing imports; the value is settings.jobs.tool_result_chars.
+MAX_TOOL_RESULT_CHARS = JobSettings().tool_result_chars
 _EMAIL = re.compile(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b")
 
 
@@ -184,8 +185,9 @@ class SpecialistExecutor:
         save_result: Callable[[str, str, Any], None],
         call_tool: Callable[[str, str, str, dict[str, Any], Any, str], Awaitable[CallToolResult | ToolCallOutcome]],
         tool_filter: Callable[[Any], bool] = is_read_only_tool,
-        max_rounds: int = 8,
+        max_rounds: int = JobSettings().specialist_max_rounds,
         context_chars: int = JobSettings().context_chars,
+        tool_result_chars: int = JobSettings().tool_result_chars,
         condenser: ResultCondenser | None = None,
         condense_min_chars: int = 9000,
         condense_timeout_seconds: float = 8.0,
@@ -197,6 +199,7 @@ class SpecialistExecutor:
         self.tool_filter = tool_filter
         self.max_rounds = max_rounds
         self.context_chars = context_chars
+        self.tool_result_chars = tool_result_chars
         self.condenser = condenser
         self.condense_min_chars = condense_min_chars
         self.condense_timeout_seconds = condense_timeout_seconds
@@ -288,8 +291,8 @@ class SpecialistExecutor:
                     except Exception:
                         target = outcome.result
             audit = getattr(self.runtime, "audit", None)
-            redactor = (lambda t: audit.redact_content(t, limit=MAX_TOOL_RESULT_CHARS)) if audit is not None else None
-            content = minimize_model_content(target, redactor=redactor)
+            redactor = (lambda t: audit.redact_content(t, limit=self.tool_result_chars)) if audit is not None else None
+            content = minimize_model_content(target, limit=self.tool_result_chars, redactor=redactor)
             if outcome.result.is_error:
                 content = f"The tool returned an error result [{outcome.source_id}]:\n{content}"
         return Exchange(call.call_id, outcome.source_id, content), EvidenceRef(outcome.source_id, call.name, role)

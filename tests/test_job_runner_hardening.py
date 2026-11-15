@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import tempfile
+import time
 import unittest
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -234,6 +235,19 @@ class TimeLimitTest(unittest.TestCase):
             self.assertEqual(job["state"], "partial")
             self.assertIn(f"[{job['evidence_refs'][0]['source_id']}]", job["summary"])
             self.assertIn("stopped at the 0.3-second job time limit", job["summary"])
+
+
+class CoordinatorLimitTest(unittest.TestCase):
+    def test_coordinator_is_cut_off_at_the_coordinator_seconds_setting(self) -> None:
+        runtime = _Runtime([_tool("logs__query_logs")])
+        logs = _Provider(_turn(("c1", "logs__query_logs", {})), final="Logs checked.")
+        coordinator = _Provider(_hang)
+        with _runner(runtime, {"logs": logs, "coordinator": coordinator}, coordinator_seconds=0.2) as runner:
+            started = time.monotonic()
+            job_id = asyncio.run(_run_one(runner))
+            elapsed = time.monotonic() - started
+            self.assertIn("Coordinator failed (TimeoutError).", runner.get_job(job_id)["summary"])
+            self.assertLess(elapsed, 5)  # the hanging coordinator is not waited out (its sleep is 30 seconds)
 
 
 class SlotAndQueueTest(unittest.TestCase):
