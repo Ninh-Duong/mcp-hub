@@ -1220,7 +1220,7 @@ INSTRUCTIONS_SUMMARY = (
 _JOB_INSTRUCTIONS = (
     " Shared investigation tools: hub__list_projects returns registered aliases; hub__submit_issue starts a bounded async job; hub__get_job and "
     "hub__get_job_detail read status and encrypted evidence; hub__provide_job_input supplies a validated "
-    "environment; hub__approve_job requires the one-time dashboard code; hub__cancel_job stops a job."
+    "environment; hub__approve_job requires a one-time approval code supplied by the user; hub__cancel_job stops a job."
 )
 
 _CONDENSED_INSTRUCTIONS = (

@@ -9,9 +9,9 @@ from pathlib import Path
 from PyInstaller.utils.hooks import copy_metadata
 
 ROOT = Path(SPECPATH).resolve().parents[1]
-LOCALES = ROOT / "src" / "mcp_hub" / "dashboard" / "locales"
-# i18n.LOCALES_DIR resolves to mcp_hub/dashboard/locales inside the bundle, as it does in the checkout.
-LOCALE_DEST = "mcp_hub/dashboard/locales"
+LOCALES = ROOT / "src" / "mcp_hub" / "desktop" / "locales"
+# i18n.LOCALES_DIR resolves to mcp_hub/desktop/locales inside the bundle, as it does in the checkout.
+LOCALE_DEST = "mcp_hub/desktop/locales"
 
 analysis = Analysis(
     [str(Path(SPECPATH) / "entry.py")],

@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import urllib.request
-import webbrowser
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -15,7 +14,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
 
 from .connection import ConnectionMissing, load_connection
 
@@ -211,21 +209,3 @@ def fetch_snapshot(*, opener: Opener = OPENER.open, connection_file: Path | None
     except (URLError, OSError, ValueError):
         return HubSnapshot(hub="stopped")
     return snapshot_from_status(status)
-
-
-def open_dashboard(
-    *,
-    opener: Opener = OPENER.open,
-    browser: Callable[[str], Any] = webbrowser.open,
-    connection_file: Path | None = None,
-) -> None:
-    """Pair a browser session with the bearer token, then open the dashboard (as `hubctl open` does)."""
-    try:
-        connection = load_connection(connection_file)
-        pairing = request_json(opener, f"{connection.url}/dashboard/pair", connection.token, method="POST")
-    except (OSError, ValueError) as exc:
-        raise DesktopError(f"Dashboard pairing failed ({type(exc).__name__})") from exc
-    token = pairing.get("pairing_token")
-    if not isinstance(token, str) or not token:
-        raise DesktopError("Dashboard pairing failed (no pairing token)")
-    browser(f"{connection.url}/dashboard/?pair={quote(token, safe='')}")

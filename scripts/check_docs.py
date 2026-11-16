@@ -154,13 +154,12 @@ def served_routes() -> set[str]:
     from mcp_hub.bitnet.processing import ProcessingFeed
     from mcp_hub.bitnet.setup import BitnetSetup
     from mcp_hub.dashboard.api import create_dashboard_routes
-    from mcp_hub.dashboard.sessions import DashboardSessions
     from mcp_hub.settings import BitnetSettings
 
     runtime = SimpleNamespace(audit=None)
     # The install route is always served; processing is present only with the BitNet extension.
     bitnet = BitnetSetup(Path("."), BitnetSettings(), None, processing_feed=ProcessingFeed())
-    routes = [*create_dashboard_routes(runtime, SimpleNamespace(), DashboardSessions()),
+    routes = [*create_dashboard_routes(runtime),
               *ActivityRoutes(runtime, None, None).routes(), *bitnet.routes()]
     return {"/health", "/mcp", *(re.sub(r"\{(\w+):\w+\}", r"{\1}", route.path) for route in routes)}
 

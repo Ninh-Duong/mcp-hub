@@ -15,6 +15,7 @@ The values an operator may want to change live in one optional `settings` object
 
 - **Every group and key is optional.** A missing one keeps its default.
 - **Unknown groups or keys are refused.** So is a value of the wrong type or out of range. The Hub does not start; `config.load.failed` in `logs/mcp-hub.jsonl` names the key, so a typo never silently keeps a default.
+- A legacy top-level `dashboard` settings object is ignored; the browser website and its pairing sessions have been removed.
 - Keys are camelCase, like the rest of the Hub config.
 - **Whole numbers:** a key whose default is a whole number takes only whole numbers.
 - **Other numbers:** every other numeric key takes any finite number.
@@ -40,8 +41,6 @@ The values an operator may want to change live in one optional `settings` object
 | `logs` | `backups` | `3` | Rotated audit logs kept (`.1` to `.3`); `0` or more. |
 | `cache` | `maxEntries` | `256` | Read-only results the Hub keeps in memory for their `cacheSeconds`. |
 | `cache` | `maxBytes` | `4194304` (4 MiB) | Total size of those cached results. |
-| `dashboard` | `pairingSeconds` | `120` | How long a pairing link from `hubctl open` or the desktop app stays valid (it works once). |
-| `dashboard` | `sessionHours` | `12` | How long a paired browser session lasts. |
 | `jobs` | `maxActive` | `2` | Investigations that run at the same time. |
 | `jobs` | `maxQueued` | `20` | Investigations that may wait for a slot; more are refused with a clear error. |
 | `jobs` | `maxJobSeconds` | `900` | The time window of one investigation; the notes name it (for example "15-minute"). |
@@ -83,7 +82,7 @@ The values an operator may want to change live in one optional `settings` object
 Values that are part of a contract, not a preference, stay as named constants next to the code that uses them. They are documented there.
 
 - Protocol and security limits: the 64-character token, the 128-character denied-name cap, redaction margins, and the result size of `hub__batch`.
-- The dashboard's page sizes.
+- The local API's page sizes.
 - The activity UI's internal queue sizes.
 
 The desktop app has its own preferences (`%APPDATA%\mcp-hub-status\desktop.json`, see [desktop-app.md](desktop-app.md)). It never reads the Hub config.

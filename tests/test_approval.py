@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-import json
 from datetime import datetime, timedelta, UTC
 from pathlib import Path
 
@@ -54,48 +53,11 @@ class ApprovalStoreTest(unittest.TestCase):
             "logs__export_openobserve_logs", {"env": "prod", "org": "safe-test"},
         ))
 
-    def test_expired_code_is_not_accepted_but_dashboard_can_approve(self) -> None:
+    def test_expired_code_is_not_accepted(self) -> None:
         code = self.store.create_pending_call(self.job_id, "jira__sync_ticket", {"issue_key": "EX-1"})
         self.now += timedelta(minutes=11)
         self.assertFalse(self.store.approve_pending_call(self.job_id, code))
-        self.assertTrue(self.store.approve_pending_call(self.job_id, dashboard=True))
-
-    def test_dashboard_preview_shows_full_arguments_and_masks_only_secrets(self) -> None:
-        arguments = {
-            "issue_key": "EX-1", "email": "user@example.com", "summary": "Fix checkout",
-            "api_token": "plain-secret-value", "nested": {"password": "hunter-two", "note": "Bearer abc.def.ghi"},
-        }
-        self.store.create_pending_call(self.job_id, "jira__update_ticket", arguments, agent="jira")
-        preview = self._runner().pending_approval_preview(self.job_id)
-
-        shown = json.loads(preview["arguments_preview"])
-        self.assertEqual(shown["issue_key"], "EX-1")
-        self.assertEqual(shown["email"], "user@example.com")
-        self.assertEqual(shown["summary"], "Fix checkout")
-        self.assertEqual(shown["api_token"], "[REDACTED]")
-        self.assertEqual(shown["nested"]["password"], "[REDACTED]")
-        self.assertNotIn("abc.def.ghi", preview["arguments_preview"])
-        self.assertIn("\n  ", preview["arguments_preview"])  # pretty-printed
-        self.assertFalse(preview["truncated"])
-        self.assertEqual(preview["agent"], "jira")
-
-    def test_preview_is_not_cut_at_2000_characters_and_marks_a_cut_past_its_cap(self) -> None:
-        from mcp_hub.jobs.runner import MAX_PREVIEW_CHARS
-
-        self.store.create_pending_call(self.job_id, "jira__update_ticket", {"description": "x" * 10_000})
-        medium = self._runner().pending_approval_preview(self.job_id)
-        self.assertIn("x" * 10_000, medium["arguments_preview"])
-        self.assertFalse(medium["truncated"])
-
-        self.store.transition_job(self.job_id, "cancelled", event="job.cancelled")
-        job_id = self.store.create_job(project="orders", question="big write")
-        self.store.transition_job(job_id, "running", event="job.started")
-        self.store.create_pending_call(job_id, "jira__update_ticket", {"description": "y" * (MAX_PREVIEW_CHARS + 10)})
-        large = self._runner().pending_approval_preview(job_id)
-        self.assertTrue(large["truncated"])
-        self.assertGreater(large["total_chars"], MAX_PREVIEW_CHARS)
-        self.assertIn("[truncated: first", large["arguments_preview"])
-        self.assertLess(len(large["arguments_preview"]), MAX_PREVIEW_CHARS + 200)
+        self.assertEqual(self.store.get_job(self.job_id)["state"], "awaiting_approval")
 
     def test_restart_expires_approval_waits_older_than_the_job_window(self) -> None:
         self.store.create_pending_call(self.job_id, "jira__sync_ticket", {"issue_key": "EX-1", "force": True})

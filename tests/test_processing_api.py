@@ -13,7 +13,6 @@ from mcp.server import Server
 from mcp_hub.bitnet import install
 from mcp_hub.bitnet.processing import ProcessingFeed
 from mcp_hub.bitnet.setup import BitnetSetup
-from mcp_hub.dashboard.sessions import DashboardSessions
 from mcp_hub.extensions import ProcessingEvent
 from mcp_hub.http import create_http_app
 from mcp_hub.settings import Settings
@@ -70,12 +69,8 @@ class ProcessingApiTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.feed.subscriber_count, 0)
 
     async def request(self, routes, headers):
-        sessions = DashboardSessions()
-        session = sessions.consume_pairing_token(sessions.issue_pairing_token())
-        if headers == "session":
-            headers = [(b"cookie", f"hub_session={session}".encode())]
         app = create_http_app(Server("test"), "client-token", custom_routes=routes,
-                              sessions=sessions, admin_token="admin-token")
+                              admin_token="admin-token")
         scope = {"type": "http", "asgi": {"version": "3.0", "spec_version": "2.3"},
                  "http_version": "1.1", "method": "GET", "scheme": "http", "path": STREAM,
                  "raw_path": STREAM.encode(), "query_string": b"", "root_path": "",
@@ -95,9 +90,9 @@ class ProcessingApiTest(unittest.IsolatedAsyncioTestCase):
         await asyncio.wait_for(app(scope, receive, send), 2)
         return sent
 
-    async def test_existing_auth_allows_admin_or_paired_session_only(self) -> None:
+    async def test_local_api_requires_admin_token(self) -> None:
         for credentials, expected in (([], 401), ([(b"authorization", b"Bearer client-token")], 403),
-                                       ([(b"authorization", b"Bearer admin-token")], 200), ("session", 200)):
+                                       ([(b"authorization", b"Bearer admin-token")], 200)):
             with self.subTest(credentials=credentials):
                 sent = await self.request(list(self.setup.routes()), credentials)
                 self.assertEqual(sent[0]["status"], expected)

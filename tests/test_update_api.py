@@ -13,10 +13,9 @@ from mcp.server import Server
 from starlette.testclient import TestClient
 
 from mcp_hub.dashboard.api import create_dashboard_routes
-from mcp_hub.dashboard.sessions import DashboardSessions
 from mcp_hub.dashboard.update_api import UpdateHandlers
 from mcp_hub.http import create_http_app
-from tests.test_dashboard_api import FakeJobRunner, FakeRuntime
+from tests.test_dashboard_api import FakeRuntime
 
 TOKEN = "test-update-admin-token-value-000000000"
 HEADERS = {"Host": "127.0.0.1:8765", "Authorization": f"Bearer {TOKEN}"}
@@ -26,10 +25,10 @@ class UpdateApiTest(unittest.TestCase):
     def setUp(self) -> None:
         self.launched: list[list[str]] = []
         handlers = UpdateHandlers(self.launched.append)
-        routes = create_dashboard_routes(FakeRuntime(), FakeJobRunner(), DashboardSessions(), updates=handlers)
+        routes = create_dashboard_routes(FakeRuntime(), updates=handlers)
         self.client = TestClient(create_http_app(
             Server("update-test"), "test-client-bearer-token-value-0000", custom_routes=routes,
-            sessions=DashboardSessions(), admin_token=TOKEN,
+            admin_token=TOKEN,
         )).__enter__()
         self.addCleanup(self.client.__exit__, None, None, None)
 

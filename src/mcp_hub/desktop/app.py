@@ -32,7 +32,7 @@ from .hub_page import ChildrenPage, HubPage
 from .i18n import LANGUAGES, Translator, system_language
 from .mini import MiniBar
 from .settings import AppearancePage, SettingsPanel
-from .update_card import CHECKING, DOWNLOADING, FAILED, INSTALLING, READY, UPDATING, UpdateCard, takes_primary
+from .update_card import CHECKING, DOWNLOADING, FAILED, INSTALLING, READY, UPDATING, UpdateCard
 from .widgets import Card, ProcessingLog, Row, Spinner, UsageRow, button, dot_icon, icon_button, label, set_props, show_elided
 
 # Never equal to a section key, so every section draws once after a theme switch or at start.
@@ -90,7 +90,6 @@ class StatusWindow(QWidget):
         appearance: theme.Appearance | None = None,
         prefs_path: Path | None = None,
         fetch: Callable[[], status.HubSnapshot] = status.fetch_snapshot,
-        open_dashboard: Callable[[], None] = status.open_dashboard,
         launch: Callable[[list[str]], None] = control_hub,
         clock: Callable[[], float] = time.monotonic,
         style: Callable[[int, bool, int], bool] = win32.style_window,
@@ -105,7 +104,7 @@ class StatusWindow(QWidget):
     ) -> None:
         super().__init__()
         self.t = translator
-        self.fetch, self.open_dashboard_action, self.launch, self.clock = fetch, open_dashboard, launch, clock
+        self.fetch, self.launch, self.clock = fetch, launch, clock
         self.style_native, self.prefs_path = style, prefs_path
         # Hub settings (through the Hub's API) and sign-in entries: read and written on worker threads.
         self.hub_store, self.read_autostart, self.write_autostart = hub_store, read_autostart, write_autostart
@@ -266,20 +265,13 @@ class StatusWindow(QWidget):
         card = self._card(outer)
         buttons = QHBoxLayout()
         buttons.setSpacing(theme.SPACE_S)
-        # Only one of the two is shown at a time (see _render_actions). Open dashboard has a plain twin for
-        # the moments when an available update takes the one primary action.
-        self.open_button = button(self.open_dashboard, primary=True)
-        self.open_plain_button = button(self.open_dashboard)
         self.start_button = button(self.start_hub, primary=True)
-        for widget in (self.open_button, self.open_plain_button, self.start_button):
-            buttons.addWidget(widget, 1)
+        buttons.addWidget(self.start_button, 1)
         card.content.addLayout(buttons)
         card.content.addSpacing(theme.SPACE_XS)
         self.footer = label(role="caption", wrap=True)
         card.content.addWidget(self.footer)
-        self._texts += [(self.open_button, "desktop.button.openDashboard"),
-                        (self.open_plain_button, "desktop.button.openDashboard"),
-                        (self.start_button, "desktop.button.startHub")]
+        self._texts.append((self.start_button, "desktop.button.startHub"))
 
     # Appearance
 
@@ -387,7 +379,7 @@ class StatusWindow(QWidget):
             ("client_usage", (language, self._client_usage_key(activity_ui)), self._render_client_usage),
             ("update", (language, self.update_release, self.update_state, self.update_status, hub == "running"),
              self._render_update),
-            ("actions", (hub, self._update_takes_primary(hub)), self._render_actions),
+            ("actions", hub, self._render_actions),
             ("mini", (language, self._mini_state(activity_ui)), self._render_mini),
             ("settings", (language, hub, self.hub_settings, self._autostart_key(), self.restart_needed,
                           snapshot.bitnet_state if snapshot else None, snapshot.bitnet if snapshot else None,
@@ -582,19 +574,8 @@ class StatusWindow(QWidget):
         self.update_card.sync(self.t, release.label if release else None, self.updater.current if self.updater else "",
                               self.update_state, self.update_status, hub == "running")
 
-    def _update_takes_primary(self, hub: str | None) -> bool:
-        release = self.update_release
-        return takes_primary(release.label if release else None, self.update_state, self.update_status, hub == "running")
-
     def _render_actions(self, hub: str | None) -> None:
-        # Start Hub while the Hub is not running (it is only enabled when stopped); Open dashboard while it runs,
-        # plain while an update takes the one primary action. Exactly one of the two is shown.
         running = hub == "running"
-        primary_open = running and not self._update_takes_primary(hub)
-        self.open_button.setVisible(primary_open)
-        self.open_plain_button.setVisible(running and not primary_open)
-        for open_widget in (self.open_button, self.open_plain_button):
-            open_widget.setEnabled(running)
         self.start_button.setVisible(not running)
         self.start_button.setEnabled(hub == "stopped")
 
@@ -898,15 +879,6 @@ class StatusWindow(QWidget):
         """Screenshot mode: show fixed sample usage instead of a live stream."""
         self.usage_board = board
         self.render()
-
-    def open_dashboard(self) -> None:
-        threading.Thread(target=self.open_dashboard_once, name="mcp-hub-status-open", daemon=True).start()
-
-    def open_dashboard_once(self) -> None:
-        try:
-            self.open_dashboard_action()
-        except status.DesktopError:
-            self.results.put(("message", "desktop.error.dashboard"))
 
     def start_hub(self) -> None:
         self._control(["start"], starting=True)

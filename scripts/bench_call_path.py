@@ -114,7 +114,7 @@ async def run_mode(root: Path, ui_on: bool, calls: int) -> list[float]:
                 ui = install(runtime, store=store, audit=audit)
                 ui.attach_server(server)
                 ui.start()
-                # An open dashboard tab: one live-stream subscriber.
+                # One desktop activity-stream subscriber.
                 stack.callback(asyncio.create_task(_drain(ui.tracker.subscribe())).cancel)
             port = free_port()
             app = create_http_app(server, TOKEN, port=port, middleware=ui.middleware() if ui else ())

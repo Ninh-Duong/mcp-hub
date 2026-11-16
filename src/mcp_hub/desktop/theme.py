@@ -1,6 +1,6 @@
 """Design tokens of the desktop status app. See docs/desktop-app.md → Design keywords.
 
-LIGHT mirrors the `:root` tokens of `dashboard/style.css`; tests/test_desktop.py fails if they drift.
+LIGHT defines the desktop app's light palette; tests/test_desktop.py checks its contrast rules.
 DARK uses the same token names, so the stylesheet reads colors from one palette dict.
 Sizes are Qt device-independent pixels and points; Qt scales them with the screen.
 Buttons, sliders, switches, and icons are qfluentwidgets widgets; apply_fluent sets their theme and accent.

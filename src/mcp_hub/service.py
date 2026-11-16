@@ -15,7 +15,6 @@ from .extensions import ACTIVITY_UI, BITNET, KNOWN_EXTENSIONS, read_launch_exten
 from .http import create_http_app
 from .agents.config import load_agent_configs
 from .dashboard.api import create_dashboard_routes
-from .dashboard.sessions import DashboardSessions
 from .playbooks import Playbook, load_playbooks
 from .projects import load_projects
 from .jobs.runner import JobRunner
@@ -174,7 +173,6 @@ def _build_http_app(
     shutdown_event: asyncio.Event, extensions: dict[str, Any] | Any = None,
 ):
     ext_map = extensions if isinstance(extensions, dict) else ({ACTIVITY_UI: extensions} if extensions is not None else {})
-    sessions = DashboardSessions(settings=getattr(runtime, "settings", Settings()).dashboard)
     server = create_mcp_server(runtime, job_runner)
     ui = ext_map.get(ACTIVITY_UI)
     if ui is not None:
@@ -183,13 +181,13 @@ def _build_http_app(
         ext.dashboard_extension() for ext in ext_map.values() if hasattr(ext, "dashboard_extension")
     )
     routes = create_dashboard_routes(
-        runtime, job_runner, sessions, shutdown_callback=shutdown_event.set,
+        runtime, shutdown_callback=shutdown_event.set,
         extensions=dashboard_exts,
     )
     token, admin_token = tokens
     middleware = ui.middleware() if ui is not None else ()
     return create_http_app(
-        server, token, host=host, port=port, custom_routes=routes, sessions=sessions,
+        server, token, host=host, port=port, custom_routes=routes,
         middleware=middleware, admin_token=admin_token,
     )
 

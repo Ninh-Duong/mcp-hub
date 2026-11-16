@@ -36,18 +36,11 @@ from .store import JobStore, TERMINAL_STATES
 # Job limits (active and queued jobs, the job time window, child calls per job, the approval-code lifetime, the
 # coordinator's time, the specialists' rounds and result size, the prompt cache) come from settings.jobs, passed
 # to JobRunner as `limits`.
-# The approval preview shows the full arguments up to this many characters, then marks the cut.
-MAX_PREVIEW_CHARS = 64 * 1024
 EVENT_PAGE_LIMIT = 100
 # A restored approval wait is settled this long after its window ends, so the store clock has passed it.
 _EXPIRY_MARGIN_SECONDS = 0.25
 _TIME_LIMIT_NOTE = "Investigation reached the {limit} time limit; findings are partial."
 _TIMED_OUT_LIMITATION = "Specialist stopped at the {limit} job time limit."
-# Argument names whose values the approval preview masks; every other argument is shown unchanged.
-_SECRET_ARGUMENT_RE = re.compile(
-    r"(?i)(?:token|secret|password|passwd|pwd|passphrase|authorization|bearer|api[_-]?key|access[_-]?key"
-    r"|private[_-]?key|credential|cookie|session[_-]?id)"
-)
 _SQL_RE = re.compile(r"\b(sql|database|db|table|query|stored procedure|bang|du lieu|co so du lieu)\b")
 _UNKNOWN_TOOL = object()
 
@@ -107,7 +100,7 @@ _JOB_TOOLS: tuple[tuple[str, str, dict[str, Any], tuple[str, ...], bool], ...] =
      ("job_id", "source_id"), True),
     ("hub__provide_job_input", "Supply a validated environment to an investigation waiting for input.",
      {**_JOB_ID, "env": _ENV}, ("job_id", "env"), False),
-    ("hub__approve_job", "Approve the exact pending write in a job using a one-time code shown in the dashboard.",
+    ("hub__approve_job", "Approve the exact pending write in a job using its one-time code.",
      {**_JOB_ID, "code": {"type": "string"}}, ("job_id", "code"), False),
     ("hub__cancel_job", "Cancel a queued, waiting, or running investigation.",
      _JOB_ID, ("job_id",), False),
@@ -340,35 +333,6 @@ class JobRunner:
         job["agents"] = self.agent_status()
         return job
 
-    def pending_approval_preview(self, job_id: str) -> dict[str, Any] | None:
-        """The full pending arguments as pretty JSON with only secret-like values masked. Blocking (decrypts)."""
-        pending = self.store.get_pending_call(job_id, include_arguments=True)
-        if not pending:
-            return None
-        text = json.dumps(
-            _mask_secret_arguments(pending["arguments"], self._redact_preview_text),
-            ensure_ascii=False, indent=2, default=str,
-        )
-        total = len(text)
-        truncated = total > MAX_PREVIEW_CHARS
-        if truncated:
-            text = f"{text[:MAX_PREVIEW_CHARS]}\n... [truncated: first {MAX_PREVIEW_CHARS} of {total} characters shown]"
-        return {
-            "tool_name": pending["tool_name"],
-            "agent": pending["agent"],
-            "expires_at": pending["expires_at"],
-            "arguments_preview": text,
-            "truncated": truncated,
-            "total_chars": total,
-        }
-
-    def _redact_preview_text(self, value: str) -> str:
-        """Mask credential shapes (bearer, key=value, known token formats) and the configured secrets."""
-        limit = len(value) * 32 + 64  # replacements can be longer than what they hide; never cut here
-        text = redact(value, limit=limit)
-        audit = getattr(self.runtime, "audit", None)
-        return audit.redact_content(text, limit=limit) if audit is not None else text
-
     def list_jobs(self, *, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         return self.store.list_jobs(limit=limit, offset=offset)
 
@@ -415,12 +379,9 @@ class JobRunner:
         approved = await self._approve_pending_call(job_id, code=code)
         return {"job_id": job_id, "approved": approved}
 
-    async def approve_from_dashboard(self, job_id: str) -> bool:
-        return await self._approve_pending_call(job_id, dashboard=True)
-
-    async def _approve_pending_call(self, job_id: str, *, code: str | None = None, dashboard: bool = False) -> bool:
+    async def _approve_pending_call(self, job_id: str, *, code: str) -> bool:
         live = job_id in self._approval_events
-        pending = await _db(self._approve_in_store, job_id, code, dashboard, live)
+        pending = await _db(self._approve_in_store, job_id, code, live)
         if pending is None:
             return False
         event = self._approval_events.get(job_id)
@@ -434,7 +395,7 @@ class JobRunner:
             )
         return True
 
-    def _approve_in_store(self, job_id: str, code: str | None, dashboard: bool, live: bool) -> dict[str, Any] | None:
+    def _approve_in_store(self, job_id: str, code: str, live: bool) -> dict[str, Any] | None:
         """Approve the pending call; return it, or None when it is missing, expired, or the code is wrong.
 
         A live wait is bounded by its running job; a wait restored after a restart expires
@@ -445,7 +406,7 @@ class JobRunner:
             return None
         if not live and self.store.expire_awaiting_approval(self._job_window, job_id=job_id):
             return None
-        if not self.store.approve_pending_call(job_id, code, dashboard=dashboard):
+        if not self.store.approve_pending_call(job_id, code):
             return None
         return pending
 
@@ -501,12 +462,6 @@ class JobRunner:
         except (KeyError, ValueError):
             pass
 
-    def get_approval_code(self, job_id: str) -> str | None:
-        pending = self.store.get_pending_call(job_id)
-        if not pending or datetime.fromisoformat(pending["expires_at"]) <= self.store.clock():
-            return None
-        return self._approval_codes.get(job_id)
-
     async def cancel_job(self, job_id: str) -> dict[str, Any]:
         state = (await _db(self.store.get_job, job_id))["state"]
         if state in TERMINAL_STATES:
@@ -529,10 +484,9 @@ class JobRunner:
         return len(queued)
 
     def watch_pending_approvals(self) -> int:
-        """At service start: settle approvals whose job window has passed and time out the younger ones.
+        """At service start, settle expired approvals and time out the younger ones.
 
-        The younger ones stay approvable from the dashboard until their window ends; their MCP
-        one-time codes were held in memory and do not survive the restart. Returns how many still wait.
+        MCP one-time codes were held in memory and do not survive the restart. Returns how many still wait.
         """
         self.store.expire_awaiting_approval(self._job_window)
         waiting = self.store.list_job_ids_by_state("awaiting_approval")
@@ -879,7 +833,7 @@ class JobRunner:
         return result
 
     async def _await_approval(self, job_id: str, role: str, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        """Hold a write until the dashboard (or its code) approves exactly this call; return the approved arguments.
+        """Hold a write until its one-time code approves exactly this call; return the approved arguments.
 
         A job has one pending write at a time, and it gives up its active slot while it waits.
         """
@@ -987,17 +941,3 @@ def _fallback_summary(findings: list[SpecialistResult], *additional: str) -> str
             sections.append(f"{finding.role} limitation: {finding.limitation}")
     sections.extend(additional)
     return redact("\n".join(sections) or "No specialist evidence was collected.")
-
-
-def _mask_secret_arguments(value: Any, redact_text: Callable[[str], str]) -> Any:
-    """Mask values under secret-like keys and credentials inside strings; keep everything else readable."""
-    if isinstance(value, dict):
-        return {
-            str(key): "[REDACTED]" if _SECRET_ARGUMENT_RE.search(str(key)) else _mask_secret_arguments(child, redact_text)
-            for key, child in value.items()
-        }
-    if isinstance(value, list):
-        return [_mask_secret_arguments(item, redact_text) for item in value]
-    if isinstance(value, str):
-        return redact_text(value)
-    return value

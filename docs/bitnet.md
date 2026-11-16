@@ -35,13 +35,13 @@ Without the extension, `service.py` installs only this install state and route (
 
 The extension is disabled by default. The install switches it on; afterwards it can be turned off or on in:
 - The desktop status app under **⚙ Settings → Hub → BitNet (local AI)** (shown once BitNet is installed).
-- Or via the dashboard settings API (`POST /dashboard/api/settings/bitnet`).
+- Or via the desktop app's settings API (`POST /dashboard/api/settings/bitnet`).
 
 When enabled, the Hub starts the background supervisor (`Sidecar`), which ensures `llama-server.exe` is running on `127.0.0.1:8766`.
 
 ## Processing stream
 
-With BitNet enabled, `GET /dashboard/api/bitnet/processing/stream` provides a transient SSE timeline independently of Track AI clients. Existing dashboard authentication allows the admin token or a paired browser session; the MCP client token is denied. The route is absent when BitNet is off, including on older Hubs without this feature.
+With BitNet enabled, `GET /dashboard/api/bitnet/processing/stream` provides a transient SSE timeline independently of Track AI clients. The route requires the admin token used by the desktop app; the MCP client token is denied. The route is absent when BitNet is off, including on older Hubs without this feature.
 
 The first SSE message is `snapshot`, with `{stream_id, sequence, events}`. `events` contains at most the latest three events, oldest first. Live messages use SSE name `event` and contain one event. SSE IDs are `<stream_id>:<sequence>`. Sequences increase within one Hub process; a restart creates a new stream ID. Each subscriber has a one-item queue: overflow discards stale deltas and sends a fresh `snapshot`. Idle streams send a content-free SSE comment heartbeat every 15 seconds without advancing the sequence or history. Disconnecting removes the subscriber.
 
@@ -119,6 +119,6 @@ BitNet is designed with zero-downtime graceful fallbacks:
 ## Uninstalling
 
 To uninstall BitNet:
-1. Turn off the extension in the desktop app or dashboard settings.
+1. Turn off the extension in the desktop app's settings.
 2. Stop the Hub (`scripts/hubctl.ps1 stop`).
 3. Delete the `vendor/bitnet/` folder.

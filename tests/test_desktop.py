@@ -15,7 +15,6 @@ from mcp_hub.desktop import i18n, prefs, status, theme, win32
 from mcp_hub.desktop.status import HubSnapshot
 
 DESKTOP = Path(__file__).resolve().parents[1] / "src" / "mcp_hub" / "desktop"
-STYLE_CSS = DESKTOP.parent / "dashboard" / "style.css"
 TOKEN = "t" * 48
 STATUS = {
     "ok": True,
@@ -149,44 +148,14 @@ class StatusSnapshotTest(unittest.TestCase):
         self.assertEqual(set(theme.TONE_TOKENS), set(status.TONES))
 
 
-class OpenDashboardTest(unittest.TestCase):
-    def setUp(self) -> None:
-        self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
-        write_connection(self.root)
-        self.opened: list[str] = []
-
-    def tearDown(self) -> None:
-        self.tmp.cleanup()
-
-    def open(self, answer: object) -> FakeOpener:
-        opener = FakeOpener({"/dashboard/pair": answer})
-        status.open_dashboard(opener=opener, browser=self.opened.append, connection_file=self.root / "connection.json")
-        return opener
-
-    def test_pairs_with_the_bearer_and_opens_an_escaped_link(self) -> None:
-        opener = self.open({"pairing_token": "a+b/c"})
-        self.assertEqual(opener.requests[0][:3], ("POST", "/dashboard/pair", f"Bearer {TOKEN}"))
-        self.assertEqual(self.opened, ["http://127.0.0.1:8765/dashboard/?pair=a%2Bb%2Fc"])
-
-    def test_failed_pairing_raises_without_opening_the_browser(self) -> None:
-        for answer in (URLError("down"), {"pairing_token": ""}, ["not", "a", "dict"]):
-            with self.subTest(answer=answer), self.assertRaises(status.DesktopError) as caught:
-                self.open(answer)
-            self.assertNotIn(TOKEN, str(caught.exception))
-        self.assertEqual(self.opened, [])
-
-    def test_missing_connection_file_raises(self) -> None:
-        with tempfile.TemporaryDirectory() as empty, self.assertRaises(status.DesktopError):
-            status.open_dashboard(opener=FakeOpener({}), browser=self.opened.append, connection_file=Path(empty) / "connection.json")
-
-
 class ThemeAndI18nTest(unittest.TestCase):
-    def test_light_palette_matches_the_dashboard_root_tokens(self) -> None:
-        css = STYLE_CSS.read_text(encoding="utf-8")
-        root_block = css[css.index(":root"):css.index("}", css.index(":root"))]
-        tokens = dict(re.findall(r"--([a-z-]+):\s*(#[0-9a-fA-F]{3,8})\s*;", root_block))
-        self.assertEqual(theme.LIGHT, {name: tokens[name] for name in theme.LIGHT})
+    def test_desktop_locales_do_not_depend_on_website_assets(self) -> None:
+        self.assertEqual(i18n.LOCALES_DIR, DESKTOP / "locales")
+        allowed = {"connection", "clients", "desktop"}
+        for language in i18n.LANGUAGES:
+            strings = i18n.load_strings(language)
+            self.assertTrue(strings)
+            self.assertLessEqual({key.split(".", 1)[0] for key in strings}, allowed)
 
     def test_palettes_share_tokens_and_tones(self) -> None:
         self.assertEqual(set(theme.LIGHT), set(theme.DARK))

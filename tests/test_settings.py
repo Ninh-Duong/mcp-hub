@@ -22,6 +22,12 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(Settings().batch.max_per_child, 8)
         self.assertEqual(Settings().batch.pack_chars, 9500)
 
+    def test_browser_pairing_settings_are_removed(self) -> None:
+        self.assertFalse(hasattr(Settings(), "dashboard"))
+        self.assertEqual(parse_settings({"dashboard": {"pairingSeconds": 120}}), Settings())
+        with self.assertRaisesRegex(ConfigError, r"settings\.dashboard must be an object"):
+            parse_settings({"dashboard": 12})
+
     def test_camel_case_keys_override_only_what_they_name(self) -> None:
         settings = parse_settings({
             "http": {"port": 9000, "shutdownDrainSeconds": 5},

@@ -196,35 +196,29 @@ class SharedHTTPAuthenticationTest(unittest.TestCase):
 
 
 class TokenSeparationTest(unittest.TestCase):
-    """B1/B3: an AI client's token reaches only the MCP endpoint; it can neither pair a browser, change
-    settings, control the Hub, nor approve a write. The admin token can do all but approve."""
+    """An AI client reaches MCP; the admin token reaches the desktop API."""
 
     CLIENT, ADMIN = "client-token-value-0123456789abcdef", "admin-token-value-0123456789abcdef"
     ROUTES = (
-        ("POST", "/dashboard/pair"),
         ("GET", "/dashboard/api/status"),
         ("GET", "/dashboard/api/settings"),
         ("GET", "/dashboard/api/settings/autostart"),
         ("POST", "/dashboard/api/control/stop"),
         ("POST", "/dashboard/api/service/shutdown"),
     )
-    APPROVALS = (("POST", "/dashboard/api/jobs/a/approve"), ("GET", "/dashboard/api/jobs/a/approval-code"))
-
     def setUp(self) -> None:
         from starlette.responses import JSONResponse
         from starlette.routing import Route
 
-        from mcp_hub.dashboard.sessions import DashboardSessions
         from mcp_hub.http import create_http_app
 
         async def ok(_request) -> JSONResponse:
             return JSONResponse({"ok": True})
 
-        paths = {path for _method, path in (*self.ROUTES, *self.APPROVALS)}
+        paths = {path for _method, path in self.ROUTES}
         routes = [Route(path, ok, methods=["GET", "POST"]) for path in paths]
-        self.sessions = DashboardSessions()
         self.app = create_http_app(
-            Server("tokens"), self.CLIENT, custom_routes=routes, sessions=self.sessions, admin_token=self.ADMIN,
+            Server("tokens"), self.CLIENT, custom_routes=routes, admin_token=self.ADMIN,
         )
 
     def call(self, client: TestClient, method: str, path: str, token: str | None = None):
@@ -233,7 +227,7 @@ class TokenSeparationTest(unittest.TestCase):
 
     def test_the_client_token_reaches_only_the_mcp_endpoint(self) -> None:
         with TestClient(self.app) as client:
-            for method, path in (*self.ROUTES, *self.APPROVALS):
+            for method, path in self.ROUTES:
                 with self.subTest(path=path):
                     self.assertEqual(self.call(client, method, path, self.CLIENT).status_code, 403)
             mcp = client.post("/mcp", headers={"Host": "127.0.0.1:8765", "Authorization": f"Bearer {self.CLIENT}",
@@ -242,23 +236,15 @@ class TokenSeparationTest(unittest.TestCase):
             admin_on_mcp = self.call(client, "POST", "/mcp", self.ADMIN)
             self.assertEqual(admin_on_mcp.status_code, 401)
 
-    def test_the_admin_token_reaches_the_dashboard_api_but_never_an_approval(self) -> None:
+    def test_the_admin_token_reaches_the_desktop_api(self) -> None:
         with TestClient(self.app) as client:
             for method, path in self.ROUTES:
                 with self.subTest(path=path):
                     self.assertEqual(self.call(client, method, path, self.ADMIN).status_code, 200)
-            for method, path in self.APPROVALS:
-                with self.subTest(path=path):
-                    self.assertEqual(self.call(client, method, path, self.ADMIN).status_code, 403)
 
-    def test_a_paired_session_approves_but_never_reaches_the_settings(self) -> None:
-        session = self.sessions.consume_pairing_token(self.sessions.issue_pairing_token())
+    def test_browser_website_and_pairing_routes_are_gone(self) -> None:
         with TestClient(self.app) as client:
-            client.cookies.set("hub_session", session)
-            for method, path in (*self.APPROVALS, ("GET", "/dashboard/api/status")):
-                with self.subTest(path=path):
-                    self.assertEqual(self.call(client, method, path).status_code, 200)
-            # Settings run hubctl and change Hub files: a cookie a page on another local port could ride is not enough.
-            for path in ("/dashboard/api/settings", "/dashboard/api/settings/autostart"):
-                with self.subTest(path=path):
-                    self.assertEqual(self.call(client, "GET", path).status_code, 401)
+            website = self.call(client, "GET", "/dashboard/", self.ADMIN)
+            pairing = self.call(client, "POST", "/dashboard/pair", self.ADMIN)
+        self.assertEqual(website.status_code, 404)
+        self.assertEqual(pairing.status_code, 404)

@@ -215,7 +215,7 @@ def saved_extensions(config_path: Path | None = None) -> frozenset[str]:
 def read_launch_extensions(path: Path = LAUNCH_FILE, audit: Any = None) -> frozenset[str]:
     """Return the extensions requested for this start, then delete the request.
 
-    `hubctl start|restart|open -Ui` writes the file; deleting it makes the next start
+    `hubctl start|restart -Ui` writes the file; deleting it makes the next start
     (including the logon-triggered one) use the saved mode (`saved_extensions`), fast by default.
     A file that cannot be read, decoded, parsed, or deleted never stops the start: it is logged as
     `launch.file.invalid` (when `audit` is given) and adds nothing.

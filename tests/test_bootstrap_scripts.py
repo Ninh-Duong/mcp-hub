@@ -74,7 +74,8 @@ class BootstrapScriptsTest(unittest.TestCase):
     def test_shared_service_control_uses_per_user_task_and_local_health(self) -> None:
         script = (HUB_ROOT / "scripts" / "hubctl.ps1").read_text(encoding="utf-8")
         launcher = (HUB_ROOT / "scripts" / "service_launcher.pyw").read_text(encoding="utf-8")
-        self.assertIn('"install", "status", "start", "stop", "restart", "open"', script)
+        self.assertIn('"install", "status", "start", "stop", "restart", "preflight"', script)
+        self.assertNotIn('"open"', script)
         self.assertIn("New-ScheduledTaskTrigger -AtLogOn", script)
         self.assertIn("-RunLevel Limited", script)
         self.assertIn("pythonw.exe", script)
@@ -103,9 +104,9 @@ class BootstrapScriptsTest(unittest.TestCase):
         self.assertIn(r"'^http://127\.0\.0\.1:\d{4,5}$'", url)
         self.assertIn('return "http://127.0.0.1:8765"', url)
         self.assertNotIn("$url", script)
-        for route in ('/health"', '/dashboard/pair"', '/dashboard/?pair=$pair"', '/dashboard/api/service/shutdown"',
-                      '/dashboard/api/status"'):
+        for route in ('/health"', '/dashboard/api/service/shutdown"', '/dashboard/api/status"'):
             self.assertIn(f'"$(Get-HubUrl){route}', script)
+        self.assertNotIn('"open"', script[script.index("[ValidateSet("):script.index("]", script.index("[ValidateSet("))])
         self.assertIn('"Clients: {0}{1}"', script)
         self.assertNotIn("Stop-ScheduledTask", script)
         # The dashboard API takes the admin token from the connection file, never the client token in service.json.
@@ -113,7 +114,7 @@ class BootstrapScriptsTest(unittest.TestCase):
         self.assertNotIn(r"config\private\service.json", script)
         self.assertIn("Get-Content -LiteralPath $connectionPath -Raw", script)
         self.assertIn("return [string]$connection.token", script)
-        self.assertEqual(script.count('"Bearer $(Get-AdminToken)"'), 4)
+        self.assertEqual(script.count('"Bearer $(Get-AdminToken)"'), 3)
         lookup = script[script.index("function Get-ConnectionPath"):script.index("function Get-AdminToken")]
         for source in ("$env:MCP_HUB_CONNECTION_FILE", "$env:MCP_HUB_PRIVATE_DIR", r'"mcp-hub\connection.json"'):
             self.assertIn(source, lookup)
@@ -287,10 +288,10 @@ class BootstrapScriptsTest(unittest.TestCase):
         for command in (
             '"start" {\n        Start-HubTask -Ui:$Ui',
             'Start-HubTask -Ui:$Ui\n        Write-Output "Restarted',
-            '"open" { Open-HubDashboard -Ui:$Ui }',
             "Start-HubTask -SkipPrepare -Ui:$Ui",
         ):
             self.assertIn(command, script)
+        self.assertNotIn("Open-HubDashboard", script)
 
 
     def test_autostart_switches_only_the_logon_trigger_and_install_keeps_it(self) -> None:
@@ -518,7 +519,7 @@ class DesktopPackagingTest(unittest.TestCase):
     def test_spec_bundles_the_app_and_its_locales_with_relative_paths(self) -> None:
         spec = (HUB_ROOT / "packaging" / "desktop" / "mcp-hub-status.spec").read_text(encoding="utf-8")
         self.assertIn("ROOT = Path(SPECPATH).resolve().parents[1]", spec)
-        self.assertIn('LOCALE_DEST = "mcp_hub/dashboard/locales"', spec)
+        self.assertIn('LOCALE_DEST = "mcp_hub/desktop/locales"', spec)
         self.assertIn('(str(LOCALES / "en.json"), LOCALE_DEST), (str(LOCALES / "vi.json"), LOCALE_DEST)', spec)
         self.assertIn("console=False", spec)
         self.assertNotRegex(spec, r"[A-Za-z]:\\\\")

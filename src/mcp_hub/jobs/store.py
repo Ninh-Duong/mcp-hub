@@ -388,9 +388,7 @@ class JobStore:
     def approve_pending_call(
         self,
         job_id: str,
-        code: str | None = None,
-        *,
-        dashboard: bool = False,
+        code: str,
     ) -> bool:
         now = self._timestamp()
         with self._lock, self._connection:
@@ -399,14 +397,11 @@ class JobStore:
             ).fetchone()
             if row is None or row["approved"]:
                 return False
-            if dashboard:
-                valid = True
-            else:
-                if not isinstance(code, str) or row["expires_at"] <= now:
-                    return False
-                valid = hmac.compare_digest(
-                    hashlib.sha256(code.encode("utf-8")).hexdigest(), row["code_hash"]
-                )
+            if not isinstance(code, str) or row["expires_at"] <= now:
+                return False
+            valid = hmac.compare_digest(
+                hashlib.sha256(code.encode("utf-8")).hexdigest(), row["code_hash"]
+            )
             if not valid:
                 return False
             job = self._connection.execute("SELECT state FROM jobs WHERE job_id=?", (job_id,)).fetchone()

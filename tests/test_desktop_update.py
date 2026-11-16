@@ -103,7 +103,7 @@ class ReleaseCheckScheduleTest(unittest.TestCase):
         with patch.object(app.hub_api.HubClient, "read_saved_update", return_value=None):
             self.window = app.StatusWindow(
                 i18n.Translator("en"), prefs_path=Path(self.tmp.name) / "desktop.json",
-                fetch=lambda: None, open_dashboard=lambda: None, launch=lambda _args: None,
+                fetch=lambda: None, launch=lambda _args: None,
                 style=lambda *_args, **_kwargs: False, hub_store=self.hub_store,
                 read_autostart=lambda: {"hub": True, "app": True},
                 write_autostart=lambda _target, _enabled: {"hub": True, "app": True},

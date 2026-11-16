@@ -142,7 +142,13 @@ class ToolOfferTest(unittest.TestCase):
                 job_id = submitted["job_id"]
                 self.assertTrue(await _state_reached(runner.store, job_id, "awaiting_approval"))
                 self.assertEqual(len(runtime.calls), 1)  # the incremental sync ran without approval
-                self.assertTrue(await runner.approve_from_dashboard(job_id))
+                for _ in range(400):
+                    code = runner._approval_codes.get(job_id)
+                    if code:
+                        break
+                    await asyncio.sleep(0.005)
+                self.assertTrue(code)
+                self.assertTrue((await runner.approve_job(job_id, code))["approved"])
                 await asyncio.wait_for(runner.wait(job_id), 5)
                 return job_id
 
@@ -260,7 +266,7 @@ class SlotAndQueueTest(unittest.TestCase):
                 self.assertTrue(await _state_reached(runner.store, first, "awaiting_approval"))
                 second = await asyncio.wait_for(_run_one(runner, question="Other"), 5)
                 self.assertEqual(runner.store.get_job(first)["state"], "awaiting_approval")
-                self.assertTrue(await runner.approve_from_dashboard(first))
+                self.assertTrue((await runner.approve_job(first, runner._approval_codes[first]))["approved"])
                 await asyncio.wait_for(runner.wait(first), 5)
                 return first, second
 
@@ -343,7 +349,7 @@ class OffloadAndRestartTest(unittest.TestCase):
                 waiting = runner.watch_pending_approvals()
                 self.assertEqual(store.get_job(old)["state"], "partial")
                 self.assertEqual(store.get_job(young)["state"], "awaiting_approval")
-                self.assertIsNone(runner.get_approval_code(young))  # MCP codes do not survive a restart
+                self.assertNotIn(young, runner._approval_codes)  # MCP codes do not survive a restart
                 clock.now = start + timedelta(minutes=26)
                 await asyncio.wait_for(asyncio.gather(*runner._timers), 5)
                 return waiting

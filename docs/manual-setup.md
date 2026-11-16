@@ -6,7 +6,7 @@
 
 Python 3.12 is the project runtime (`.python-version`, `requires-python >=3.12`). The launcher prepares the local prerequisites before starting.
 
-**Support matrix.** The per-client stdio Hub works on Windows, macOS, and Linux. The shared service, the dashboard's service controls, investigation jobs (their data is encrypted with Windows DPAPI), and preflight's winget runtime install are Windows-only; off Windows, `hub__submit_issue` answers `investigation jobs require Windows DPAPI`. Details: [Packaging and QC → Support matrix](packaging-and-qc.md#support-matrix).
+**Support matrix.** The per-client stdio Hub works on Windows, macOS, and Linux. The shared service, investigation jobs (their data is encrypted with Windows DPAPI), and preflight's winget runtime install are Windows-only; off Windows, `hub__submit_issue` answers `investigation jobs require Windows DPAPI`. Details: [Packaging and QC → Support matrix](packaging-and-qc.md#support-matrix).
 
 Run directly, including when an AI client starts the Hub over stdio:
 
@@ -28,8 +28,6 @@ After preparing this repository and the desired child MCPs, follow [the shared A
 .\scripts\hubctl.ps1 install    # first time: register the task, then start
 .\scripts\hubctl.ps1 start      # check and install prerequisites, then start
 .\scripts\hubctl.ps1 status
-.\scripts\hubctl.ps1 open
-.\scripts\hubctl.ps1 open -Ui  # same, with the live activity UI (barn, daily activity, clients)
 .\scripts\hubctl.ps1 app       # open the desktop status app (the installed one, else from source)
 .\scripts\hubctl.ps1 app -Install # install or refresh the app from the latest stable release after checking its SHA-256
 .\scripts\hubctl.ps1 autostart # show or change the Hub's sign-in task: -Target hub -State on|off
@@ -40,7 +38,7 @@ After preparing this repository and the desired child MCPs, follow [the shared A
 - whether each child MCP is connected;
 - with the activity UI, the connected AI clients.
 
-The window has **Start Hub** and **Open dashboard** buttons. Its ⚙ Settings card has three tabs:
+The window has a **Start Hub** button when the Hub is stopped. Its ⚙ Settings card has three tabs:
 - **Appearance:** theme, language, glass on or off and its style (Frosted or Clear), card opacity, and background tint.
 - **Hub:** start, restart, or stop the Hub; **Track AI clients** (the activity UI, kept on for every start); and whether the Hub and the app start at sign-in.
 - **MCPs:** each child MCP on or off.
@@ -51,7 +49,7 @@ Every start first syncs the locked Python environment and runs the pre-start che
 
 Clients with a safe dynamic-header helper can connect over HTTP using `scripts/http_headers.ps1`. Other clients use the stdio bridge by passing `-Bridge -ClientName "<AI_CLIENT>"` to `scripts/start.ps1`. The existing stdio launcher remains available for development and per-client compatibility.
 
-`hubctl open` opens the paired localhost dashboard, in English or Vietnamese (language selector in the top bar). The Hub starts in fast mode by default: tool calls are not tracked beyond the audit log. Turn on **Track AI clients** in the desktop app to keep the activity UI on for every start, or add `-Ui` to `start`, `restart`, or `open` to run with it until the next start (see [Fast mode and the activity UI](operations/shared-agent-hub.md#fast-mode-and-the-activity-ui)). With it, the pixel barn shows live child-tool activity; the daily panel ranks child MCPs and lists tool calls by client for the last 30 days. The report stores only tool/client names, timing, and call state. HTTP clients are labeled from MCP `clientInfo`; bridge entries can pass `-ClientName <AI_CLIENT>`. The **Connected AI clients** panel and `hubctl status` show which clients are connected now or were active in the last 30 minutes (see [Connected AI clients](operations/shared-agent-hub.md#connected-ai-clients)).
+The Hub starts in fast mode by default: tool calls are not tracked beyond the audit log. Turn on **Track AI clients** in the desktop app to keep activity tracking on for every start, or add `-Ui` to `start`, `restart`, or `install` to run it until the next start (see [Fast mode and activity tracking](operations/shared-agent-hub.md#fast-mode-and-activity-tracking)). The desktop app and `hubctl status` show connected AI clients when tracking is on. HTTP clients are labeled from MCP `clientInfo`; bridge entries can pass `-ClientName <AI_CLIENT>`.
 
 If `uv` is missing, the launcher installs a pinned uv release under the ignored `.tools/` directory without changing the global `PATH`, after checking the installer's SHA-256 ([details](packaging-and-qc.md#pinned-uv-installer)). It then installs Python from `.python-version` when needed and runs `uv run --locked`, which creates or synchronizes the project environment from `uv.lock`. The first run needs internet access and write access to the repository and uv-managed data/cache directories. If download or installation fails, the launcher exits with a diagnostic on stderr before starting the Hub. Stdout stays reserved for MCP protocol traffic.
 
@@ -143,7 +141,7 @@ A child without a `CHECKS` entry gets `PASS  N tools, connected (no read-only ch
 - `config/`: tracked templates (`hub.example.json`, `mcps/*.example.json`); `config/private/` holds the user's ignored files (see [AGENTS.md → Private files](../AGENTS.md#private-files)).
 - `docs/batch.md`: `hub__batch`, independent read-only calls in parallel in one request, with test prompts to see the speed difference.
 - `docs/reference.md`: every environment variable and HTTP route, with who may call each route.
-- `docs/settings.md`: the optional `settings` block in `hub.json` (port, log rotation, cache, job and batch limits, dashboard lifetimes), with every default.
+- `docs/settings.md`: the optional `settings` block in `hub.json` (port, log rotation, cache, job and batch limits), with every default.
 - `scripts/`: launchers (`start.ps1`, `start.sh`), service control (`hubctl.ps1`, `service_launcher.pyw`, `http_headers.ps1`), `smoke.py`, `package_qc.py`, `check_leaks.py`, `check_code_standards.py`, `check_docs.py`, `private_config.py` (inspect private configs without printing secrets), `build_desktop.py` (the desktop app's installer), `bench_call_path.py` (tool-call latency with the activity UI off and on), and `call_report.py` (where a client's task time goes, from the audit log: tool time, thinking gaps, `hub__batch` use, repeated tool sequences).
 - `tests/`: offline unit tests, run by `package_qc.py` (or `uv run python -m unittest discover tests`).
 - `logs/`: the redacted audit log `mcp-hub.jsonl`, child stderr under `children/`, and service stderr; all ignored.

@@ -1,8 +1,8 @@
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("install", "status", "start", "stop", "restart", "open", "preflight", "app", "autostart", "update")]
+    [ValidateSet("install", "status", "start", "stop", "restart", "preflight", "app", "autostart", "update")]
     [string]$Command = "status",
-    # start, restart, open, install: run the activity UI (barn, daily activity, connected clients) for this start,
+    # start, restart, install: run activity and connected-client tracking for this start,
     # even when the saved mode (desktop app: Settings > Hub > Track AI clients) is fast.
     [switch]$Ui,
     # autostart: switch the Hub's logon task on or off. Without -Target it prints the current state.
@@ -59,7 +59,7 @@ function Get-ConnectionPath {
 }
 
 function Get-AdminToken {
-    # The dashboard API takes only the admin token, which the Hub makes new at every start and writes only to
+    # The local API takes only the admin token, which the Hub makes new at every start and writes only to
     # this user's connection file; the client token in service.json reaches the MCP endpoint alone.
     $connectionPath = Get-ConnectionPath
     if (-not (Test-Path -LiteralPath $connectionPath -PathType Leaf)) {
@@ -563,18 +563,6 @@ function Write-HubStatus {
     if ($health) { Write-ConnectedClients }
 }
 
-function Open-HubDashboard {
-    param([switch]$Ui)
-
-    if ($Ui -or -not (Test-HubHealth)) { Start-HubTask -Ui:$Ui }
-    if (-not (Test-HubHealth)) { throw "The Hub did not become healthy; run hubctl status for task state." }
-    $headers = @{ Authorization = "Bearer $(Get-AdminToken)" }
-    $pairing = Invoke-RestMethod -Uri "$(Get-HubUrl)/dashboard/pair" -Method Post -Headers $headers -TimeoutSec 5
-    if (-not $pairing.pairing_token) { throw "Dashboard pairing failed; run hubctl status for service state." }
-    $pair = [uri]::EscapeDataString([string]$pairing.pairing_token)
-    Start-Process "$(Get-HubUrl)/dashboard/?pair=$pair"
-}
-
 switch ($Command) {
     "install" {
         # Stop first: a running service locks .venv\Scripts\mcp-hub-service.exe, which uv sync may need to replace.
@@ -606,7 +594,6 @@ switch ($Command) {
         Start-HubTask -Ui:$Ui
         Write-Output "Restarted the mcp-hub scheduled task."
     }
-    "open" { Open-HubDashboard -Ui:$Ui }
     "app" {
         if ($Install) { Install-StatusApp } else { Open-StatusApp; Write-StatusAppHint }
     }

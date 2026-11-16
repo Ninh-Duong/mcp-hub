@@ -80,7 +80,7 @@ The launcher finds `uv` (on `PATH` or in the repo's `.tools/`), installs it loca
 After the user installs the service with `scripts/hubctl.ps1 install`, configure one of these entries instead of the legacy launcher above:
 
 - **Streamable HTTP:** `http://127.0.0.1:8765/mcp`, with an `Authorization: Bearer …` header. The local header helper `scripts/http_headers.ps1` reads the private service token on demand and returns it only to the client. Use this only when the client supports a dynamic local header helper; the Codex and Claude Code guides show working formats.
-- **Stdio bridge:** use the same `scripts/start.ps1` launcher with `-Bridge -ClientName "<AI_CLIENT>"`. The bridge forwards to the shared service, reads the token locally, and labels calls with the client name for daily dashboard reports. Use it when the client cannot safely provide an HTTP header.
+- **Stdio bridge:** use the same `scripts/start.ps1` launcher with `-Bridge -ClientName "<AI_CLIENT>"`. The bridge forwards to the shared service, reads the token locally, and labels calls with the client name for activity tracking. Use it when the client cannot safely provide an HTTP header.
 - **Attribution:** Streamable HTTP clients are labeled from their MCP `clientInfo`; bridge clients use `-ClientName`. Calls from clients that provide neither appear as `unknown`.
 - **Legacy stdio:** keep the launcher without `-Bridge` only for development or if the user intentionally wants an isolated per-client Hub process.
 

@@ -76,7 +76,7 @@ async def hold_presence(
     client_info: Implementation,
     on_tools_changed: Callable[[], Awaitable[None]] | None = None,
 ) -> None:
-    """Keep a listen stream open so the Hub dashboard shows this client as connected, and relay tool changes.
+    """Keep a listen stream open so the desktop status app shows this client as connected, and relay tool changes.
 
     Stops when the Hub does not serve presence (it runs without the activity UI).
     """

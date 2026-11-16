@@ -71,7 +71,7 @@ class IssueWorkflowTest(unittest.TestCase):
             store = JobStore(Path(directory) / "jobs.sqlite3", protector=FakeProtector())
             job_id = store.create_job(project="orders", question="sync ticket", env="dev")
             store.transition_job(job_id, "running", event="job.started")
-            store.create_pending_call(
+            code = store.create_pending_call(
                 job_id, "jira__sync_ticket", {"issue_key": "EX-1", "summary": "approved"}, agent="jira",
             )
             runtime = Runtime()
@@ -82,7 +82,7 @@ class IssueWorkflowTest(unittest.TestCase):
             )
             try:
                 async def wait_for_approved_write():
-                    self.assertTrue(await runner.approve_from_dashboard(job_id))
+                    self.assertTrue((await runner.approve_job(job_id, code))["approved"])
                     await runner.wait(job_id)
 
                 asyncio.run(wait_for_approved_write())
@@ -113,10 +113,12 @@ class IssueWorkflowTest(unittest.TestCase):
                 agents={role: AgentConfig(role, None, None) for role in AGENT_ROLES},
             )
 
-            async def waiting_for(task: asyncio.Task, issue_key: str) -> bool:
+            async def waiting_for(task: asyncio.Task, issue_key: str, previous_code: str | None) -> bool:
                 for _ in range(200):
                     pending = store.get_pending_call(job_id, include_arguments=True)
-                    if pending and pending["arguments"] == {"issue_key": issue_key}:
+                    code = runner._approval_codes.get(job_id)
+                    if (pending and pending["arguments"] == {"issue_key": issue_key}
+                            and code and code != previous_code):
                         return not task.done()
                     if task.done():
                         return False
@@ -132,9 +134,12 @@ class IssueWorkflowTest(unittest.TestCase):
 
                 task = asyncio.create_task(two_writes())
                 runner._tasks[job_id] = task
+                previous_code = None
                 for key in ("EX-1", "EX-2"):
-                    self.assertTrue(await waiting_for(task, key), f"{key} did not wait for approval")
-                    self.assertTrue(await runner.approve_from_dashboard(job_id))
+                    self.assertTrue(await waiting_for(task, key, previous_code), f"{key} did not wait for approval")
+                    code = runner._approval_codes[job_id]
+                    self.assertTrue((await runner.approve_job(job_id, code))["approved"])
+                    previous_code = code
                 return await asyncio.wait_for(task, 5)
 
             try:

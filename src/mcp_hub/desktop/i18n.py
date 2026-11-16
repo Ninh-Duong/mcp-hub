@@ -1,4 +1,4 @@
-"""Desktop app text, read from the dashboard locale files so no translated text lives in code."""
+"""Desktop app text, stored separately from code."""
 from __future__ import annotations
 
 import ctypes
@@ -7,11 +7,11 @@ import re
 from collections.abc import Callable
 from pathlib import Path
 
-LOCALES_DIR = Path(__file__).resolve().parents[1] / "dashboard" / "locales"
+LOCALES_DIR = Path(__file__).parent / "locales"
 LANGUAGES = ("en", "vi")
 _VIETNAMESE_PRIMARY_LANGUAGE = 0x2A
 _PLACEHOLDER = re.compile(r"\{(\w+)\}")
-# Child states reported by the Hub -> the dashboard's existing connection labels.
+# Child states reported by the Hub -> localized connection labels.
 CONNECTION_KEYS = {
     "connected": "connection.connected",
     "connecting": "connection.connecting",

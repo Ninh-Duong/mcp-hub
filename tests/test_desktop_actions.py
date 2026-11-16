@@ -12,7 +12,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from PySide6.QtWidgets import QApplication, QLabel
+    from PySide6.QtWidgets import QApplication, QAbstractButton, QLabel
     from qfluentwidgets import PrimaryPushButton
 
     from mcp_hub.desktop import app, screenshot, theme
@@ -37,7 +37,7 @@ class HubStateActionsTest(unittest.TestCase):
         # A saved update run on this machine would show Retry; the window must start from no saved run.
         with patch.object(app.hub_api.HubClient, "read_saved_update", return_value=None):
             self.window = app.StatusWindow(
-                i18n.Translator("en"), fetch=lambda: HubSnapshot(hub="stopped"), open_dashboard=lambda: None,
+                i18n.Translator("en"), fetch=lambda: HubSnapshot(hub="stopped"),
                 launch=lambda _arguments: None, style=lambda *_args, **_kwargs: False,
                 prefs_path=Path(self.tmp.name) / "desktop.json", hub_store=screenshot.SampleSettings(),
                 read_autostart=lambda: {"hub": True, "app": True},
@@ -53,10 +53,6 @@ class HubStateActionsTest(unittest.TestCase):
         return [widget for widget in self.window.findChildren(PrimaryPushButton)
                 if widget.isVisibleTo(self.window) and widget.isEnabled()]
 
-    def open_shown(self) -> list:
-        return [widget for widget in (self.window.open_button, self.window.open_plain_button)
-                if widget.isVisibleTo(self.window)]
-
     def label_with_text(self, text: str) -> QLabel:
         return next(widget for widget in self.window.findChildren(QLabel) if widget.text() == text)
 
@@ -64,16 +60,21 @@ class HubStateActionsTest(unittest.TestCase):
         self.window.apply(HubSnapshot(hub="stopped"))
         self.assertEqual(self.visible_primaries(), [self.window.start_button])
 
-    def test_running_hub_has_exactly_one_primary_action_open_dashboard(self) -> None:
+    def test_running_hub_has_no_browser_action(self) -> None:
         self.window.apply(HubSnapshot(hub="running"))
-        self.assertEqual(self.visible_primaries(), [self.window.open_button])
+        self.assertEqual(self.visible_primaries(), [])
+
+    def test_running_hub_does_not_offer_a_browser_action(self) -> None:
+        self.window.apply(HubSnapshot(hub="running"))
+        button_texts = [widget.text() for widget in self.window.findChildren(QAbstractButton)]
+        self.assertNotIn("Open dashboard", button_texts)
 
     def test_update_available_while_running_makes_update_the_only_primary(self) -> None:
         self.window.apply(HubSnapshot(hub="running"))
         self.window.preview_update(screenshot.SAMPLE_RELEASE)
         self.assertEqual(self.visible_primaries(), [self.window.update_card.update_primary])
-        self.assertEqual(len(self.open_shown()), 1)
-        self.assertFalse(isinstance(self.open_shown()[0], PrimaryPushButton))
+        self.assertNotIn("Open dashboard",
+                         [widget.text() for widget in self.window.findChildren(QAbstractButton)])
 
     def test_update_available_while_stopped_keeps_start_as_the_only_primary(self) -> None:
         self.window.apply(HubSnapshot(hub="stopped"))
@@ -81,12 +82,11 @@ class HubStateActionsTest(unittest.TestCase):
         self.assertEqual(self.visible_primaries(), [self.window.start_button])
         self.assertTrue(self.window.update_card.update_button.isVisibleTo(self.window))
 
-    def test_start_or_open_is_shown_by_hub_state(self) -> None:
+    def test_start_is_shown_only_while_hub_is_not_running(self) -> None:
         for hub, start_shown in (("stopped", True), ("starting", True), ("running", False)):
             with self.subTest(hub=hub):
                 self.window.apply(HubSnapshot(hub=hub))
                 self.assertEqual(self.window.start_button.isVisibleTo(self.window), start_shown)
-                self.assertEqual(len(self.open_shown()), 0 if start_shown else 1)
 
     def test_card_titles_share_the_section_role(self) -> None:
         self.window.apply(HubSnapshot(hub="running"))

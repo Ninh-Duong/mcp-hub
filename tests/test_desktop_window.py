@@ -186,7 +186,7 @@ class StatusWindowTest(unittest.TestCase):
         self.processing_streams = []
         self.processing_started = threading.Event()
         self.window = app.StatusWindow(
-            i18n.Translator("en"), fetch=self.fake_fetch, open_dashboard=self.fake_open,
+            i18n.Translator("en"), fetch=self.fake_fetch,
             launch=self.launched.append, clock=lambda: self.now, style=self.fake_style, prefs_path=self.prefs_path,
             hub_store=self.store, read_autostart=lambda: dict(self.autostart), write_autostart=self.fake_write_autostart,
             run_worker=lambda job: job(),
@@ -313,14 +313,10 @@ class StatusWindowTest(unittest.TestCase):
         self.fetched.set()
         return self.next_snapshot
 
-    def fake_open(self) -> None:
-        raise status.DesktopError("pairing failed")
-
     def test_initial_window_is_checking_with_no_enabled_action(self) -> None:
         self.assertEqual(self.window.windowTitle(), "mcp-hub")
         self.assertEqual(self.window.hub_row.text.text(), "Checking the Hub…")
         self.assertEqual(self.window.hub_row.glyph.property("tone"), "wait")
-        self.assertFalse(self.window.open_button.isEnabled())
         self.assertFalse(self.window.start_button.isEnabled())
         self.assertFalse(self.window.glass)
         self.assertEqual(self.window.styleSheet(), theme.stylesheet(theme.Appearance(), glass_active=False))
@@ -340,9 +336,6 @@ class StatusWindowTest(unittest.TestCase):
         self.assertEqual(self.window.children_count.text(), "1/2")
         self.assertEqual(texts(self.window.clients_list), ["ok claude-code ×2"])
         self.assertEqual(self.window.clients_count.text(), "1")
-        self.assertTrue(self.window.open_button.isEnabled())
-        self.assertFalse(self.window.start_button.isEnabled())
-        self.assertTrue(self.window.open_button.isEnabled())
         self.assertFalse(self.window.start_button.isEnabled())
         self.assertEqual(self.window.footer.text(), "Updated 10:42:05")
         self.assertEqual(self.window.footer.property("role"), "caption")
@@ -371,7 +364,6 @@ class StatusWindowTest(unittest.TestCase):
         self.window.apply(HubSnapshot(hub="stopped"))
         self.assertEqual(self.window.hub_row.glyph.property("tone"), "error")
         self.assertTrue(self.window.start_button.isEnabled())
-        self.assertFalse(self.window.open_button.isEnabled())
         self.assertTrue(self.window.start_button.isEnabled())
         self.assertEqual(texts(self.window.children_list), ["Shown when the Hub is running."])
 
@@ -433,11 +425,6 @@ class StatusWindowTest(unittest.TestCase):
         self.assertEqual(self.window.snapshot.hub, "running")
         self.assertFalse(self.window._polling)
 
-    def test_failed_dashboard_open_is_reported_in_the_footer(self) -> None:
-        self.window.open_dashboard_once()
-        self.window.process_results()
-        self.assertIn("Could not open the dashboard", self.window.footer.text())
-
     def test_buttons_call_their_actions(self) -> None:
         self.window.apply(HubSnapshot(hub="stopped"))
         self.window.start_button.click()
@@ -456,7 +443,6 @@ class StatusWindowTest(unittest.TestCase):
         self.window.apply(running())
         self.window.set_language("vi")
         vi = i18n.load_strings("vi")
-        self.assertEqual(self.window.open_button.text(), vi["desktop.button.openDashboard"])
         self.assertEqual(self.window.appearance_page.reset_button.text(), vi["desktop.settings.reset"])
         self.assertTrue(checked(self.window.appearance_page.language_segments, "vi"))
         self.assertTrue(self.window.save_timer.isActive())
@@ -1110,7 +1096,7 @@ class UpdateWindowTest(unittest.TestCase):
     def make_window(self, updater: update.Updater | None):
         self.store = FakeStore()
         return app.StatusWindow(
-            i18n.Translator("en"), fetch=lambda: HubSnapshot(hub="stopped"), open_dashboard=lambda: None,
+            i18n.Translator("en"), fetch=lambda: HubSnapshot(hub="stopped"),
             launch=lambda _arguments: None, style=lambda *_a, **_k: False, prefs_path=Path(self.tmp.name) / "desktop.json",
             hub_store=self.store, read_autostart=lambda: {"hub": True, "app": True},
             write_autostart=lambda _target, _enabled: {"hub": True, "app": True}, run_worker=lambda job: job(),
@@ -1550,7 +1536,7 @@ class FluentWidgetsTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.window = app.StatusWindow(
-            i18n.Translator("en"), fetch=lambda: HubSnapshot(hub="stopped"), open_dashboard=lambda: None,
+            i18n.Translator("en"), fetch=lambda: HubSnapshot(hub="stopped"),
             launch=lambda _arguments: None, style=lambda *_a, **_k: False, prefs_path=Path(self.tmp.name) / "desktop.json",
             hub_store=FakeStore(), read_autostart=lambda: {"hub": True, "app": True},
             write_autostart=lambda _target, _enabled: {"hub": True, "app": True}, run_worker=lambda job: job(),
@@ -1582,13 +1568,10 @@ class FluentWidgetsTest(unittest.TestCase):
                 self.assertIsInstance(widget, TransparentToolButton)
 
     def test_the_hub_actions_are_fluent_primary_buttons(self) -> None:
-        self.window.apply(HubSnapshot(hub="stopped"))  # Start Hub is the one shown action
+        self.window.apply(HubSnapshot(hub="stopped"))
         self.assertIsInstance(self.window.start_button, PrimaryPushButton)
         self.assertFalse(self.window.start_button.isHidden())
-        self.assertTrue(self.window.open_button.isHidden())
-        self.window.apply(running())  # Open dashboard replaces it
-        self.assertIsInstance(self.window.open_button, PrimaryPushButton)
-        self.assertFalse(self.window.open_button.isHidden())
+        self.window.apply(running())
         self.assertTrue(self.window.start_button.isHidden())
         self.assertIsInstance(self.window.update_card.notes_button, HyperlinkButton)
 

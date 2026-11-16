@@ -1,1 +1,1 @@
-"""Local authenticated dashboard and operator API."""
+"""Local authenticated API used by the desktop status app and operators."""

@@ -1,6 +1,6 @@
 """Fail if committable files break the code standards in AGENTS.md.
 
-Checks: English-only text (UI translations live only in dashboard locale files),
+Checks: English-only text (UI translations live only in desktop locale files),
 functions of at most MAX_FUNCTION_LINES lines, and a unit test importing every module.
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ _VIETNAMESE_RE = re.compile(
     "\u1ea0-\u1ef9]"
 )
 _JS_FUNCTION_RE = re.compile(r"^(?:export\s+)?(?:async\s+)?function\s*\*?\s*(\w+)")
-LANGUAGE_ALLOWLIST = {"src/mcp_hub/dashboard/locales/vi.json"}
+LANGUAGE_ALLOWLIST = {"src/mcp_hub/desktop/locales/vi.json"}
 FUNCTION_ROOTS = ("src/", "scripts/")
 MODULE_ROOT = PurePosixPath("src")
 UNTESTABLE_MODULES = {"__init__", "__main__"}
@@ -90,7 +90,7 @@ def _language_problems(files: list[str]) -> list[str]:
     for path in files:
         lines = None if path in LANGUAGE_ALLOWLIST else _read_lines(path)
         for number in non_english_lines(lines or []):
-            problems.append(f"{path}:{number}: non-English text (UI translations belong in dashboard/locales/)")
+            problems.append(f"{path}:{number}: non-English text (UI translations belong in desktop/locales/)")
     return problems
 
 

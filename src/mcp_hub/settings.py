@@ -73,12 +73,6 @@ class CacheSettings:
 
 
 @dataclass(frozen=True)
-class DashboardSettings:
-    pairing_seconds: int = 120
-    session_hours: float = 12.0
-
-
-@dataclass(frozen=True)
 class JobSettings:
     max_active: int = 2
     max_queued: int = 20
@@ -156,7 +150,6 @@ class Settings:
     children: ChildrenSettings = field(default_factory=ChildrenSettings)
     logs: LogSettings = field(default_factory=LogSettings)
     cache: CacheSettings = field(default_factory=CacheSettings)
-    dashboard: DashboardSettings = field(default_factory=DashboardSettings)
     jobs: JobSettings = field(default_factory=JobSettings)
     batch: BatchSettings = field(default_factory=BatchSettings)
     policy: PolicySettings = field(default_factory=PolicySettings)
@@ -191,7 +184,9 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
 
 def parse_settings(raw: dict[str, Any]) -> Settings:
     groups = {_camel(item.name): item for item in fields(Settings)}
-    unknown = sorted(set(raw) - set(groups))
+    if "dashboard" in raw and not isinstance(raw["dashboard"], dict):
+        raise ConfigError("settings.dashboard must be an object")
+    unknown = sorted(set(raw) - set(groups) - {"dashboard"})
     if unknown:
         raise ConfigError(f"Unknown settings group: {unknown[0]}")
     values = {}

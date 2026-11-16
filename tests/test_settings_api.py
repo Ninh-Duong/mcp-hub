@@ -11,10 +11,9 @@ from starlette.testclient import TestClient
 from mcp_hub import config, hub_settings
 from mcp_hub.config import ServerSwitch
 from mcp_hub.dashboard.api import create_dashboard_routes
-from mcp_hub.dashboard.sessions import DashboardSessions
 from mcp_hub.dashboard.settings_api import SettingsHandlers, settings_payload
 from mcp_hub.http import create_http_app
-from tests.test_dashboard_api import FakeJobRunner, FakeRuntime
+from tests.test_dashboard_api import FakeRuntime
 
 TOKEN = "test-settings-bearer-token-value"
 HEADERS = {"Host": "127.0.0.1:8765", "Authorization": f"Bearer {TOKEN}"}
@@ -68,10 +67,10 @@ class SettingsApiTest(unittest.TestCase):
         self.autostart = {"hub": True}
         self.autostart_fails = False
         handlers = SettingsHandlers(store=self.store, read_autostart=self.read_autostart, write_autostart=self.write_autostart)
-        routes = create_dashboard_routes(FakeRuntime(), FakeJobRunner(), DashboardSessions(), settings=handlers)
+        routes = create_dashboard_routes(FakeRuntime(), settings=handlers)
         app = create_http_app(
             Server("settings-test"), "test-client-bearer-token-value-0000", custom_routes=routes,
-            sessions=DashboardSessions(), admin_token=TOKEN,
+            admin_token=TOKEN,
         )
         # One client per test: the app's MCP session manager runs once.
         self.client = TestClient(app).__enter__()
