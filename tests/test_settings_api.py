@@ -19,7 +19,7 @@ TOKEN = "test-settings-bearer-token-value"
 HEADERS = {"Host": "127.0.0.1:8765", "Authorization": f"Bearer {TOKEN}"}
 
 
-class FakeStore:
+class SettingsApiFakeStore:
     """hub_settings stand-in: two children, one of them waiting for credentials."""
 
     def __init__(self) -> None:
@@ -63,7 +63,7 @@ class FakeStore:
 
 class SettingsApiTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.store = FakeStore()
+        self.store = SettingsApiFakeStore()
         self.autostart = {"hub": True}
         self.autostart_fails = False
         handlers = SettingsHandlers(store=self.store, read_autostart=self.read_autostart, write_autostart=self.write_autostart)

@@ -12,7 +12,7 @@ from unittest.mock import patch
 from mcp_hub.desktop import i18n, theme, update
 from mcp_hub.desktop.hub_api import UpdateStatus
 from mcp_hub.desktop.status import ChildRow, HubSnapshot
-from tests.helpers.window import QApplication, app, update_card, QT_MISSING, qt_app, running, elided, full_text, FakeStore
+from tests.helpers.window import QApplication, app, update_card, QT_MISSING, qt_app, running, elided, full_text, WindowFakeStore
 
 
 def setUpModule() -> None:
@@ -33,7 +33,7 @@ class UpdateWindowTest(unittest.TestCase):
         self.window = self.make_window(update.Updater("0.1.1", self.check, self.install, self.opened.append))
 
     def make_window(self, updater: update.Updater | None):
-        self.store = FakeStore()
+        self.store = WindowFakeStore()
         return app.StatusWindow(
             i18n.Translator("en"), fetch=lambda: HubSnapshot(hub="stopped"),
             launch=lambda _arguments: None, style=lambda *_a, **_k: False, prefs_path=Path(self.tmp.name) / "desktop.json",

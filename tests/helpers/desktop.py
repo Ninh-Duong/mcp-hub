@@ -22,7 +22,7 @@ class FakeOpener:
         answer = self.answers[path]
         if isinstance(answer, Exception):
             raise answer
-        return FakeResponse(answer)
+        return DesktopFakeResponse(answer)
 
 
 def event(sequence=1, stream_id="hub-one", **values):
@@ -39,11 +39,11 @@ def write(path: Path, value: object) -> Path:
     return path
 
 
-class FakeResponse:
+class DesktopFakeResponse:
     def __init__(self, value: object) -> None:
         self.body = json.dumps(value).encode("utf-8")
 
-    def __enter__(self) -> FakeResponse:
+    def __enter__(self) -> DesktopFakeResponse:
         return self
 
     def __exit__(self, *_exc: object) -> None:

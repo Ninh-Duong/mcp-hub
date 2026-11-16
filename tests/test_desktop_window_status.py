@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 
 from mcp_hub.desktop import i18n, prefs, status, theme
 from mcp_hub.desktop.status import ChildRow, HubSnapshot
-from tests.helpers.window import Qt, QTest, app, mini, screenshot, system, widgets, HyperlinkButton, PrimaryPushButton, TransparentToolButton, QT_MISSING, qt_app, running, assert_rows_fit, texts, checked, pick, enabled, FakeStore
+from tests.helpers.window import Qt, QTest, app, mini, screenshot, system, widgets, HyperlinkButton, PrimaryPushButton, TransparentToolButton, QT_MISSING, qt_app, running, assert_rows_fit, texts, checked, pick, enabled, WindowFakeStore
 
 
 def setUpModule() -> None:
@@ -33,7 +33,7 @@ class StatusWindowTest(unittest.TestCase):
         self.glass = False
         self.tmp = tempfile.TemporaryDirectory()
         self.prefs_path = Path(self.tmp.name) / "desktop.json"
-        self.store = FakeStore()
+        self.store = WindowFakeStore()
         self.autostart = {"hub": True, "app": True}
         self.autostart_calls: list[tuple[str, bool]] = []
         self.utc = datetime(2026, 10, 31, 9, 30, tzinfo=UTC)
@@ -907,7 +907,7 @@ class FluentWidgetsTest(unittest.TestCase):
         self.window = app.StatusWindow(
             i18n.Translator("en"), fetch=lambda: HubSnapshot(hub="stopped"),
             launch=lambda _arguments: None, style=lambda *_a, **_k: False, prefs_path=Path(self.tmp.name) / "desktop.json",
-            hub_store=FakeStore(), read_autostart=lambda: {"hub": True, "app": True},
+            hub_store=WindowFakeStore(), read_autostart=lambda: {"hub": True, "app": True},
             write_autostart=lambda _target, _enabled: {"hub": True, "app": True}, run_worker=lambda job: job(),
             stream=lambda _put, _stop: None,
         )

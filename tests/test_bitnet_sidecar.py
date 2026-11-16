@@ -30,7 +30,7 @@ class FakeProcess:
         self._poll = -9
 
 
-class FakeClient:
+class SidecarFakeClient:
     def __init__(self, health_results: list[bool] | None = None) -> None:
         self._results = list(health_results or [True])
         self.closed = False
@@ -129,7 +129,7 @@ class TestBitnetSidecar(unittest.IsolatedAsyncioTestCase):
 
     async def test_healthy_reaches_ready(self) -> None:
         audit = MagicMock()
-        client = FakeClient([True])
+        client = SidecarFakeClient([True])
         fake_proc = FakeProcess()
         fake_popen = MagicMock(return_value=fake_proc)
 
@@ -156,7 +156,7 @@ class TestBitnetSidecar(unittest.IsolatedAsyncioTestCase):
         def popen_factory(*args: Any, **kwargs: Any) -> FakeProcess:
             return procs.pop(0)
 
-        client = FakeClient([True, True, True])
+        client = SidecarFakeClient([True, True, True])
 
         async def fake_sleep(_: float) -> None:
             await asyncio.sleep(0.001)
@@ -188,7 +188,7 @@ class TestBitnetSidecar(unittest.IsolatedAsyncioTestCase):
         def popen_factory(*args: Any, **kwargs: Any) -> FakeProcess:
             return procs.pop(0)
 
-        client = FakeClient([True, True, False, False])
+        client = SidecarFakeClient([True, True, False, False])
 
         async def fake_sleep(_: float) -> None:
             await asyncio.sleep(0.001)
@@ -207,7 +207,7 @@ class TestBitnetSidecar(unittest.IsolatedAsyncioTestCase):
 
     async def test_stop_terminates_and_kills(self) -> None:
         audit = MagicMock()
-        client = FakeClient([True])
+        client = SidecarFakeClient([True])
         fake_proc = FakeProcess()
         fake_popen = MagicMock(return_value=fake_proc)
 
@@ -229,7 +229,7 @@ class TestBitnetSidecar(unittest.IsolatedAsyncioTestCase):
 
     async def test_popen_runs_off_event_loop(self) -> None:
         audit = MagicMock()
-        client = FakeClient([True])
+        client = SidecarFakeClient([True])
         fake_proc = FakeProcess()
         fake_popen = MagicMock(return_value=fake_proc)
 

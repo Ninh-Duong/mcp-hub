@@ -10,7 +10,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.routing import Route
 
-from ..jobs.store import MAX_ACTIVITY_OFFSET
+from ..jobs.activity_store import MAX_ACTIVITY_OFFSET
 from ..settings import ActivitySettings
 from .tracker import ActivityTracker
 

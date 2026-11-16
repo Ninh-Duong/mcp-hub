@@ -89,17 +89,17 @@ class ToolChangeAnnouncementTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(publish.await_count, 0)
 
 
-class _FakeClient:
+class EventsFakeClient:
     """Lists whatever tools its child currently has, like a child MCP session would."""
 
-    def __init__(self, child: _FakeChild) -> None:
+    def __init__(self, child: EventsFakeChild) -> None:
         self.child = child
 
     async def list_tools(self, cursor: str | None = None) -> SimpleNamespace:
         return SimpleNamespace(tools=list(self.child.tools), next_cursor=None)
 
 
-class _FakeChild:
+class EventsFakeChild:
     """Stands in for a child process: the opener keeps the SDK message handler the supervisor passes in."""
 
     def __init__(self) -> None:
@@ -109,7 +109,7 @@ class _FakeChild:
     @asynccontextmanager
     async def opener(self, config: Any, errlog: Any, on_closed: Any, *, message_handler: Any) -> AsyncIterator[Any]:
         self.handler = message_handler
-        yield _FakeClient(self)
+        yield EventsFakeClient(self)
 
 
 class ChildSentChangeTest(unittest.IsolatedAsyncioTestCase):
@@ -124,7 +124,7 @@ class ChildSentChangeTest(unittest.IsolatedAsyncioTestCase):
         settings = Settings(protocol=ProtocolSettings(list_changed_debounce_seconds=DEBOUNCE_SECONDS))
         self.runtime = HubRuntime(config, self.audit, settings)
         self.runtime.child_log_dir = self.root / "children"
-        self.fake = _FakeChild()
+        self.fake = EventsFakeChild()
         self.runtime.child_opener = self.fake.opener
         self.stack = AsyncExitStack()
         self.addAsyncCleanup(self.stack.aclose)

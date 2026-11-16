@@ -46,7 +46,7 @@ COUNT_TOOL = Tool(name="count", input_schema=COUNT_SCHEMA, annotations={"readOnl
 MODULE_ENTRY_POINTS = ("mcp_hub.desktop", "mcp_hub.preflight", "mcp_hub.service", "mcp_hub.update_runner")
 
 
-class _FakeChild:
+class SurfaceFakeChild:
     """An SDK server that lists one tool and answers it; the Hub sees it as a real child session."""
 
     def __init__(self) -> None:
@@ -79,7 +79,7 @@ def _build_runtime(root: Path) -> tuple[HubRuntime, AuditLog]:
 
 async def _list_hub_tools(root: Path) -> list[dict[str, Any]]:
     runtime, audit = _build_runtime(root)
-    fake = _FakeChild()
+    fake = SurfaceFakeChild()
     runtime.child_opener = lambda config, errlog, on_closed, *, message_handler: fake.client(message_handler)
     try:
         async with AsyncExitStack() as stack:

@@ -144,5 +144,130 @@
     }
   },
   "note": "Manual baseline from scripts/bench_call_path.py; not run by unit tests.",
+  "same_conditions_check": {
+    "change_head_vs_pre_refactor_percent": {
+      "ui_off": {
+        "mean": 0.0,
+        "p50": -0.6,
+        "p95": -0.7
+      },
+      "ui_on": {
+        "mean": 0.2,
+        "p50": 0.2,
+        "p95": -1.6
+      }
+    },
+    "head": {
+      "median": {
+        "ui_off": {
+          "mean": 1.82,
+          "p50": 1.7,
+          "p95": 2.23
+        },
+        "ui_on": {
+          "mean": 2.06,
+          "p50": 2.03,
+          "p95": 2.44
+        }
+      },
+      "runs": {
+        "ui_off": [
+          {
+            "mean": 1.82,
+            "p50": 1.71,
+            "p95": 2.23
+          },
+          {
+            "mean": 1.79,
+            "p50": 1.69,
+            "p95": 2.2
+          },
+          {
+            "mean": 1.78,
+            "p50": 1.68,
+            "p95": 2.19
+          },
+          {
+            "mean": 1.82,
+            "p50": 1.7,
+            "p95": 2.25
+          },
+          {
+            "mean": 1.89,
+            "p50": 1.75,
+            "p95": 2.4
+          }
+        ],
+        "ui_on": [
+          {
+            "mean": 2.05,
+            "p50": 2.0,
+            "p95": 2.45
+          },
+          {
+            "mean": 2.06,
+            "p50": 2.03,
+            "p95": 2.44
+          },
+          {
+            "mean": 2.06,
+            "p50": 2.05,
+            "p95": 2.48
+          },
+          {
+            "mean": 2.04,
+            "p50": 2.01,
+            "p95": 2.4
+          },
+          {
+            "mean": 2.06,
+            "p50": 2.03,
+            "p95": 2.41
+          }
+        ]
+      }
+    },
+    "note": "The recorded baseline above was measured on a quieter machine. On this machine, now, the pre-refactor commit (08bad0f) and HEAD were measured under the same conditions (a background Hub service was running), so this comparison is the one that counts for SC-007.",
+    "pre_refactor_08bad0f": {
+      "median": {
+        "ui_off": {
+          "mean": 1.82,
+          "p50": 1.71,
+          "p95": 2.245
+        },
+        "ui_on": {
+          "mean": 2.0549999999999997,
+          "p50": 2.025,
+          "p95": 2.48
+        }
+      },
+      "runs": {
+        "ui_off": [
+          {
+            "mean": 1.84,
+            "p50": 1.72,
+            "p95": 2.29
+          },
+          {
+            "mean": 1.8,
+            "p50": 1.7,
+            "p95": 2.2
+          }
+        ],
+        "ui_on": [
+          {
+            "mean": 2.07,
+            "p50": 2.03,
+            "p95": 2.54
+          },
+          {
+            "mean": 2.04,
+            "p50": 2.02,
+            "p95": 2.42
+          }
+        ]
+      }
+    }
+  },
   "unit": "ms"
 }

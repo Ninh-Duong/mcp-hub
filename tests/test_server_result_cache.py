@@ -19,7 +19,7 @@ UNCACHED = ToolRoute("jira", "child", "list_synced", "jira__list_synced")
 
 
 
-class FakeClient:
+class ResultCacheFakeClient:
     def __init__(self, *, error: bool = False) -> None:
         self.calls: list[str] = []
         self.error = error
@@ -37,7 +37,7 @@ class HubResultCacheTest(unittest.IsolatedAsyncioTestCase):
         config = HubConfig(tmp / "hub.json", {"child": ServerConfig("child", "python", (), tmp, {}, ())}, (READ, SYNC, UNCACHED))
         self.audit = MagicMock()
         self.runtime = HubRuntime(config, self.audit)
-        self.client = FakeClient()
+        self.client = ResultCacheFakeClient()
         # SYNC declares a TTL but is not read-only, so it must never be cached.
         self.runtime.child_connected("child", self.client, {
             "read_ticket": tool("read_ticket", True), "sync_ticket": tool("sync_ticket", False),

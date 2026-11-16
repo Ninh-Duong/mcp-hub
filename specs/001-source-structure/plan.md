@@ -92,6 +92,8 @@ src/mcp_hub/
 ├── progress.py          NEW leaf: forwarded _meta keys and progress relay (shared by server and bridge_proxy)
 ├── textnorm.py          NEW leaf: fold (merges the two identical copies in bitnet/rules.py and plan_merge.py)
 ├── child_lifecycle.py   NEW: child connect, lost, tools-changed handling (from server.py 182-305)
+├── call_observers.py    NEW: CallObserverMixin (activity and processing hooks per call); ChildCallState (implemented beyond the original layout)
+├── bootstrap.py         NEW: start-up inputs shared by service.py and server.serve() (tasks T059)
 ├── server.py            KEEP: HubRuntime, routing, list_tools/prompts/call_tool dispatch, create_mcp_server, main (target < 600 lines)
 ├── instructions.py      EXTEND: client-rules and contract text loading (from server.py)
 ├── batch.py             EXTEND: batch call packing (from server.py 759-869)
@@ -105,7 +107,8 @@ src/mcp_hub/
 │   ├── __init__.py
 │   ├── condense.py      from condense.py; fold import from textnorm
 │   ├── shape.py         from result_shape.py
-│   ├── full_results.py  from full_results.py + server.py 655-758, 1107-1176
+│   ├── full_results.py  from full_results.py (the store)
+│   ├── runtime.py       NEW: ResultsMixin, hub__get_full_result and condensed results on HubRuntime (server.py 655-758, 1107-1176)
 │   └── cache.py         from result_cache.py
 ├── planning/            NEW subpackage (may import results and leaves)
 │   ├── __init__.py
@@ -117,18 +120,25 @@ src/mcp_hub/
 ├── jobs/
 │   ├── tools.py         NEW: tool schemas and deterministic arguments (runner.py 53-140)
 │   ├── approvals.py     NEW: approval flow (runner.py 378-464)
-│   ├── investigation.py NEW: investigation and specialists (runner.py 622-771)
+│   ├── investigation.py NEW: InvestigationMixin, investigation and specialists (runner.py 622-771)
+│   ├── common.py        NEW: store_call (off-loop store operations), JobSlot, cancel_all
+│   ├── activity_store.py NEW: ActivityStoreMixin, tool-call records and activity reports (store.py)
+│   ├── timeutil.py      NEW leaf: utc_now, utc_timestamp
 │   └── runner.py        KEEP: lifecycle and dispatch; _settle_interrupted handled per Phase 3
 ├── agents/
 │   └── specialists.py   receives roles_for_servers; imports is_read_only_tool from tool_meta
 └── desktop/
-    ├── appearance.py    NEW: theme, language, prefs (app.py 278-358)
-    ├── render.py        NEW: render pipeline (app.py 359-595)
-    ├── update_controller.py NEW: update flow (app.py 674-804)
+    ├── render.py        NEW: RenderMixin, render pipeline (app.py 359-595)
+    ├── update_controller.py NEW: UpdateMixin, update flow (app.py 674-804)
     ├── stream.py        NEW: StreamController shared by usage.py and processing.py
-    ├── mini.py          EXTEND: mini mode (app.py 1021-1096)
-    ├── __main__.py      EXTEND: CLI and screenshot entry (app.py 1097-1183)
-    └── app.py           KEEP: window assembly only
+    ├── mini.py          EXTEND: MiniMixin, compact mode (app.py 1021-1096)
+    ├── cli.py           NEW: command line and screenshot entry (app.py 1097-1183). __main__.py only runs cli.main (T082 wording: __main__.py, implemented as cli.py)
+    ├── appearance.py    NEW mixin: theme, accent, language, saved preferences
+    ├── actions.py       NEW mixin: settings and configuration actions
+    ├── live_feeds.py    NEW mixin: usage and processing streams in the window
+    ├── polling.py       NEW mixin: poll timer, results queue, pace
+    ├── constants.py     view constants shared by the mixins (NOT_DRAWN, CAPTURE_POSITION, ...)
+    └── app.py           KEEP: StatusWindow assembled from the mixins, and application()
 
 tests/
 ├── helpers/             NEW package: fakes.py (FakeResponse, FakeClient, FakeProtector, FakeRuntime, FakeOpener), events(), tool()

@@ -15,7 +15,7 @@ SRC = Path(__file__).resolve().parents[1] / "src" / "mcp_hub"
 PACKAGE = "mcp_hub"
 
 # Leaf modules import no other mcp_hub module (they are shared by every layer above them).
-LEAVES = {"jsonio", "clients", "tool_meta", "progress", "textnorm"}
+LEAVES = {"jsonio", "clients", "tool_meta", "progress", "textnorm", "timeutil"}
 # The results layer and the planning layer. Names match both the current flat modules and the planned subpackages.
 RESULTS = {"results"}
 PLANNING = {"planning"}

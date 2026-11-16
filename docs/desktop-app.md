@@ -390,7 +390,7 @@ The command opens the window on top of other windows and renders fixed sample da
 
 The tests skip with a reason only if Qt cannot load; the CI Linux job installs the system libraries Qt needs.
 
-`tests/test_desktop_usage.py` covers the SSE parser, the usage board (running and recent calls, merging, expiry, minute steps, snapshots, bad events), opening the stream with the bearer without showing it, and the worker's forwarding, backoff, and stop. `tests/test_desktop_window.py` also covers the usage lines and the client details: live updates without rebuilding rows, a hidden line giving its space back, the stream following the mode, stale messages dropped, and closing.
+`tests/test_desktop_usage.py` covers the SSE parser, the usage board (running and recent calls, merging, expiry, minute steps, snapshots, bad events), opening the stream with the bearer without showing it, and the worker's forwarding, backoff, and stop. `tests/test_desktop_window_status.py` also covers the usage lines and the client details: live updates without rebuilding rows, a hidden line giving its space back, the stream following the mode, stale messages dropped, and closing.
 
 `tests/test_desktop_processing.py` covers typed snapshot/event/resync parsing, malformed and unknown records, content-bearing field projection, stream/sequence deduplication, restart, stop, authenticated loopback opening, bounded reconnect, and quiet older-Hub behavior. Window tests cover placement, newest-three order and opacity, locale changes, compact mode, unchanged child rows, tracking independence, generation cancellation, disable/restart/close, and clearing a missing route without a footer error.
 

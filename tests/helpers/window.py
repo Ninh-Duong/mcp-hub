@@ -23,7 +23,7 @@ from mcp_hub.desktop.status import ChildRow, HubSnapshot
 
 __all__ = [
     "ChildRow",
-    "FakeStore",
+    "WindowFakeStore",
     "HubSettings",
     "HubSnapshot",
     "HyperlinkButton",
@@ -135,7 +135,7 @@ def enabled(segmented, value) -> bool:
     return widgets.segment(segmented, value).isEnabled()
 
 
-class FakeStore:
+class WindowFakeStore:
     """HubClient stand-in: keeps the saved choices in memory."""
 
     def __init__(self) -> None:

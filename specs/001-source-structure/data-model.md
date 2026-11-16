@@ -21,7 +21,7 @@ One row per allowed import direction. The import-graph test (R10) checks these r
 
 | Layer | Modules | May import | Must not import |
 |---|---|---|---|
-| Leaf | `jsonio`, `clients`, `tool_meta`, `progress`, `textnorm`, `settings` | standard library, MCP SDK (`progress` only) | any other `mcp_hub` module |
+| Leaf | `jsonio`, `clients`, `tool_meta`, `progress`, `textnorm`, `jobs/timeutil`, `settings` | standard library, MCP SDK (`progress` only) | any other `mcp_hub` module |
 | Results | `results/*` | leaves | `planning/*`, `server`, `agents/*` |
 | Planning | `planning/*` | leaves, `results/*` | `agents/*`, `server` |
 | Core | `server`, `child_lifecycle`, `instructions`, `batch`, `tool_pins` | leaves, `results`, `planning` | `activity_ui`, `bitnet`, `dashboard`, `jobs`, `agents` |

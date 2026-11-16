@@ -19,7 +19,7 @@ PLAYBOOKS = {
 TASK = "count the functions in the repository that split on a comma"
 
 
-class FakeClock:
+class PlanConfirmFakeClock:
     def __init__(self) -> None:
         self.now = 0.0
 
@@ -55,7 +55,7 @@ class NeedsConfirmationTest(unittest.TestCase):
 
 class ConfirmTokensTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.clock = FakeClock()
+        self.clock = PlanConfirmFakeClock()
         self.tokens = plan_confirm.ConfirmTokens(600, clock=self.clock)
         self.token = self.tokens.issue(TASK, ["source-search", plan_confirm.NONE_CHOICE])
 

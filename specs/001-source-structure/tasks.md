@@ -212,7 +212,7 @@
 - [X] T086 [US4] Run `uv run --no-sync python scripts/package_qc.py` and the surface contract test (no difference)
 - [ ] T087 [US4] Run `uv run --no-sync python scripts/smoke.py` on the maintainer's machine (needs child configuration; report which children were skipped)
 - [ ] T088 [US4] Desktop manual check per quickstart section 6: status view, update card, mini mode, usage and processing views, and window close (the Hub keeps running)
-- [ ] T089 [US4] Commit Phase 6: "refactor(jobs,desktop): split job runner and desktop app into focused modules"
+- [X] T089 [US4] Commit Phase 6: "refactor(jobs,desktop): split job runner and desktop app into focused modules"
 
 **Checkpoint**: Each job and desktop concern is in its own module. The settle path is covered by a test.
 
@@ -254,7 +254,7 @@
 - [ ] T106 [P] [US6] Rename test files whose module moved, for clarity, for example `tests/test_plan_merge.py` → `tests/test_planning_merge.py`, `tests/test_policy.py` → `tests/test_planning_policy.py`; `check_code_standards` maps tests by import, so the rename does not break the module check
 - [X] T107 [US6] Add a search-based test in `tests/test_module_boundaries.py` (or a new `tests/test_test_hygiene.py`) that fails if any test module imports from another `tests.test_*` module
 - [X] T108 [US6] Run `uv run --no-sync python scripts/package_qc.py` and confirm the test count is the same as before the phase (no test removed)
-- [ ] T109 [US6] Commit Phase 8: "test: share fakes via tests/helpers and split the desktop window tests"
+- [X] T109 [US6] Commit Phase 8: "test: share fakes via tests/helpers and split the desktop window tests"
 
 **Checkpoint**: Tests are organized by module, and fakes are defined once.
 
@@ -264,14 +264,14 @@
 
 **Purpose**: Verify the whole feature end to end.
 
-- [ ] T110 [P] Run `uv run --no-sync python scripts/package_qc.py` on the final commit; coverage must be at least 85 percent
-- [ ] T111 [P] Check SC-002 and SC-003: `wc -l` shows no `src/mcp_hub` file over 600 lines except those already listed as under review; no function over 50 lines (`scripts/check_code_standards.py`)
-- [ ] T112 [P] Run the surface contract test; confirm no difference except the settings keys added in Phase 7
-- [ ] T113 Run `uv run --no-sync python scripts/bench_call_path.py` and compare with `tests/contract_baseline/bench.json` (SC-007)
-- [ ] T114 Search tracked files outside `docs/history/` for old module paths and removed names (`agent-plans`, `plan_merge`, `result_cache`, `full_results`, `server.py` paths that moved); fix each one
-- [ ] T115 Run `/speckit-converge` against this tasks file and the spec; append any remaining work as new tasks
+- [X] T110 [P] Run `uv run --no-sync python scripts/package_qc.py` on the final commit; coverage must be at least 85 percent
+- [X] T111 [P] Check SC-002 and SC-003: `wc -l` shows no `src/mcp_hub` file over 600 lines except those already listed as under review; no function over 50 lines (`scripts/check_code_standards.py`)
+- [X] T112 [P] Run the surface contract test; confirm no difference except the settings keys added in Phase 7
+- [X] T113 Run `uv run --no-sync python scripts/bench_call_path.py` and compare with `tests/contract_baseline/bench.json` (SC-007)
+- [X] T114 Search tracked files outside `docs/history/` for old module paths and removed names (`agent-plans`, `plan_merge`, `result_cache`, `full_results`, `server.py` paths that moved); fix each one
+- [X] T115 Run `/speckit-converge` against this tasks file and the spec; append any remaining work as new tasks
 - [ ] T116 Ask the maintainer whether to raise the version, as `docs/versioning.md` requires; do not change `pyproject.toml` without their answer
-- [ ] T117 Review the branch history with `git log --oneline master..refactor/source-structure`; there must be one commit per phase (FR-021) and no commit on master
+- [X] T117 Review the branch history with `git log --oneline master..refactor/source-structure`; there must be one commit per phase (FR-021) and no commit on master
 
 ---
 
@@ -342,3 +342,16 @@ Task: T025 Create src/mcp_hub/progress.py
 - **MVP scope**: Phases 1–3 (T001–T016), which return the quality gate to green and create the baseline guard
 - **Independent test per story**: listed at the top of each phase
 - **Format check**: every task is `- [ ] Txxx [P?] [USn?] description with path`; Setup, Foundational, and Polish carry no story label
+
+## Phase 9: Convergence
+
+**Purpose**: Remaining gaps between the spec, plan, and tasks and the code at HEAD, found by `/speckit-converge`. Each task is independent and can be done alone. The constitution is an unfilled template, so no constitution findings apply.
+
+- [X] T120 Consolidate test fakes that share a name across test modules (FakeClient in six modules, FakeChild, FakeClock, FakeCondenser, FakeOpener, FakeProtector, FakeStore) into tests/helpers, and rename the two different FakeResponse classes in tests/helpers/desktop.py and tests/helpers/fakes.py so each name means one thing; fakes whose behaviour differs stay separate with distinct names per FR-018 (partial)
+- [X] T121 Split src/mcp_hub/jobs/store.py (611 lines) so no module under src/mcp_hub exceeds 600 lines, keeping its public methods, return values, and audit events unchanged per SC-002 (partial)
+- [X] T122 Run the two failing checks of scripts/smoke.py (mcp-server-logs list_openobserve_organizations: fetch failed; mcp-sqlserver check_connection: TimeoutError) against the pre-refactor commit 08bad0f on the same machine. If they pass there, find and fix the regression; if they fail there too, record the environmental cause in this file's notes per SC-009 via T087 (partial)
+  - T122 result: the pre-refactor commit 08bad0f, run with the same config and sibling children, fails the same two checks: mcp-server-logs (list_openobserve_organizations: fetch failed) and mcp-sqlserver (check_connection: TimeoutError). Both are environmental (upstream reachability), not a regression. mcp-read-source failed only in the worktree (it has no .venv), an artifact of the comparison.
+- [X] T123 Add tests/test_job_approvals.py that imports mcp_hub.jobs.approvals and covers approve_job with a correct code, a wrong code, an expired code, and rejection if the job API defines one (state in the test that it does not otherwise); T072 named this file and it does not exist yet per US2 and FR-019 (partial)
+- [X] T124 Update plan.md (Project Structure and target layout) and data-model.md to the implemented layout: desktop/cli.py instead of desktop/__main__.py (see T082), call_observers.py, results/runtime.py, bootstrap.py, and the desktop mixin modules (appearance, actions, live_feeds, polling, render, update_controller, stream) per plan: target layout (contradicts)
+- [X] T125 Decide T106 (rename the moved test modules, for example tests/test_plan_merge.py to tests/test_planning_merge.py, and update the docs that cite them) or record it as cancelled in this file's notes per plan: test layout (partial)
+  - T125 decision: T106 (renaming test modules) is recorded as cancelled. The docs cite test file names, a rename changes no behaviour, and the names already describe the tests; reopen T106 only if a rename is wanted later.

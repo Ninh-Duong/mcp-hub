@@ -169,7 +169,7 @@ class _FakeCreate:
         return SimpleNamespace(content=[SimpleNamespace(type="text", text="ok")], output=[], output_text="ok")
 
 
-class _FakeClient:
+class HarnessFakeClient:
     def __init__(self) -> None:
         self.calls = _FakeCreate()
         self.messages = self.calls
@@ -190,7 +190,7 @@ USER_MESSAGE = {"role": "user", "content": "Analyze logs"}
 
 class AnthropicPromptCacheTest(unittest.IsolatedAsyncioTestCase):
     async def _request(self, prompt_cache: bool) -> dict:
-        client = _FakeClient()
+        client = HarnessFakeClient()
         provider = AnthropicProvider("test-model", "test-only-key", client=client, prompt_cache=prompt_cache)
         await provider.complete([SYSTEM_MESSAGE, USER_MESSAGE], LOG_TOOLS)
         return client.calls.requests[0]
@@ -214,13 +214,13 @@ class AnthropicPromptCacheTest(unittest.IsolatedAsyncioTestCase):
         }])
 
     async def test_no_empty_system_block_without_a_system_prompt(self) -> None:
-        client = _FakeClient()
+        client = HarnessFakeClient()
         provider = AnthropicProvider("test-model", "test-only-key", client=client, prompt_cache=True)
         await provider.complete([USER_MESSAGE], [])
         self.assertEqual(client.calls.requests[0]["system"], "")
 
     async def test_stable_prefix_is_the_same_for_two_jobs(self) -> None:
-        client = _FakeClient()
+        client = HarnessFakeClient()
         provider = AnthropicProvider("test-model", "test-only-key", client=client, prompt_cache=True)
         executor = SpecialistExecutor(
             runtime=SimpleNamespace(public_tools=LOG_TOOLS, audit=None), provider=provider,
@@ -235,7 +235,7 @@ class AnthropicPromptCacheTest(unittest.IsolatedAsyncioTestCase):
 
 class OpenAIToolOrderTest(unittest.IsolatedAsyncioTestCase):
     async def test_tools_are_sent_sorted_by_name(self) -> None:
-        client = _FakeClient()
+        client = HarnessFakeClient()
         provider = OpenAIProvider("test-model", "test-only-key", client=client)
         await provider.complete([SYSTEM_MESSAGE, USER_MESSAGE], LOG_TOOLS)  # declared as search, then query
         request = client.calls.requests[0]
