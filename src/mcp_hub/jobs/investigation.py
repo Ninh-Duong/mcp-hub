@@ -47,7 +47,10 @@ class InvestigationMixin:
                     return "\n\n".join([draft, *notes]), False
             return _fallback_summary(findings, *notes, "Coordinator agent is not configured."), False
         audit = getattr(self.runtime, "audit", None)
-        redactor = (lambda text: audit.redact_content(text, limit=12000)) if audit is not None else None
+        redactor = (
+            (lambda text: audit.redact_content(text, limit=self.limits.coordinator_input_chars))
+            if audit is not None else None
+        )
         try:
             async with asyncio.timeout(self.limits.coordinator_seconds):
                 summary = await synthesize(
@@ -58,6 +61,9 @@ class InvestigationMixin:
                     issue_key=request.get("issue_key"),
                     findings=findings,
                     redactor=redactor,
+                    input_chars=self.limits.coordinator_input_chars,
+                    output_tokens=self.limits.coordinator_output_tokens,
+                    summary_chars=self.limits.coordinator_summary_chars,
                 )
         except Exception as exc:
             return _fallback_summary(findings, *notes, f"Coordinator failed ({type(exc).__name__})."), False
@@ -151,6 +157,7 @@ class InvestigationMixin:
             max_rounds=self.limits.specialist_max_rounds,
             context_chars=self.limits.context_chars,
             tool_result_chars=self.limits.tool_result_chars,
+            provider_output_tokens=self.limits.provider_output_tokens,
         )
         await store_call(self.store.append_event, job_id, "agent.started", agent=role)
         return await executor.run(job_id, role, _specialist_task(request))

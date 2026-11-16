@@ -15,7 +15,7 @@ from ..audit import SENSITIVE_FIELD_RE, redact
 from ..config import DOCS_ROOT
 from ..extensions import ResultCondenser
 from ..tool_meta import is_read_only_tool
-from ..settings import JobSettings
+from ..settings import BitnetSettings, JobSettings
 from .harness import ContextBudget, Exchange
 from .providers import ModelProvider, ModelToolCall, ModelTurn
 
@@ -203,8 +203,9 @@ class SpecialistExecutor:
         context_chars: int = JobSettings().context_chars,
         tool_result_chars: int = JobSettings().tool_result_chars,
         condenser: ResultCondenser | None = None,
-        condense_min_chars: int = 9000,
-        condense_timeout_seconds: float = 8.0,
+        condense_min_chars: int = BitnetSettings().condense_min_chars,
+        condense_timeout_seconds: float = BitnetSettings().condense_timeout_seconds,
+        provider_output_tokens: int = JobSettings().provider_output_tokens,
     ) -> None:
         self.runtime = runtime
         self.provider = provider
@@ -217,6 +218,7 @@ class SpecialistExecutor:
         self.condenser = condenser
         self.condense_min_chars = condense_min_chars
         self.condense_timeout_seconds = condense_timeout_seconds
+        self.provider_output_tokens = provider_output_tokens
 
     async def run(self, job_id: str, role: str, task: str) -> SpecialistResult:
         tools = tools_for_role(role, self.runtime.public_tools, self.tool_filter)
@@ -226,7 +228,9 @@ class SpecialistExecutor:
         rounds: list[_Round] = []
         evidence: list[EvidenceRef] = []
         for _ in range(self.max_rounds):
-            turn = await self.provider.complete(self._transcript(base, rounds), tools)
+            turn = await self.provider.complete(
+                self._transcript(base, rounds), tools, max_output_tokens=self.provider_output_tokens,
+            )
             if not turn.tool_calls:
                 return SpecialistResult(role, turn.text.strip(), tuple(evidence))
             exchanges: list[Exchange] = []

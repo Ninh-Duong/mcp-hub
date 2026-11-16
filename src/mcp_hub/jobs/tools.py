@@ -91,7 +91,10 @@ def limit_text(seconds: float) -> str:
     """`15-minute` for whole minutes, else `90-second`: the job window as the job's notes name it."""
     return f"{seconds / 60:g}-minute" if seconds >= 60 and seconds % 60 == 0 else f"{seconds:g}-second"
 
-def create_provider(config: AgentConfig, *, prompt_cache: bool = JobSettings().prompt_cache) -> ModelProvider:
+def create_provider(
+    config: AgentConfig, *, prompt_cache: bool = JobSettings().prompt_cache,
+    timeout_seconds: float = JobSettings().provider_timeout_seconds,
+) -> ModelProvider:
     if not config.configured or not config.provider or not config.model or not config.api_key:
         raise ValueError("Agent is not configured")
     provider_types = {
@@ -105,8 +108,10 @@ def create_provider(config: AgentConfig, *, prompt_cache: bool = JobSettings().p
     if not provider_package_installed(config.provider):
         raise ValueError(PACKAGE_MISSING_MESSAGE)
     if provider_type is AnthropicProvider:
-        return AnthropicProvider(config.model, config.api_key, prompt_cache=prompt_cache)
-    return provider_type(config.model, config.api_key)
+        return AnthropicProvider(
+            config.model, config.api_key, prompt_cache=prompt_cache, timeout_seconds=timeout_seconds,
+        )
+    return provider_type(config.model, config.api_key, timeout_seconds=timeout_seconds)
 
 def create_providers(
     agents: dict[str, AgentConfig], provider_factory: Callable[[AgentConfig], ModelProvider],

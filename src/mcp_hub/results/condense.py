@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from ..extensions import Condensed, ResultCondenser
+from ..settings import BitnetSettings
 from ..textnorm import fold
 
 _TS_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b")
@@ -199,7 +200,7 @@ def condense_text_rules(text: str, max_chars: int, task: str | None = None) -> C
 class RuleCondenser(ResultCondenser):
     """Pure-Python deterministic condenser; runs in core even without BitNet."""
 
-    def __init__(self, *, max_chars: int = 9000) -> None:
+    def __init__(self, *, max_chars: int = BitnetSettings().condense_min_chars) -> None:
         self.max_chars = max_chars
 
     async def condense(

@@ -90,6 +90,26 @@ class JobSettings:
     context_chars: int = 48000
     # Ask the model provider to cache the stable part of each prompt (tool list first).
     prompt_cache: bool = True
+    # The model provider: the request timeout and the output budget of each call.
+    provider_timeout_seconds: float = 60.0
+    provider_output_tokens: int = 2048
+    # The coordinator's summary: input budget, output budget, and the length of the summary it returns.
+    coordinator_input_chars: int = 12000
+    coordinator_output_tokens: int = 1200
+    coordinator_summary_chars: int = 4000
+    # The default page size of hub__get_job_detail and the longest question hub__submit_issue accepts.
+    detail_page_limit: int = 2000
+    question_max_chars: int = 5000
+
+
+@dataclass(frozen=True)
+class ActivitySettings:
+    # The activity UI's recorder: events written per batch, the longest wait for a batch, and the queue bound.
+    batch_size: int = 50
+    batch_seconds: float = 1.0
+    queue_limit: int = 10000
+    # The activity stream sends a keep-alive comment after this many seconds without an event.
+    stream_keepalive_seconds: float = 15.0
 
 
 @dataclass(frozen=True)
@@ -136,6 +156,17 @@ class BitnetSettings:
     full_result_max_entries: int = 50
     # Total bytes of the original results kept in memory; the oldest are dropped first.
     full_result_max_bytes: int = 32 * 1024 * 1024
+    # The sidecar: the context window in tokens, the health check timeout, and the recheck timeout while it runs.
+    sidecar_context_tokens: int = 4096
+    sidecar_health_seconds: float = 0.5
+    sidecar_recheck_seconds: float = 1.0
+    # The draft summary: input budget, output budget, and the time it may take.
+    summary_input_chars: int = 10000
+    summary_output_tokens: int = 400
+    summary_timeout_seconds: float = 30.0
+    # How long a stop waits for an install to end at its next chunk, and the size of the chunks the condenser reads.
+    setup_wait_seconds: float = 5.0
+    condense_chunk_chars: int = 10000
     # Install from the desktop app: the GitHub repository whose Release carries the prebuilt runtime and the
     # model manifest, the time without data before a download fails, and the free space needed before it starts.
     release_repository: str = "Ninh-Duong/mcp-hub"
@@ -156,6 +187,7 @@ class Settings:
     batch: BatchSettings = field(default_factory=BatchSettings)
     policy: PolicySettings = field(default_factory=PolicySettings)
     bitnet: BitnetSettings = field(default_factory=BitnetSettings)
+    activity: ActivitySettings = field(default_factory=ActivitySettings)
 
 
 # Lowest accepted value per key; everything else must only be positive. The port stays out of the

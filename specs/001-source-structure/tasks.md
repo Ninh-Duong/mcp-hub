@@ -224,18 +224,18 @@
 
 **Independent Test**: `tests/test_settings_defaults.py` passes; `scripts/check_docs.py` passes; the surface contract shows only added keys.
 
-- [ ] T090 [US5] Add `ActivitySettings` to `src/mcp_hub/settings.py` with `batch_size=50`, `batch_seconds=1.0`, `queue_limit=10000`, `stream_keepalive_seconds=15.0`, and add it to `Settings`
-- [ ] T091 [US5] Pass `ActivitySettings` values into `src/mcp_hub/activity_ui/recorder.py:11-12` and `src/mcp_hub/activity_ui/routes.py:16` through their constructors, and wire them in `src/mcp_hub/service.py`; no module reads the config itself
-- [ ] T092 [US5] Add the BitNet keys to `BitnetSettings` in `src/mcp_hub/settings.py`: sidecar context size `4096` (`bitnet/sidecar.py:101`), health timeouts `0.5` and `1.0` (`sidecar.py:111`, `:156`), summary input limit `10000`, summary output `400`, summary timeout `30.0` (`bitnet/summarize.py:22-24`), setup wait `5.0` (`bitnet/setup.py:171`), and chunk size `10000` (`bitnet/condense.py:27`, `:95`)
-- [ ] T093 [US5] Add `AgentSettings` to `src/mcp_hub/settings.py` with coordinator input limit `12000`, coordinator tool-free output `1200`, coordinator summary limit `4000` (`agents/coordinator.py:51`, `:57`, `:63`), provider default timeout `60.0` (`agents/providers.py:13`), and provider output limit `2048` (`agents/providers.py:55`); wire them into the agents at start
-- [ ] T094 [US5] Add to `JobSettings` in `src/mcp_hub/settings.py`: detail page default limit `2000` (`jobs/runner.py:254`) and question max length `5000` (`jobs/runner.py:279`); read them from the settings object passed at start
-- [ ] T095 [US5] Make `agents/specialists.py:193` and `jobs/runner.py:183` take `condense_min_chars` from the existing `settings.py:134` value passed in at start (same concept, one key)
-- [ ] T096 [US5] Add a new key `rule_condense_max_chars` default `9000` to `settings.py`, and use it for `condense.py:202` (`RuleCondenser`) and `bitnet/condense.py:49` (`BitnetCondenser`). Do NOT merge it with `condense_min_chars` (research.md R7: different concepts)
-- [ ] T097 [US5] Create `tests/test_settings_defaults.py`: a table of every moved key and its old literal default; each key's default must equal that literal
-- [ ] T098 [US5] Document every new key in `docs/settings.md` with its default and meaning; `scripts/check_docs.py` must pass
-- [ ] T099 [US5] Add a comment at `src/mcp_hub/desktop/system.py:23` (`DRAIN_WAIT_SECONDS = 40`) naming `HttpSettings.shutdown_drain_seconds`, because the desktop cannot import `settings.py`
-- [ ] T100 [US5] Run `uv run --no-sync python scripts/package_qc.py` and the surface contract test; the only allowed difference is the new settings keys, with `tests/contract_baseline/settings.json` regenerated in that same commit
-- [ ] T101 [US5] Commit Phase 7: "refactor(settings): move hard-coded tunables into settings with unchanged defaults"
+- [X] T090 [US5] Add `ActivitySettings` to `src/mcp_hub/settings.py` with `batch_size=50`, `batch_seconds=1.0`, `queue_limit=10000`, `stream_keepalive_seconds=15.0`, and add it to `Settings`
+- [X] T091 [US5] Pass `ActivitySettings` values into `src/mcp_hub/activity_ui/recorder.py:11-12` and `src/mcp_hub/activity_ui/routes.py:16` through their constructors, and wire them in `src/mcp_hub/service.py`; no module reads the config itself
+- [X] T092 [US5] Add the BitNet keys to `BitnetSettings` in `src/mcp_hub/settings.py`: sidecar context size `4096` (`bitnet/sidecar.py:101`), health timeouts `0.5` and `1.0` (`sidecar.py:111`, `:156`), summary input limit `10000`, summary output `400`, summary timeout `30.0` (`bitnet/summarize.py:22-24`), setup wait `5.0` (`bitnet/setup.py:171`), and chunk size `10000` (`bitnet/condense.py:27`, `:95`)
+- [X] T093 [US5] Put the coordinator and provider values in `JobSettings` (not a new `AgentSettings`, see research.md R7): coordinator input `12000`, output `1200`, summary `4000` (`agents/coordinator.py`), provider timeout `60.0` and output `2048` (`agents/providers.py`); pass them from `JobRunner` limits (`jobs/investigation.py`, `jobs/tools.py`)
+- [X] T094 [US5] Add to `JobSettings` in `src/mcp_hub/settings.py`: detail page default limit `2000` (`jobs/runner.py:254`) and question max length `5000` (`jobs/runner.py:279`); read them from the settings object passed at start
+- [X] T095 [US5] Make `agents/specialists.py:193` and `jobs/runner.py:183` take `condense_min_chars` from the existing `settings.py:134` value passed in at start (same concept, one key)
+- [X] T096 [US5] Do NOT add `rule_condense_max_chars`. Set the constructor defaults of `RuleCondenser` (`results/condense.py`) and `BitnetCondenser` (`bitnet/condense.py`) to `BitnetSettings().condense_min_chars` and `BitnetSettings().condense_timeout_seconds`, so the 9000 literal exists once, in `settings.py` (research.md R7)
+- [X] T097 [US5] Create `tests/test_settings_defaults.py`: a table of every moved key and its old literal default; each key's default must equal that literal
+- [X] T098 [US5] Document every new key in `docs/settings.md` with its default and meaning; `scripts/check_docs.py` must pass
+- [X] T099 [US5] Add a comment at `src/mcp_hub/desktop/system.py:23` (`DRAIN_WAIT_SECONDS = 40`) naming `HttpSettings.shutdown_drain_seconds`, because the desktop cannot import `settings.py`
+- [X] T100 [US5] Run `uv run --no-sync python scripts/package_qc.py` and the surface contract test; the only allowed difference is the new settings keys, with `tests/contract_baseline/settings.json` regenerated in that same commit
+- [X] T101 [US5] Commit Phase 7: "refactor(settings): move hard-coded tunables into settings with unchanged defaults"
 
 **Checkpoint**: No tunable from the review remains as a literal in code.
 

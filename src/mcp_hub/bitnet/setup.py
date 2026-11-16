@@ -168,7 +168,7 @@ class BitnetSetup:
             self._installer.cancel.set()
         if self._task is not None and not self._task.done():
             try:
-                await asyncio.wait_for(asyncio.shield(self._task), timeout=5.0)
+                await asyncio.wait_for(asyncio.shield(self._task), timeout=self.settings.setup_wait_seconds)
             except (TimeoutError, Exception):
                 pass
 

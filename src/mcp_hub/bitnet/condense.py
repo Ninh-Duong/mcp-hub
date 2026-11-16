@@ -14,6 +14,7 @@ from ..results.condense import (
 )
 from ..extensions import Condensed, ResultCondenser
 from ..textnorm import fold
+from ..settings import BitnetSettings
 from .client import BitnetClient
 
 __all__ = ["BitnetCondenser", "group_lines", "template_of", "_format_capped"]
@@ -24,7 +25,7 @@ _SYSTEM_PROMPT = (
 )
 
 
-def _chunk_numbered_lines(lines: list[str], max_chars: int = 10000) -> list[list[tuple[int, str]]]:
+def _chunk_numbered_lines(lines: list[str], max_chars: int = BitnetSettings().condense_chunk_chars) -> list[list[tuple[int, str]]]:
     chunks: list[list[tuple[int, str]]] = []
     current: list[tuple[int, str]] = []
     current_len = 0
@@ -46,13 +47,15 @@ class BitnetCondenser(ResultCondenser):
         self,
         client: BitnetClient,
         *,
-        max_chars: int = 9000,
-        timeout: float = 8.0,
+        max_chars: int = BitnetSettings().condense_min_chars,
+        timeout: float = BitnetSettings().condense_timeout_seconds,
+        chunk_chars: int = BitnetSettings().condense_chunk_chars,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.client = client
         self.max_chars = max_chars
         self.timeout = timeout
+        self.chunk_chars = chunk_chars
         self.clock = clock
 
     async def condense(
@@ -92,7 +95,7 @@ class BitnetCondenser(ResultCondenser):
         start = self.clock()
         selected: set[int] = set()
         answered = False
-        for chunk in _chunk_numbered_lines(lines, max_chars=10000):
+        for chunk in _chunk_numbered_lines(lines, max_chars=self.chunk_chars):
             budget = self.timeout - (self.clock() - start)
             if budget <= 0:
                 break

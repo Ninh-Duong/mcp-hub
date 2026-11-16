@@ -42,6 +42,10 @@ The values an operator may want to change live in one optional `settings` object
 | `logs` | `backups` | `3` | Rotated audit logs kept (`.1` to `.3`); `0` or more. |
 | `cache` | `maxEntries` | `256` | Read-only results the Hub keeps in memory for their `cacheSeconds`. |
 | `cache` | `maxBytes` | `4194304` (4 MiB) | Total size of those cached results. |
+| `activity` | `batchSize` | `50` | Events the activity UI's recorder writes to its store in one batch. |
+| `activity` | `batchSeconds` | `1` | Longest wait before a partly filled batch is written. |
+| `activity` | `queueLimit` | `10000` | Events the recorder holds while it waits to write; more are dropped and counted. |
+| `activity` | `streamKeepaliveSeconds` | `15` | Seconds without an event before the activity stream sends a keep-alive comment. |
 | `jobs` | `maxActive` | `2` | Investigations that run at the same time. |
 | `jobs` | `maxQueued` | `20` | Investigations that may wait for a slot; more are refused with a clear error. |
 | `jobs` | `maxJobSeconds` | `900` | The time window of one investigation; the notes name it (for example "15-minute"). |
@@ -54,6 +58,13 @@ The values an operator may want to change live in one optional `settings` object
 | `jobs` | `toolResultChars` | `6000` | Characters of one child tool result a specialist reads; the rest is kept as evidence. |
 | `jobs` | `contextChars` | `48000` | Character budget of a specialist's conversation; older tool results are replaced by one-line evidence references. |
 | `jobs` | `promptCache` | `true` | Ask the model provider to cache the stable start of each prompt (tool definitions first). |
+| `jobs` | `providerTimeoutSeconds` | `60` | Timeout of one request to a model provider (OpenAI, Anthropic, Gemini). |
+| `jobs` | `providerOutputTokens` | `2048` | Output budget of one model call made by a specialist. |
+| `jobs` | `coordinatorInputChars` | `12000` | Characters of the findings the coordinator reads (and the redaction limit of that payload). |
+| `jobs` | `coordinatorOutputTokens` | `1200` | Output budget of the coordinator's summary call. |
+| `jobs` | `coordinatorSummaryChars` | `4000` | Longest summary the coordinator's answer keeps. |
+| `jobs` | `detailPageLimit` | `2000` | Default page size of `hub__get_job_detail` when the caller gives no `limit`. |
+| `jobs` | `questionMaxChars` | `5000` | Longest question `hub__submit_issue` accepts. |
 | `batch` | `maxCalls` | `8` | Most calls in one `hub__batch` (at least 2); the tool's schema follows it. |
 | `batch` | `maxPerChild` | `8` | Most calls of one batch that one child serves at the same time. |
 | `batch` | `timeoutSeconds` | `120` | Time the whole batch may take; a call still running is cancelled and reported. |
@@ -77,6 +88,14 @@ The values an operator may want to change live in one optional `settings` object
 | `bitnet` | `releaseRepository` | `"Ninh-Duong/mcp-hub"` | GitHub repository (`owner/name`) whose Release carries the prebuilt BitNet runtime and model manifest that the desktop app installs. |
 | `bitnet` | `downloadTimeoutSeconds` | `60` | Seconds without data before a BitNet download fails. |
 | `bitnet` | `minFreeBytes` | `3221225472` | Free disk space in bytes needed under `vendor/` before a BitNet install starts (3 GiB). |
+| `bitnet` | `sidecarContextTokens` | `4096` | Context window, in tokens, that llama-server starts with. |
+| `bitnet` | `sidecarHealthSeconds` | `0.5` | Timeout of one health check while the sidecar starts. |
+| `bitnet` | `sidecarRecheckSeconds` | `1` | Timeout of the health check that runs while the sidecar is up. |
+| `bitnet` | `summaryInputChars` | `10000` | Characters of findings the draft summary reads. |
+| `bitnet` | `summaryOutputTokens` | `400` | Output budget of the draft summary. |
+| `bitnet` | `summaryTimeoutSeconds` | `30` | Time budget of the draft summary call. |
+| `bitnet` | `setupWaitSeconds` | `5` | How long a stop waits for a running BitNet install to end at its next chunk. |
+| `bitnet` | `condenseChunkChars` | `10000` | Characters per chunk the BitNet condenser sends to the model. |
 
 ## What stays in code
 

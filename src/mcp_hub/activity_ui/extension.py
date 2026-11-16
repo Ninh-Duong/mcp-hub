@@ -26,8 +26,13 @@ class ActivityUi:
         self.runtime = runtime
         self.tracker = ActivityTracker()
         self.client_sessions = ClientSessions()
-        self.recorder = ActivityRecorder(store, audit) if store is not None else None
-        self._routes = ActivityRoutes(runtime, self.tracker, store)
+        activity = runtime.settings.activity
+        self.recorder = (
+            ActivityRecorder(store, audit, batch_size=activity.batch_size, interval=activity.batch_seconds,
+                             queue_limit=activity.queue_limit)
+            if store is not None else None
+        )
+        self._routes = ActivityRoutes(runtime, self.tracker, store, keepalive_seconds=activity.stream_keepalive_seconds)
 
     # CallObserver
     def call_started(self, server_id: str, tool_name: str, client: str, agent_role: str | None) -> ActivityCall:

@@ -4,6 +4,7 @@ import json
 from collections.abc import Callable
 from typing import Any
 
+from ..settings import JobSettings
 from .providers import ModelProvider, ProviderError
 from .specialists import SpecialistResult, minimize_model_content
 
@@ -39,6 +40,9 @@ async def synthesize(
     issue_key: str | None,
     findings: list[SpecialistResult],
     redactor: Callable[[str], str] | None = None,
+    input_chars: int = JobSettings().coordinator_input_chars,
+    output_tokens: int = JobSettings().coordinator_output_tokens,
+    summary_chars: int = JobSettings().coordinator_summary_chars,
 ) -> str:
     payload = {
         "question": question,
@@ -48,16 +52,16 @@ async def synthesize(
         "findings": findings_payload(findings),
     }
     user_text = minimize_model_content(
-        json.dumps(payload, ensure_ascii=False), limit=12000, redactor=redactor,
+        json.dumps(payload, ensure_ascii=False), limit=input_chars, redactor=redactor,
     )
     try:
         turn = await provider.complete(
             [{"role": "system", "content": _SYSTEM_PROMPT}, {"role": "user", "content": user_text}],
             [],
-            max_output_tokens=1200,
+            max_output_tokens=output_tokens,
         )
     except Exception as exc:
         raise ProviderError(f"Coordinator request failed ({type(exc).__name__})") from None
     if turn.tool_calls:
         raise ProviderError("Coordinator returned an unexpected tool call")
-    return minimize_model_content(turn.text.strip(), limit=4000)
+    return minimize_model_content(turn.text.strip(), limit=summary_chars)

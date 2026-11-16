@@ -23,7 +23,7 @@ from .common import JobSlot, store_call
 from .investigation import InvestigationMixin, roles_for
 from .tools import JOB_TOOLS, create_provider, create_providers, object_schema
 from ..security.dpapi import WINDOWS_ONLY_MESSAGE
-from ..settings import JobSettings
+from ..settings import BitnetSettings, JobSettings
 from .policy import SideEffectPolicy
 from ..projects import ProjectConfig, validate_project_env
 from .store import JobStore, TERMINAL_STATES
@@ -59,8 +59,8 @@ class JobRunner(ApprovalMixin, InvestigationMixin):
         summarizer: DraftSummarizer | None = None,
         processing_observer: ProcessingObserver | None = None,
         plan_timeout_seconds: float = 3.0,
-        condense_min_chars: int = 9000,
-        condense_timeout_seconds: float = 8.0,
+        condense_min_chars: int = BitnetSettings().condense_min_chars,
+        condense_timeout_seconds: float = BitnetSettings().condense_timeout_seconds,
     ) -> None:
         self.store = store
         self.limits = limits
@@ -79,7 +79,7 @@ class JobRunner(ApprovalMixin, InvestigationMixin):
         add_secrets = getattr(audit, "add_secrets", None)
         if callable(add_secrets):
             add_secrets(config.api_key for config in agents.values() if config and config.api_key)
-        factory = provider_factory or partial(create_provider, prompt_cache=limits.prompt_cache)
+        factory = provider_factory or partial(create_provider, prompt_cache=limits.prompt_cache, timeout_seconds=limits.provider_timeout_seconds)
         self.providers = create_providers(agents, factory)
         self.policy = policy or SideEffectPolicy()
         self._slots = asyncio.Semaphore(limits.max_active)
@@ -130,7 +130,7 @@ class JobRunner(ApprovalMixin, InvestigationMixin):
         if name == "hub__get_job_detail":
             return await store_call(
                 self.store.get_detail_page,
-                args["job_id"], args["source_id"], offset=args.get("offset", 0), limit=args.get("limit", 2000),
+                args["job_id"], args["source_id"], offset=args.get("offset", 0), limit=args.get("limit", self.limits.detail_page_limit),
             )
         if name == "hub__provide_job_input":
             return await self.provide_input(args["job_id"], args["env"])
@@ -155,8 +155,8 @@ class JobRunner(ApprovalMixin, InvestigationMixin):
         project_config = self.projects.get(project)
         if project_config is None:
             raise ValueError("Project alias is not registered")
-        if not isinstance(question, str) or not question.strip() or len(question) > 5000:
-            raise ValueError("question must be non-empty and at most 5000 characters")
+        if not isinstance(question, str) or not question.strip() or len(question) > self.limits.question_max_chars:
+            raise ValueError(f"question must be non-empty and at most {self.limits.question_max_chars} characters")
         candidate_env = env if env is not None else project_config.default_env
         selected_env = validate_project_env(project_config, candidate_env) if candidate_env is not None else None
         for label, value in (("issue_key", issue_key), ("rcid", rcid)):

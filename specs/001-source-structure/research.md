@@ -42,14 +42,13 @@ All items were resolved from the repository itself. No external research was nee
 - **Rationale**: The key set is defined twice: `server.py:1025` lists the protocol keys by hand, and `bridge_proxy.py:28` builds them from SDK constants. The send-progress closures are identical. Using the SDK constants in both places keeps the set in step with the SDK.
 - **Verification**: Existing tests for progress and `_meta` forwarding must stay green. Add one test that asserts both paths forward the same key set.
 
-## R7. Settings: move tunables, but do not merge different concepts
+## R7. Settings: move tunables; one definition for the 9000 default (revised during Phase 7)
 
-- **Decision**: Move the hard-coded values listed in the review into `settings.py`, each with the same default. Keep two concepts separate:
-  - `condense_min_chars` (`settings.py:134`, the activation threshold) is used by `agents/specialists.py:193` and `jobs/runner.py:183`. These are the same concept and point at one key.
-  - `max_chars` (the output budget) in `condense.py:202` and `bitnet/condense.py:49` is a different concept. It gets its own key, for example `rule_condense_max_chars`, with default 9000. It is not merged with `condense_min_chars`.
-- **Rationale**: The two values only share a number. Merging them would change when condensing runs or how much it keeps.
-- **Verification**: Add a test that the default of each new key equals the previous hard-coded value. Document every key in `docs/settings.md` (checked by `check_docs.py`).
-- **Alternatives considered**: One key for all 9000 values. Rejected because of the semantic difference above.
+- **Decision**: Move each hard-coded tunable from the review into a documented key in `settings.py` with the value it had. The coordinator, provider, and job-detail values go into `JobSettings`, the activity values into a new `ActivitySettings`, and the BitNet values into `BitnetSettings`. There is no separate `AgentSettings`: the job runner already receives `JobSettings` as its limits, so the values reach the coordinator, the providers, and the specialists without new plumbing.
+- **The 9000 default** is one concept at run time, not two. `server.enable_core_condenser` builds `RuleCondenser(max_chars=settings.bitnet.condense_min_chars)`, and `bitnet/__init__.py` builds `BitnetCondenser(max_chars=settings.bitnet.condense_min_chars)`. The threshold that decides whether to condense uses the same key. Merging the constructor defaults into `settings.py` therefore keeps behaviour. No new key is added: the constructor defaults now refer to `BitnetSettings().condense_min_chars` and `BitnetSettings().condense_timeout_seconds`, so the literal 9000 exists once, in `settings.py`.
+- **Why the first plan was wrong**: The first version of this decision proposed a separate `rule_condense_max_chars` key. The code shows the rule condenser already uses the threshold key at run time. A separate key would have changed behaviour for anyone who sets `condenseMinChars`.
+- **Verification**: `tests/test_settings_defaults.py` checks every moved key against its previous literal. `tests/contract_baseline/settings.json` shows 19 added keys and no change to an old key.
+- **Alternatives considered**: One key for every 9000 value, which would have merged the threshold and the budgets. Rejected because it would change the coordinator and the specialists' behaviour, not just move code.
 
 ## R8. `_settle_interrupted` on the cancellation path
 
