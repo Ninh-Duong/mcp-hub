@@ -9,6 +9,9 @@ from pathlib import PurePosixPath
 _PATH_RE = re.compile(r"(?<![A-Za-z])[A-Za-z]:[\\/]|/Users/|/home/")
 _EMAIL_RE = re.compile(r"[\w.%+-]+@(?P<domain>[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,})", re.IGNORECASE)
 SKIP = {"scripts/check_leaks.py"}
+# Generated Spec Kit tooling: its scripts quote drive letters in comments. Only the absolute-path rule is
+# waived for these folders; emails and private files are still checked.
+ABSOLUTE_PATH_EXEMPT_PREFIXES = (".specify/",)
 
 
 def _is_private_path(path: str) -> bool:
@@ -19,6 +22,10 @@ def _is_private_path(path: str) -> bool:
         or any(part == ".env" or part.startswith(".env.") for part in parts)
         or any(part == "config" and index + 1 < len(parts) and parts[index + 1] == "private" for index, part in enumerate(parts))
     )
+
+
+def _exempt_from_path_rule(path: str) -> bool:
+    return path.replace("\\", "/").startswith(ABSOLUTE_PATH_EXEMPT_PREFIXES)
 
 
 def _has_non_example_email(line: str) -> bool:
@@ -38,7 +45,7 @@ def main() -> int:
         except (UnicodeDecodeError, FileNotFoundError):
             continue
         for number, line in enumerate(lines, 1):
-            if _PATH_RE.search(line):
+            if _PATH_RE.search(line) and not _exempt_from_path_rule(path):
                 problems.append(f"{path}:{number}: absolute path")
             if _has_non_example_email(line):
                 problems.append(f"{path}:{number}: email")

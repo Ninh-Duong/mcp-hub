@@ -80,5 +80,27 @@ class CheckLeaksTest(unittest.TestCase):
             root.rmdir()
 
 
+    def test_spec_kit_tooling_may_quote_drive_letters_but_not_emails(self) -> None:
+        root = Path(tempfile.mkdtemp())
+        try:
+            drive = "C:" + "\\" + "Users"
+            external = "person@corp" + ".example"
+            (root / ".specify" / "scripts").mkdir(parents=True)
+            (root / ".specify" / "scripts" / "common.ps1").write_text("# keeps " + drive + "\n", encoding="utf-8")
+            (root / ".specify" / "notes.md").write_text(external + "\n", encoding="utf-8")
+            (root / "docs.md").write_text("# keeps " + drive + "\n", encoding="utf-8")
+            code, output = self.run_check(root, [".specify/scripts/common.ps1", ".specify/notes.md", "docs.md"])
+            self.assertEqual(code, 1)
+            self.assertNotIn(".specify/scripts/common.ps1:1: absolute path", output)
+            self.assertIn(".specify/notes.md:1: email", output)
+            self.assertIn("docs.md:1: absolute path", output)
+        finally:
+            for path in sorted(root.rglob("*"), reverse=True):
+                if path.is_file():
+                    path.unlink()
+                elif path.is_dir():
+                    path.rmdir()
+            root.rmdir()
+
 if __name__ == "__main__":
     unittest.main()
