@@ -89,6 +89,9 @@ CODEGEN = ["utils/codegen_tl2.py", "--model", "bitnet_b1_58-3B", "--BM", "160,32
            "--bm", "32,32,32"]
 CMAKE_CONFIGURE = [
     "-DBITNET_X86_TL2=OFF", "-T", "ClangCL", "-DCMAKE_C_COMPILER=clang", "-DCMAKE_CXX_COMPILER=clang++",
+    # Never inherit instruction sets from the release runner; this binary supports the x64 AVX2 floor.
+    "-DGGML_NATIVE=OFF", "-DGGML_AVX=ON", "-DGGML_AVX2=ON", "-DGGML_BMI2=OFF", "-DGGML_AVX_VNNI=OFF",
+    "-DGGML_AVX512=OFF", "-DGGML_AVX512_VBMI=OFF", "-DGGML_AVX512_VNNI=OFF", "-DGGML_AVX512_BF16=OFF",
     # llama.cpp is a subproject of BitNet, so its tools (the server) and common code are off unless asked for.
     "-DBUILD_SHARED_LIBS=OFF", "-DLLAMA_BUILD_TOOLS=ON", "-DLLAMA_BUILD_COMMON=ON", "-DLLAMA_BUILD_SERVER=ON",
     "-DLLAMA_BUILD_EXAMPLES=OFF", "-DLLAMA_BUILD_TESTS=OFF", "-DLLAMA_OPENSSL=OFF",

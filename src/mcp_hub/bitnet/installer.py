@@ -9,9 +9,11 @@ Blocking work: run `Installer.run` on a worker thread (`asyncio.to_thread`).
 """
 from __future__ import annotations
 
+import ctypes
 import hashlib
 import json
 import os
+import platform as host_platform
 import shutil
 import sys
 import threading
@@ -49,7 +51,8 @@ class InstallError(Exception):
         self.code = code
 
 
-ERROR_CODES = ("platform", "disk", "network", "release", "checksum", "extract", "cancelled")
+ERROR_CODES = ("platform", "cpu", "disk", "network", "release", "checksum", "extract", "cancelled")
+AVX2_PROCESSOR_FEATURE = 40
 
 
 class Cancelled(InstallError):
@@ -73,6 +76,16 @@ class InstallPlan:
 
 def bitnet_dir(root: Path) -> Path:
     return root / "vendor" / "bitnet"
+
+
+def cpu_supports_avx2() -> bool:
+    """Ask Windows whether AVX2 is usable by this process, including OS state support."""
+    if sys.platform != "win32":
+        return False
+    try:
+        return bool(ctypes.windll.kernel32.IsProcessorFeaturePresent(AVX2_PROCESSOR_FEATURE))
+    except (AttributeError, OSError):
+        return False
 
 
 def hub_version() -> str | None:
@@ -264,9 +277,13 @@ class Installer:
         version: Callable[[], str | None] = hub_version,
         disk_usage: Callable[[Path], Any] = shutil.disk_usage,
         platform: str = sys.platform,
+        machine: str | None = None,
+        cpu_supports_avx2: Callable[[], bool] = cpu_supports_avx2,
     ) -> None:
         self.root, self.settings = root, settings
         self.opener, self.version, self.disk_usage, self.platform = opener, version, disk_usage, platform
+        self.machine = machine if machine is not None else host_platform.machine()
+        self.cpu_supports_avx2 = cpu_supports_avx2
         self.cancel = threading.Event()
 
     def run(self, progress: Progress) -> Path:
@@ -290,6 +307,10 @@ class Installer:
     def _prepare(self) -> InstallPlan:
         if self.platform != "win32":
             raise InstallError("platform")
+        if self.machine.casefold() not in {"amd64", "x86_64"}:
+            raise InstallError("platform")
+        if not self.cpu_supports_avx2():
+            raise InstallError("cpu")
         base = bitnet_dir(self.root)
         base.mkdir(parents=True, exist_ok=True)
         if self.disk_usage(base).free < self.settings.min_free_bytes:

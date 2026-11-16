@@ -640,6 +640,13 @@ class StatusWindowTest(unittest.TestCase):
         self.window.process_results()
         self.assertEqual(self.window.footer.text(), "Could not start the install.")
 
+    def test_an_unsupported_bitnet_cpu_shows_a_fixed_localized_message(self) -> None:
+        page = self.window.hub_page
+        self.window.apply(replace(running(), bitnet=status.BitnetInfo(error="cpu")))
+        self.window.show_tab("hub")
+        self.window.process_results()
+        self.assertEqual(page.bitnet_status.text(), "BitNet requires AVX2 support. This CPU cannot run its runtime.")
+
     def test_bitnet_has_its_own_dot_under_the_children_and_is_not_counted(self) -> None:
         info, logs = status.BitnetInfo, ChildRow("mcp-server-logs", "connected", "ok")
         self.window.apply(replace(running(logs), bitnet=info(installed=True, enabled=True, state="ready")))

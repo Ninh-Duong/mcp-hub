@@ -9,6 +9,7 @@ import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.error import HTTPError, URLError
+from unittest.mock import patch
 
 from mcp_hub.bitnet import installer
 from mcp_hub.bitnet.installer import Installer, InstallError
@@ -84,9 +85,10 @@ class InstallerTest(unittest.TestCase):
         self.steps: list[tuple[str, int | None]] = []
 
     def installer(self, opener: FakeOpener, *, free: int = 10**12, platform: str = "win32",
-                  version: str | None = "1.2.3") -> Installer:
+                  machine: str = "AMD64", avx2: bool = True, version: str | None = "1.2.3") -> Installer:
         return Installer(self.root, self.settings, opener=opener, version=lambda: version,
-                         disk_usage=lambda _path: SimpleNamespace(free=free), platform=platform)
+                         disk_usage=lambda _path: SimpleNamespace(free=free), platform=platform, machine=machine,
+                         cpu_supports_avx2=lambda: avx2)
 
     def run_install(self, opener: FakeOpener, **kwargs: object) -> Path:
         return self.installer(opener, **kwargs).run(lambda step, pct: self.steps.append((step, pct)))
@@ -142,6 +144,30 @@ class InstallerTest(unittest.TestCase):
 
     def test_only_windows_is_supported(self) -> None:
         self.assert_fails("platform", FakeOpener({}), platform="linux")
+
+    def test_cpu_without_avx2_fails_before_disk_or_network_checks(self) -> None:
+        opener = FakeOpener({})
+        self.assert_fails("cpu", opener, avx2=False)
+        self.assertEqual(opener.calls, [])
+        self.assertFalse((self.root / "vendor").exists())
+
+    def test_only_x64_is_supported_by_the_current_runtime(self) -> None:
+        for machine in ("ARM64", "unknown"):
+            with self.subTest(machine=machine):
+                opener = FakeOpener({})
+                self.assert_fails("platform", opener, machine=machine)
+                self.assertEqual(opener.calls, [])
+
+    def test_windows_cpu_probe_uses_the_os_supported_avx2_feature(self) -> None:
+        kernel32 = SimpleNamespace(IsProcessorFeaturePresent=lambda feature: feature == 40)
+        with patch.object(installer.sys, "platform", "win32"), \
+                patch.object(installer.ctypes, "windll", SimpleNamespace(kernel32=kernel32), create=True):
+            self.assertTrue(installer.cpu_supports_avx2())
+
+    def test_windows_cpu_probe_fails_closed_if_the_feature_api_is_missing(self) -> None:
+        with patch.object(installer.sys, "platform", "win32"), \
+                patch.object(installer.ctypes, "windll", SimpleNamespace(kernel32=SimpleNamespace()), create=True):
+            self.assertFalse(installer.cpu_supports_avx2())
 
     def test_a_release_without_the_bitnet_files_is_reported(self) -> None:
         files = release_files(self.runtime, self.model)

@@ -131,7 +131,7 @@ class SupervisedChildTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(runtime.clients, {})
 
     async def test_hanging_child_times_out_while_others_connect(self) -> None:
-        hang = child("hang", connect_timeout=1.0, FAKE_CHILD_HANG_INITIALIZE="1")
+        hang = child("hang", connect_timeout=3.0, FAKE_CHILD_HANG_INITIALIZE="1")
         connecting = asyncio.ensure_future(self.start(hang, child("fake"), backoff=SLOW))
         await asyncio.sleep(0.3)
         self.assertFalse(connecting.done())

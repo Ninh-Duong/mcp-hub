@@ -123,6 +123,22 @@ class BuildBitnetRuntimeTest(unittest.TestCase):
         self.assertIn("-DLLAMA_BUILD_TOOLS=ON", commands[1])  # the server target exists only with the tools
         self.assertEqual(commands[2][commands[2].index("--target") + 1], "llama-server")
 
+    def test_llama_server_uses_a_portable_avx2_baseline(self) -> None:
+        source = self.root / "BitNet"
+        (source / "build" / "bin" / "Release").mkdir(parents=True)
+        (source / "build" / "bin" / "Release" / build.SERVER_EXE).write_bytes(b"x")
+        with patch.object(build, "run") as ran:
+            build.build_server(source)
+        configure = ran.call_args_list[1].args[0]
+        expected = (
+            "-DGGML_NATIVE=OFF", "-DGGML_AVX=ON", "-DGGML_AVX2=ON", "-DGGML_AVX512=OFF",
+            "-DGGML_AVX512_VBMI=OFF", "-DGGML_AVX512_VNNI=OFF", "-DGGML_AVX512_BF16=OFF",
+            "-DGGML_AVX_VNNI=OFF",
+        )
+        for flag in expected:
+            with self.subTest(flag=flag):
+                self.assertIn(flag, configure)
+
     def test_main_refuses_other_platforms(self) -> None:
         with patch.object(build.sys, "platform", "linux"), self.assertRaises(SystemExit):
             build.main(["--out", str(self.root / "dist")])

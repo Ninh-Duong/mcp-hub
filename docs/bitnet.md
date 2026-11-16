@@ -11,7 +11,7 @@ The optional `bitnet` extension runs a local 1-bit quantized model (Microsoft Bi
 Users never run a command or install build tools. In the desktop status app, **⚙ Settings → Hub** shows **Install BitNet** while BitNet is not installed:
 
 1. The app calls `POST /dashboard/api/bitnet/install` (admin token). The Hub answers `202` at once and installs on a worker thread (`bitnet/installer.py`); a second call while one runs starts nothing, and a call when BitNet is installed answers `409`.
-2. The installer checks the platform (Windows x64) and the free space (`settings.bitnet.minFreeBytes`, 3 GiB), then reads the GitHub Release of this Hub version (`v<version>`, or the latest Release when this version was never released) from `settings.bitnet.releaseRepository`.
+2. Before touching disk or the network, the installer checks for Windows x64 and asks Windows whether AVX2 is available to this process. Unsupported CPUs receive the fixed `cpu` error; other operating systems and architectures receive `platform`. The installer then checks free space (`settings.bitnet.minFreeBytes`, 3 GiB) and reads the GitHub Release of this Hub version (`v<version>`, or the latest Release when this version was never released) from `settings.bitnet.releaseRepository`.
 3. That Release carries `bitnet-manifest.json` and `bitnet-runtime-win-x64.zip`, built by CI (see [Prebuilt runtime](#prebuilt-runtime)). The manifest names the runtime's SHA-256 and size, and the model file, its pinned Hugging Face URL, SHA-256, and size.
 4. Each file is streamed into `vendor/bitnet/` as `<name>.part`, hashed while it downloads, never allowed past its size, and kept only when its SHA-256 matches; a file already present with the right hash is not downloaded again. The zip is unpacked into `vendor/bitnet/runtime/` (paths that would leave the folder are refused). `install.json` is written last.
 5. The Hub switches BitNet on in `hub.json`. If BitNet already runs in this Hub, the sidecar starts at once; otherwise the app shows **Restart Hub**, because the planner and condenser join the Hub only at start.
@@ -25,7 +25,7 @@ The app's dot for BitNet turns green only when llama-server answers `/health` ([
             "install": {"running": true, "step": "model", "progress": 42, "error": null}}}
 ```
 
-`state` is `not_installed` or `off` without the extension, `installing` during an install, and otherwise the sidecar's state. `step` is `prepare`, `runtime`, `model`, or `extract`; `progress` is a percent while a file downloads. `error` is a short code, never a path or URL: `platform`, `disk`, `network`, `release`, `checksum`, `extract`, `cancelled` (the Hub stopped), or `unexpected`.
+`state` is `not_installed` or `off` without the extension, `installing` during an install, and otherwise the sidecar's state. `step` is `prepare`, `runtime`, `model`, or `extract`; `progress` is a percent while a file downloads. `error` is a short code, never a path or URL: `platform`, `cpu`, `disk`, `network`, `release`, `checksum`, `extract`, `cancelled` (the Hub stopped), or `unexpected`.
 
 Without the extension, `service.py` installs only this install state and route (`bitnet/setup.py`); no planner, condenser, or sidecar is added, so tool calls stay route → audit → child.
 
@@ -51,7 +51,7 @@ Server/tool names must match configured routing metadata and contain at most 128
 
 ## Requirements
 
-- **Operating System:** Windows 10/11 x64, with a CPU that has AVX2.
+- **Operating System:** Windows 10/11 x64, with AVX2 available to the process. Windows ARM64 and x86 CPUs without AVX2 are not supported by the current runtime.
 - **Disk Space:** about 1.3 GB in `vendor/bitnet/` (the runtime and the model); the install needs 3 GB free.
 - **Memory:** 2–3 GB RAM while the server is active.
 - **Network:** `api.github.com`, `github.com` (the Release), and `huggingface.co` (the model) during the install only.
@@ -69,6 +69,7 @@ The runtime and model live under `vendor/bitnet/` (untracked, excluded by `.giti
 
 - It checks out `microsoft/BitNet` at a pinned commit and downloads the model at a pinned Hugging Face revision, checking its SHA-256 (`BITNET_COMMIT`, `MODEL_REVISION`, `MODEL_SHA256`).
 - It runs the same kernel generation as that repository's `setup_env.py -q i2_s` and builds only llama-server with CMake and ClangCL, with static libraries (`ggml-base.dll` cannot link BitNet's `i2_s` kernels on Windows) and without OpenSSL or curl (the server listens only on loopback).
+- The x64 build disables `GGML_NATIVE`, explicitly enables AVX/AVX2, and disables BMI2, AVX-VNNI, and AVX-512 extensions, so CPU features on the release runner cannot raise the runtime's minimum ISA. `settings.bitnet.threads` still controls inference parallelism separately.
 - It zips llama-server with every DLL it imports that Windows does not provide (read with `dumpbin /dependents`; the Visual C++ runtime is always shipped).
 - It unpacks the zip into an empty folder, starts llama-server there with the model, and requires `/health` to answer 200 before it writes `bitnet-manifest.json` and the zip's `.sha256`.
 
