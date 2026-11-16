@@ -17,10 +17,10 @@ PACKAGE = "mcp_hub"
 # Leaf modules import no other mcp_hub module (they are shared by every layer above them).
 LEAVES = {"jsonio", "clients", "tool_meta", "progress", "textnorm"}
 # The results layer and the planning layer. Names match both the current flat modules and the planned subpackages.
-RESULTS = {"condense", "result_shape", "full_results", "result_cache", "results"}
-PLANNING = {"policy", "playbooks", "plan_confirm", "plan_merge", "planning"}
+RESULTS = {"results"}
+PLANNING = {"planning"}
 # Core runtime modules: they must never import an extension (activity_ui, bitnet, jobs, agents).
-CORE = {"server", "http", "extensions", "instructions", "batch", "tool_pins", "child_lifecycle"}
+CORE = {"server", "http", "extensions", "instructions", "batch", "tool_pins", "child_lifecycle", "call_observers", "bootstrap"}
 EXTENSIONS = {"activity_ui", "bitnet", "jobs", "agents"}
 AGENTS = {"agents"}
 JOBS = {"jobs"}

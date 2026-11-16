@@ -15,7 +15,7 @@ from mcp_hub.bitnet.planner import BitnetPlanAssistant
 from mcp_hub.bitnet.setup import SETUP_EXTENSION, BitnetSetup
 from mcp_hub.bitnet.summarize import BitnetDraftSummarizer
 from mcp_hub.extensions import ACTIVITY_UI, BITNET
-from mcp_hub.full_results import FullResultStore
+from mcp_hub.results.full_results import FullResultStore
 from mcp_hub.settings import BitnetSettings, Settings
 
 
@@ -76,7 +76,7 @@ class ServiceExtensionWiringTest(unittest.IsolatedAsyncioTestCase):
             root=self.root,
             audit=self.audit,
         )
-        from mcp_hub.condense import RuleCondenser
+        from mcp_hub.results.condense import RuleCondenser
         # Only BitNet's install state and route, plus deterministic core condensing; no LLM hooks.
         self.assertEqual(list(installed), [SETUP_EXTENSION])
         self.assertIsInstance(installed[SETUP_EXTENSION], BitnetSetup)

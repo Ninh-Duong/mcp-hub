@@ -11,7 +11,7 @@ from mcp.types import Tool
 
 from mcp_hub.audit import AuditLog
 from mcp_hub.config import HubConfig, ServerConfig, ToolRoute
-from mcp_hub.full_results import FullResultStore
+from mcp_hub.results.full_results import FullResultStore
 from mcp_hub.server import HubRuntime, create_mcp_server
 from mcp_hub.settings import ProtocolSettings, Settings
 

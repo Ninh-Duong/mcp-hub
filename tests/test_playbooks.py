@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from mcp_hub.config import HUB_ROOT, ConfigError
-from mcp_hub.playbooks import load_playbooks, parse_playbook
+from mcp_hub.planning.playbooks import load_playbooks, parse_playbook
 
 BASIC = """---
 id: basic

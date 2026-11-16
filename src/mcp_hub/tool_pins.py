@@ -1,15 +1,20 @@
 """Pins for child tool definitions: a changed tool is noticed, and only hashes are stored."""
 from __future__ import annotations
-from .jsonio import read_json, write_json_atomic
 
+import asyncio
+import logging
+from typing import Any
+from mcp.types import (
+    Tool,
+)
+from .audit_events import TOOL_DEFINITION_CHANGED, TOOL_DESCRIPTION_SUSPICIOUS
+from .jsonio import read_json, write_json_atomic
 import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 from collections.abc import Iterable
 
-from mcp.types import Tool
 
 FILE_VERSION = 1
 # The wire fields that define what a tool does. Title, icons and _meta are presentation only.
@@ -130,3 +135,66 @@ def _valid_servers(value: Any) -> dict[str, dict[str, str]] | None:
             return None
         result[server_id] = dict(tools)
     return result
+
+
+class PinScreeningMixin:
+    """Tool-definition screening and pin saving on HubRuntime: checks each child's tools against the pins and the description screen."""
+
+    def _check_tools(self, only_server: str | None) -> None:
+        """Screen each child's tool descriptions and, when pins are on, check its definitions (warn mode)."""
+        for server_id, found in self._discovered.items():
+            if only_server not in (None, server_id):
+                continue
+            tools = [found[name] for name in sorted(found)]
+            for tool in tools:
+                self._screen_description(server_id, tool)
+            if self.pins is not None:
+                self._check_pins(server_id, tools)
+
+    def _screen_description(self, server_id: str, tool: Tool) -> None:
+        findings = description_findings(tool.description or "", self._max_description_chars)
+        if findings:
+            self.audit.write(
+                TOOL_DESCRIPTION_SUSPICIOUS, level=logging.WARNING, server=server_id, tool=tool.name,
+                reason=", ".join(findings),
+            )
+
+    def _check_pins(self, server_id: str, tools: list[Tool]) -> None:
+        """A changed tool is audited and keeps running; a tool seen for the first time gets its pin saved."""
+        assert self.pins is not None
+        verdict = self.pins.check(server_id, tools)
+        self._pin_changes[server_id] = verdict.changed
+        for name in verdict.changed:
+            self.audit.write(TOOL_DEFINITION_CHANGED, level=logging.WARNING, server=server_id, tool=name)
+        if verdict.new:
+            self._save_pins()
+
+    def _save_pins(self) -> None:
+        """Write the pins on a worker thread when the event loop runs; otherwise write them right here.
+
+        The snapshot is taken on this thread, so a check that runs while the write waits cannot change it.
+        """
+        assert self.pins is not None
+        snapshot = self.pins.snapshot()
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            self._write_pins(snapshot)
+            return
+        self._keep_background(asyncio.ensure_future(self._save_pins_in_turn(snapshot)))
+
+    async def _save_pins_in_turn(self, snapshot: dict[str, dict[str, str]]) -> None:
+        """Wait for the saves scheduled before this one, then write this snapshot on a worker thread."""
+        async with self._pin_save_lock:
+            await asyncio.to_thread(self._write_pins, snapshot)
+
+    def _write_pins(self, snapshot: dict[str, dict[str, str]]) -> None:
+        """Write one snapshot; a failure is logged at WARNING with the exception type only, and the Hub keeps running."""
+        assert self.pins is not None
+        try:
+            self.pins.save(snapshot)
+        except Exception as exc:
+            logging.getLogger("mcp_hub.server").warning("Saving the tool pins failed: %s", type(exc).__name__)
+
+    def _changed_pins(self) -> list[dict[str, str]]:
+        return [{"server": server_id, "tool": name} for server_id, names in self._pin_changes.items() for name in names]

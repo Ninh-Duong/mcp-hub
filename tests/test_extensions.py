@@ -16,6 +16,7 @@ from starlette.routing import Route
 from starlette.testclient import TestClient
 
 from mcp_hub import server as server_module
+from mcp_hub.results import shape as shape_module
 from mcp_hub import service
 from mcp_hub.activity_ui.extension import ActivityUi, install
 from mcp_hub.activity_ui.middleware import ClientSessionMiddleware
@@ -114,20 +115,20 @@ class CorePathTest(_AuditCase):
         text = "Error: " + "x" * 50_000
         self.client.result = CallToolResult(content=[TextContent(type="text", text=text)], isError=True)
         seen = []
-        original = server_module.redact
+        original = shape_module.redact
 
         def recording_redact(value, *args, **kwargs):
             seen.append(len(value))
             return original(value, *args, **kwargs)
 
-        with patch.object(server_module, "redact", recording_redact):
+        with patch.object(shape_module, "redact", recording_redact):
             await self.runtime.call_child_tool("child__inspect", {}, request_id="r2")
         self.assertEqual(len(seen), 1)
-        self.assertLessEqual(seen[0], server_module.SUMMARY_LIMIT + 256)
+        self.assertLessEqual(seen[0], shape_module.SUMMARY_LIMIT + 256)
         self.assertIn("tool.call.failed", self.log())
 
     async def test_successful_result_is_not_redacted(self) -> None:
-        with patch.object(server_module, "redact") as redact:
+        with patch.object(shape_module, "redact") as redact:
             await self.runtime.call_child_tool("child__inspect", {}, request_id="r3")
         redact.assert_not_called()
 

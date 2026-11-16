@@ -6,8 +6,8 @@ import json
 import re
 from typing import Any
 
-from .extensions import Condensed, ResultCondenser
-from .textnorm import fold
+from ..extensions import Condensed, ResultCondenser
+from ..textnorm import fold
 
 _TS_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b")
 _GUID_RE = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")

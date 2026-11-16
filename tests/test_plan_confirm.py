@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import unittest
 
-from mcp_hub import plan_confirm
-from mcp_hub.playbooks import Playbook
-from mcp_hub.policy import PolicyRefused
+from mcp_hub.planning import confirm as plan_confirm
+from mcp_hub.planning.playbooks import Playbook
+from mcp_hub.planning.policy import PolicyRefused
 
 
 def playbook(pb_id: str, when: str) -> Playbook:

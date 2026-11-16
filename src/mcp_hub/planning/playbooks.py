@@ -24,9 +24,9 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import HUB_ROOT, ConfigError
+from ..config import DOCS_ROOT, ConfigError
 
-PLAYBOOK_DIR = HUB_ROOT / "docs" / "playbooks"
+PLAYBOOK_DIR = DOCS_ROOT / "playbooks"
 NEEDS = frozenset({"logs", "source"})
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 _LIST_KEYS = ("servers", "tools", "needs", "includes")

@@ -12,7 +12,7 @@ from jsonschema import Draft202012Validator
 from mcp.types import CallToolResult, TextContent
 
 from ..audit import SENSITIVE_FIELD_RE, redact
-from ..config import HUB_ROOT
+from ..config import DOCS_ROOT
 from ..extensions import ResultCondenser
 from ..tool_meta import is_read_only_tool
 from ..settings import JobSettings
@@ -141,7 +141,7 @@ def _filter_sensitive_fields(value: Any) -> Any:
 
 
 def _role_prompt(role: str) -> str:
-    role_doc = HUB_ROOT / "docs" / "agents" / f"{role}.md"
+    role_doc = DOCS_ROOT / "agents" / f"{role}.md"
     return role_doc.read_text(encoding="utf-8") if role_doc.is_file() else _DEFAULT_PROMPT
 
 

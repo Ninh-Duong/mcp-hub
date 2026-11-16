@@ -138,42 +138,42 @@
 
 ### Results subpackage
 
-- [ ] T049 [US3] Create `src/mcp_hub/results/__init__.py` and move `src/mcp_hub/condense.py` → `results/condense.py`, `result_shape.py` → `results/shape.py`, `result_cache.py` → `results/cache.py`, `full_results.py` → `results/full_results.py`. Update every import in `src/`, `tests/`, `scripts/` (including `scripts/bench_call_path.py` and `scripts/check_docs.py`).
-- [ ] T050 [US3] Move the full-result and condense helpers from `src/mcp_hub/server.py:655-758` (`_get_full_result`, `_maybe_condense`, `_finish_condensed`, `_full_result_tool`) and the page formatting at `server.py:1107-1176` into `results/full_results.py`
+- [X] T049 [US3] Create `src/mcp_hub/results/__init__.py` and move `src/mcp_hub/condense.py` → `results/condense.py`, `result_shape.py` → `results/shape.py`, `result_cache.py` → `results/cache.py`, `full_results.py` → `results/full_results.py`. Update every import in `src/`, `tests/`, `scripts/` (including `scripts/bench_call_path.py` and `scripts/check_docs.py`).
+- [X] T050 [US3] Move the full-result and condense helpers from `src/mcp_hub/server.py:655-758` (`_get_full_result`, `_maybe_condense`, `_finish_condensed`, `_full_result_tool`) and the page formatting at `server.py:1107-1176` into `results/full_results.py`
 
 ### Planning subpackage
 
-- [ ] T051 [US3] Create `src/mcp_hub/planning/__init__.py` and move `src/mcp_hub/policy.py` → `planning/policy.py`, `playbooks.py` → `planning/playbooks.py`, `plan_confirm.py` → `planning/confirm.py`, `plan_merge.py` → `planning/merge.py`. Update every import, including `scripts/check_docs.py` and tests.
-- [ ] T052 [US3] Create `src/mcp_hub/planning/hub_plan.py` from `src/mcp_hub/server.py:518-638` (`_assist_plan`, `_clean_hints`, `_create_plan`, `_confirm_gate`, and the policy enforcement and audit)
+- [X] T051 [US3] Create `src/mcp_hub/planning/__init__.py` and move `src/mcp_hub/policy.py` → `planning/policy.py`, `playbooks.py` → `planning/playbooks.py`, `plan_confirm.py` → `planning/confirm.py`, `plan_merge.py` → `planning/merge.py`. Update every import, including `scripts/check_docs.py` and tests.
+- [X] T052 [US3] Create `src/mcp_hub/planning/hub_plan.py` from `src/mcp_hub/server.py:518-638` (`_assist_plan`, `_clean_hints`, `_create_plan`, `_confirm_gate`, and the policy enforcement and audit)
 
 ### Child lifecycle and other server parts
 
-- [ ] T053 [US3] Create `src/mcp_hub/child_lifecycle.py` from `src/mcp_hub/server.py:182-305` (connect, child lost, tools changed, announcements, background tasks). Keep the same `HubRuntime` behavior; the functions take the runtime as an argument.
-- [ ] T054 [US3] Create `tests/test_child_lifecycle.py`: connect registers tools; a lost child removes its tools and emits the announcement; a tools-changed event refreshes the list.
-- [ ] T055 [US3] Move the tool-description screening and pin saving from `src/mcp_hub/server.py:305-367` into `src/mcp_hub/tool_pins.py`
-- [ ] T056 [US3] Move the batch packing from `src/mcp_hub/server.py:759-869` (`_call_batch`, `_pack_batch_items`, `_pack_condense`, `_batch_policy`) into `src/mcp_hub/batch.py`
-- [ ] T057 [US3] Move the contract and instruction reading from `src/mcp_hub/server.py:1076-1105` and `:1231-1290` into `src/mcp_hub/instructions.py`; keep one definition of the `docs/` folder path, shared with `planning/playbooks.py`
-- [ ] T058 [US3] Replace `getattr(runtime, "settings"/"config"/"condenser", …)` in `src/mcp_hub/service.py:51,88,118` and `src/mcp_hub/server.py:77-80` with typed attributes declared on `HubRuntime`
-- [ ] T059 [US3] Create `src/mcp_hub/bootstrap.py` with the shared config and settings load used by both `service.py` and `server.serve()` (`server.py:1292-1356`), and make both call it
-- [ ] T060 [US3] Create `tests/test_bootstrap.py`: the helper loads defaults when no config file exists, and raises the same error as before for a broken config file
+- [X] T053 [US3] Create `src/mcp_hub/child_lifecycle.py` from `src/mcp_hub/server.py:182-305` (connect, child lost, tools changed, announcements, background tasks). Keep the same `HubRuntime` behavior; the functions take the runtime as an argument.
+- [X] T054 [US3] Create `tests/test_child_lifecycle.py`: connect registers tools; a lost child removes its tools and emits the announcement; a tools-changed event refreshes the list.
+- [X] T055 [US3] Move the tool-description screening and pin saving from `src/mcp_hub/server.py:305-367` into `src/mcp_hub/tool_pins.py`
+- [X] T056 [US3] Move the batch packing from `src/mcp_hub/server.py:759-869` (`_call_batch`, `_pack_batch_items`, `_pack_condense`, `_batch_policy`) into `src/mcp_hub/batch.py`
+- [X] T057 [US3] Move the contract and instruction reading from `src/mcp_hub/server.py:1076-1105` and `:1231-1290` into `src/mcp_hub/instructions.py`; keep one definition of the `docs/` folder path, shared with `planning/playbooks.py`
+- [X] T058 [US3] Replace `getattr(runtime, "settings"/"config"/"condenser", …)` in `src/mcp_hub/service.py:51,88,118` and `src/mcp_hub/server.py:77-80` with typed attributes declared on `HubRuntime`
+- [X] T059 [US3] Create `src/mcp_hub/bootstrap.py` with the shared config and settings load used by both `service.py` and `server.serve()` (`server.py:1292-1356`), and make both call it
+- [X] T060 [US3] Create `tests/test_bootstrap.py`: the helper loads defaults when no config file exists, and raises the same error as before for a broken config file
 
 ### Size and boundary checks
 
-- [ ] T061 [US3] Confirm `src/mcp_hub/server.py` is under 600 lines with `wc -l`; if not, move the next largest block and repeat
-- [ ] T062 [US3] Update `tests/test_module_boundaries.py` to cover `results/`, `planning/`, `child_lifecycle`, and `bootstrap`; the test must still pass
-- [ ] T063 [US3] Update the existing `tests/test_server_*.py` files that import moved helpers, so each one imports from the new module
+- [X] T061 [US3] Confirm `src/mcp_hub/server.py` is under 600 lines with `wc -l`; if not, move the next largest block and repeat
+- [X] T062 [US3] Update `tests/test_module_boundaries.py` to cover `results/`, `planning/`, `child_lifecycle`, and `bootstrap`; the test must still pass
+- [X] T063 [US3] Update the existing `tests/test_server_*.py` files that import moved helpers, so each one imports from the new module
 
 ### Docs (same commit, FR-020)
 
-- [ ] T064 [US3] Update `docs/architecture.md` (module list, dependency chain, the new `results/`, `planning/`, `child_lifecycle`, `bootstrap`, `clients`, `jsonio`, `tool_meta`, `progress`, `textnorm`) and the "Keep the architecture" line in `AGENTS.md`
-- [ ] T065 [P] [US3] Update `docs/reference.md` and any other doc that lists module paths (`grep` for `server.py`, `plan_merge`, `result_cache`, `full_results`, `policy.py` outside `docs/history/`)
-- [ ] T066 [P] [US3] Document the UTF-8 BOM acceptance for config files in `docs/architecture.md` (the readers now all accept BOM)
+- [X] T064 [US3] Update `docs/architecture.md` (module list, dependency chain, the new `results/`, `planning/`, `child_lifecycle`, `bootstrap`, `clients`, `jsonio`, `tool_meta`, `progress`, `textnorm`) and the "Keep the architecture" line in `AGENTS.md`
+- [X] T065 [P] [US3] Update `docs/reference.md` and any other doc that lists module paths (`grep` for `server.py`, `plan_merge`, `result_cache`, `full_results`, `policy.py` outside `docs/history/`)
+- [X] T066 [P] [US3] Document the UTF-8 BOM acceptance for config files in `docs/architecture.md` (the readers now all accept BOM)
 
 ### Gate
 
-- [ ] T067 [US3] Run `uv run --no-sync python scripts/package_qc.py` and `uv run --no-sync python -m unittest tests.test_surface_contract -v` (no difference allowed)
-- [ ] T068 [US3] Run `uv run --no-sync python scripts/bench_call_path.py`; the median must be no more than 5 percent above `tests/contract_baseline/bench.json` (SC-007)
-- [ ] T069 [US3] Commit Phase 5: "refactor(server): split server into results, planning, and child lifecycle modules"
+- [X] T067 [US3] Run `uv run --no-sync python scripts/package_qc.py` and `uv run --no-sync python -m unittest tests.test_surface_contract -v` (no difference allowed)
+- [X] T068 [US3] Run `uv run --no-sync python scripts/bench_call_path.py`; the median must be no more than 5 percent above `tests/contract_baseline/bench.json` (SC-007)
+- [X] T069 [US3] Commit Phase 5: "refactor(server): split server into results, planning, and child lifecycle modules"
 
 **Checkpoint**: `server.py` is a thin runtime and entry point. Routing and surface are unchanged.
 

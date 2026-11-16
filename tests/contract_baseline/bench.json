@@ -1,4 +1,97 @@
 {
+  "after_phase5": {
+    "modes": {
+      "ui_off": {
+        "change_vs_baseline_percent": {
+          "mean": 2.9,
+          "p50": 1.9,
+          "p95": 4.1
+        },
+        "median": {
+          "mean": 1.77,
+          "p50": 1.64,
+          "p95": 2.28
+        },
+        "runs": [
+          {
+            "mean": 1.82,
+            "p50": 1.7,
+            "p95": 2.37
+          },
+          {
+            "mean": 1.83,
+            "p50": 1.67,
+            "p95": 2.33
+          },
+          {
+            "mean": 1.77,
+            "p50": 1.64,
+            "p95": 2.28
+          },
+          {
+            "mean": 1.74,
+            "p50": 1.63,
+            "p95": 2.15
+          },
+          {
+            "mean": 1.72,
+            "p50": 1.61,
+            "p95": 2.14
+          },
+          {
+            "mean": 1.77,
+            "p50": 1.64,
+            "p95": 2.28
+          }
+        ]
+      },
+      "ui_on": {
+        "change_vs_baseline_percent": {
+          "mean": 1.2,
+          "p50": 0.0,
+          "p95": 3.4
+        },
+        "median": {
+          "mean": 1.74,
+          "p50": 1.64,
+          "p95": 2.255
+        },
+        "runs": [
+          {
+            "mean": 2.18,
+            "p50": 2.09,
+            "p95": 2.88
+          },
+          {
+            "mean": 1.67,
+            "p50": 1.6,
+            "p95": 2.14
+          },
+          {
+            "mean": 1.74,
+            "p50": 1.66,
+            "p95": 2.28
+          },
+          {
+            "mean": 1.76,
+            "p50": 1.65,
+            "p95": 2.24
+          },
+          {
+            "mean": 1.7,
+            "p50": 1.63,
+            "p95": 2.15
+          },
+          {
+            "mean": 1.74,
+            "p50": 1.62,
+            "p95": 2.27
+          }
+        ]
+      }
+    },
+    "note": "Six runs of 500 calls after the Phase 5 split; compared with the baseline medians (SC-007: no more than 5 percent slower)."
+  },
   "calls_per_run": 500,
   "modes": {
     "ui_off": {

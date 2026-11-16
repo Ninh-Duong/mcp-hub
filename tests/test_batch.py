@@ -139,7 +139,7 @@ class BatchRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.events()[-1][0], "tool.call.failed")
 
     async def test_get_full_result_allowed_in_batch_when_enabled(self) -> None:
-        from mcp_hub.full_results import FullResultStore
+        from mcp_hub.results.full_results import FullResultStore
 
         store = FullResultStore(max_entries=10, ttl_seconds=60.0)
         rid = store.put("full-payload-data")

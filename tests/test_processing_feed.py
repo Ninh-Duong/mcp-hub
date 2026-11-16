@@ -133,7 +133,7 @@ class ProcessingProducerTest(unittest.IsolatedAsyncioTestCase):
         items = [BatchItem(BatchCall(1, "test__read", {}, "child"), result, True, 0)]
         self.runtime._pack_batch_items(items, "private-task", "private-request")
         self.assertEqual(self.codes(), [("condense", "started", "rules"), ("condense", "succeeded", "rules")])
-        with patch("mcp_hub.server.condense_text_rules", side_effect=RuntimeError("private-error")):
+        with patch("mcp_hub.batch.condense_text_rules", side_effect=RuntimeError("private-error")):
             with self.assertRaises(RuntimeError):
                 self.runtime._pack_batch_items(items, "private-task", "private-request")
         self.assertEqual(self.events[-1].state, "failed")

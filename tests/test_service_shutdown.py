@@ -6,6 +6,8 @@ from types import SimpleNamespace
 
 from starlette.applications import Starlette
 
+from mcp_hub.settings import Settings
+
 
 class ServiceShutdownTest(unittest.TestCase):
     def test_authenticated_shutdown_event_stops_uvicorn_lifecycle(self) -> None:
@@ -35,7 +37,7 @@ class ServiceExtensionLifecycleTest(unittest.TestCase):
         from mcp_hub import service
 
         order = MagicMock()
-        runtime = SimpleNamespace(audit=MagicMock(), config=SimpleNamespace(servers={}), public_tools=[])
+        runtime = SimpleNamespace(audit=MagicMock(), config=SimpleNamespace(servers={}), public_tools=[], settings=Settings())
         jobs = SimpleNamespace(tool_definitions=lambda: [], close=AsyncMock(side_effect=lambda: order.runner_close()))
         ui = SimpleNamespace(
             start=order.ui_start, close=AsyncMock(side_effect=lambda: order.ui_close()), close_listeners=order.listeners,

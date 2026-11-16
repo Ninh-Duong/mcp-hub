@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
-from .extensions import PlanHints
+from ..extensions import PlanHints
 
 
 def parse_window(since: Any, until: Any, max_hours: int) -> tuple[datetime, datetime] | None:

@@ -77,7 +77,7 @@ def _has_project_aliases(result: CallToolResult) -> bool:
 
 # The plan ID in the Hub's `hub__plan` answer.
 _PLAN_ID_RE = re.compile(r'hub_plan_id="([^"]+)"')
-# The token in the Hub's offer of playbooks (plan_confirm.offer_text).
+# The token in the Hub's offer of playbooks (planning.confirm.offer_text).
 _TOKEN_RE = re.compile(r"confirm_token: (\S+?)\.?$", re.M)
 # What a child answers when the user has not filled in its account yet: a warning, not a failure.
 _NOT_SET_MARKERS = ("not configured", "no bitbucket credentials")

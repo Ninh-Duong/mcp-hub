@@ -7,7 +7,7 @@ from typing import Any
 
 from ..audit import AuditLog
 from ..dashboard.api import DashboardExtension
-from ..full_results import FullResultStore
+from ..results.full_results import FullResultStore
 from ..server import HubRuntime
 from .client import BitnetClient
 from .condense import BitnetCondenser

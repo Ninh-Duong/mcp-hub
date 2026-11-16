@@ -4,7 +4,7 @@ import asyncio
 import time
 from collections.abc import Callable
 
-from ..condense import (
+from ..results.condense import (
     ERROR_MARKER_RE,
     compact_json_payload,
     format_capped as _format_capped,

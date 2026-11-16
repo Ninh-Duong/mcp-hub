@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 from mcp_hub.extensions import PlanHints
 from mcp_hub.agents.specialists import roles_for_servers
-from mcp_hub.plan_merge import merge_plan_arguments, parse_window
+from mcp_hub.planning.merge import merge_plan_arguments, parse_window
 from mcp_hub.textnorm import fold
 
 

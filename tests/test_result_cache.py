@@ -5,7 +5,7 @@ import unittest
 
 from mcp.types import CallToolResult, TextContent
 
-from mcp_hub.result_cache import ResultCache, cache_key
+from mcp_hub.results.cache import ResultCache, cache_key
 
 
 def _result(text: str, *, is_error: bool = False) -> CallToolResult:
