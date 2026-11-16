@@ -5,12 +5,11 @@ import hashlib
 import json
 import logging
 import os
-import re
 from contextlib import AsyncExitStack
 from dataclasses import replace
 from pathlib import Path
 from time import monotonic, perf_counter
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Mapping
 from typing import Any, NamedTuple
 
 import anyio
@@ -41,6 +40,7 @@ from .audit import AuditLog, default_log_dir, describe_exception, redact
 from .audit_events import TOOL_ARGUMENTS_INVALID, TOOL_DEFINITION_CHANGED, TOOL_DESCRIPTION_SUSPICIOUS, TOOLS_LIST_CHANGED_PUBLISHED
 from .batch import BATCH_TOOL, BatchItem, BatchRefused, batch_result, batch_tool, parse_calls, run_batch
 from .children import Backoff, ChildOpener, ChildSupervisor, ChildUnavailable, open_stdio_client
+from .clients import normalize_client_name, request_client_name
 from .condense import RuleCondenser, condense_text_rules
 from .config_sources import ConfigSources, gaps_after_reports
 from .config import HUB_ROOT, HubConfig, ServerConfig, ToolRoute, is_sensitive_key, load_config
@@ -59,10 +59,11 @@ from .result_cache import ResultCache
 from .result_shape import is_condensable, parse_page_args, with_condensed_meta
 from .schema_rewrite import validate_args
 from .settings import Settings, load_settings
+from .progress import ProgressSender, forwarded_meta, progress_sender, progress_token
+from .tool_meta import is_read_only_tool
 from .tool_pins import PinStore, description_findings, fingerprint
 
 
-_CLIENT_LABEL_RE = re.compile(r"[^A-Za-z0-9_. -]")
 # Characters scanned for redaction beyond the summary limit, so a secret cut at the limit is still matched.
 _SUMMARY_REDACTION_MARGIN = 256
 _ERROR_PREFIXES = ("❌", "Error:")
@@ -81,19 +82,6 @@ def enable_core_condenser(runtime: Any) -> None:
         runtime.full_results = FullResultStore(
             bitnet.full_result_max_entries, bitnet.full_result_ttl_seconds, max_bytes=bitnet.full_result_max_bytes,
         )
-
-
-def normalize_client_name(value: Any) -> str:
-    if not isinstance(value, str):
-        return "unknown"
-    return " ".join(_CLIENT_LABEL_RE.sub("", value).split())[:48] or "unknown"
-
-
-def request_client_name(ctx: Any) -> str:
-    """The normalized client name an MCP request context reports, or `unknown`."""
-    client_params = getattr(getattr(ctx, "session", None), "client_params", None)
-    client_info = getattr(client_params, "client_info", None)
-    return normalize_client_name(getattr(client_info, "name", None)) if client_info is not None else "unknown"
 
 
 def tool_pins_path() -> Path:
@@ -1018,40 +1006,18 @@ class HubRuntime:
         ))
 
 
-ProgressRelay = Callable[[float, float | None, str | None], Awaitable[None]]
-# The client's `_meta` keys the Hub does not forward. The first three describe the client's connection (the SDK sets
-# them per connection); the progress token is read by the Hub, which relays progress itself. The SDK keys the token
-# as `progress_token` (wire name `progressToken`).
-CONNECTION_META_KEYS = frozenset({
-    "io.modelcontextprotocol/protocolVersion", "io.modelcontextprotocol/clientInfo",
-    "io.modelcontextprotocol/clientCapabilities", "progress_token",
-})
-
-
 class ChildOptions(NamedTuple):
     """What a client's call adds for its child: a progress relay (None without a token) and the forwarded `_meta`."""
 
-    progress: ProgressRelay | None
+    progress: ProgressSender | None
     meta: dict[str, Any]
 
 
 def _child_options(ctx: Any, params: CallToolRequestParams) -> ChildOptions:
     """The progress relay and the forwarded `_meta` of a client's tool call (FR-010)."""
-    meta = dict(params.meta or {})
-    token = meta.pop("progress_token", None)
-    forwarded = {key: value for key, value in meta.items() if key not in CONNECTION_META_KEYS}
-    return ChildOptions(None if token is None else _progress_relay(ctx, token), forwarded)
-
-
-def _progress_relay(ctx: Any, token: Any) -> ProgressRelay:
-    """Send the child's progress to the client under the client's own token, on the request's own stream."""
-
-    async def relay(progress: float, total: float | None, message: str | None) -> None:
-        await ctx.session.send_progress_notification(
-            token, progress, total, message, related_request_id=ctx.request_id,
-        )
-
-    return relay
+    token = progress_token(params.meta)
+    relay = None if token is None else progress_sender(ctx, token)
+    return ChildOptions(relay, forwarded_meta(params.meta))
 
 
 def _child_call_kwargs(options: ChildOptions | None) -> dict[str, Any]:
@@ -1200,14 +1166,6 @@ def _hub_status_tool() -> Tool:
 
 def _error_result(text: str) -> CallToolResult:
     return CallToolResult(content=[TextContent(type="text", text=text)], is_error=True)
-
-
-def is_read_only_tool(tool: Any) -> bool:
-    """True only when the child declared `readOnlyHint=true` for this tool (a Tool or its dict form)."""
-    annotations = tool.get("annotations") if isinstance(tool, dict) else getattr(tool, "annotations", None)
-    if isinstance(annotations, dict):
-        return annotations.get("readOnlyHint") is True or annotations.get("read_only_hint") is True
-    return getattr(annotations, "read_only_hint", None) is True
 
 
 def _public_tool(route: ToolRoute, child_tool: Tool) -> Tool:

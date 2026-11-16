@@ -13,10 +13,17 @@
 
 ## Module layout
 
+The leaf modules `jsonio`, `textnorm`, `clients`, `tool_meta`, and `progress` import nothing from the Hub. `tests/test_module_boundaries.py` enforces this and the other import rules.
+
 Dependencies flow one way: `child_requirements` (a leaf, importing nothing from the Hub) → `config` → `settings` → `audit` / `extensions` / `hub_settings` → `server` (with `children`, `child_logs`, `config_sources`, `result_cache`, `events`, `tool_pins`, `result_shape`, `schema_rewrite`, `instructions`) → `http` → `service`. `dashboard`, `jobs`, `agents`, `bridge`, `preflight`, and `control` use only public functions and methods of those modules; `activity_ui` is imported only by `service.py`. `desktop` imports nothing from `mcp_hub` outside `mcp_hub.desktop` (a test checks it): it finds the Hub through the connection file the service writes and talks to it only through its HTTP API, so it ships as its own installer. Every module below is imported by at least one test.
 
 | Layer | Module (`src/mcp_hub/`) | Responsibility |
 |---|---|---|
+| Leaves (import nothing from the Hub) | `jsonio.py` | The shared JSON reader (UTF-8, a byte-order mark is accepted) and atomic writer: a temporary file, then `os.replace`, with an optional file mode. Used by the Hub's config, state, pin, and token files |
+| | `textnorm.py` | `fold`: casefold and strip diacritics for matching (one definition for condensing, planning, and the BitNet rules) |
+| | `clients.py` | Normalized MCP client names (`normalize_client_name`, `request_client_name`) for logs and routing |
+| | `tool_meta.py` | `is_read_only_tool`: the read-only annotation check used by routing, jobs, and agents |
+| | `progress.py` | Progress and `_meta` forwarding shared by the server and the bridge: the connection keys, the progress token, and the progress sender |
 | Configuration | `child_requirements.py` | The `hub-requirements.json` a child declares in its own repository: parse it, and list the key paths still empty (names only, never values). Used by `config` |
 | | `config.py` | Discover sibling children, merge private overrides, validate child configs, `prepare` specs, and routes; resolve paths in memory; `is_sensitive_key`; `MCP_HUB_PRIVATE_DIR` override of `PRIVATE_ROOT` |
 | | `settings.py` | The operator tunables (`settings` in the Hub config): one frozen dataclass per group with every default, validated (unknown keys and bad values are refused) and passed to the objects that use them at start. See [settings.md](settings.md) |
@@ -39,7 +46,7 @@ Dependencies flow one way: `child_requirements` (a leaf, importing nothing from 
 | | `config_sources.py` | Asks each connected child's `config_status` tool where its required settings come from, and drops the gaps it reports as set (group IDs and source words only) |
 | | `result_cache.py` | In-memory TTL cache for read-only tool results, single-flight, size-bounded |
 | Transport | `http.py` | Authenticated Streamable HTTP app: client/admin bearer checks, Host/Origin checks, `/health` |
-| | `bridge.py` | The stdio bridge (`mcp-hub-bridge`) to the shared service, with its optional presence stream |
+| | `bridge.py` | The stdio bridge (`mcp-hub-bridge`) to the shared service, with its optional presence stream. It loads the leaf modules, not `server`, so the bridge stays small |
 | | `bridge_proxy.py` | The MCP server the bridge runs for its client: passes the Hub's instructions through, relays progress and `tools/list_changed`, and serves the bridge's own process-local `subscriptions/listen` bus (not the Hub's). The wiring tests confirm a 2026 stdio client gets tool list changes through `subscriptions/listen`. When the upstream Hub negotiates 2025, the bridge stops its presence stream and logs one line, so tool list changes are not relayed on that connection |
 | Service | `service.py` | Shared HTTP service lifecycle (`mcp-hub-service`): connect children, job runner, extensions, uvicorn, shutdown drain |
 | | `preflight.py` | Pre-start runtime checks, winget install (Windows), and child `prepare` commands with the child's own environment |

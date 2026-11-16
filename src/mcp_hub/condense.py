@@ -7,14 +7,14 @@ import re
 from typing import Any
 
 from .extensions import Condensed, ResultCondenser
-from .plan_merge import fold
+from .textnorm import fold
 
 _TS_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b")
 _GUID_RE = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")
 _HEX_RE = re.compile(r"\b(?:0x)?[0-9a-fA-F]{8,}\b")
 _NUM_RE = re.compile(r"\b\d+\b")
 _LONG_STR_RE = re.compile(r'(["\'])(?:\\.|[^\\]){41,}\1')
-_ERROR_MARKER_RE = re.compile(r"\b(error|exception|fail|fatal|timeout|loi)\b")
+ERROR_MARKER_RE = re.compile(r"\b(error|exception|fail|fatal|timeout|loi)\b")
 _KEYWORD_RE = re.compile(r"[A-Za-z0-9_]{3,}")
 _LARGE_OFFLOAD_CHARS = 100_000
 
@@ -41,8 +41,8 @@ def group_lines(text: str) -> tuple[list[str], int]:
         first_seen.setdefault(tmpl, line)
         counts[tmpl] = counts.get(tmpl, 0) + 1
     formatted = [f"[x{counts[tmpl]}] {line}" if counts[tmpl] > 1 else line for tmpl, line in first_seen.items()]
-    errors = [line for line in formatted if _ERROR_MARKER_RE.search(fold(line))]
-    others = [line for line in formatted if not _ERROR_MARKER_RE.search(fold(line))]
+    errors = [line for line in formatted if ERROR_MARKER_RE.search(fold(line))]
+    others = [line for line in formatted if not ERROR_MARKER_RE.search(fold(line))]
     return [*errors, *others], total
 
 
@@ -119,7 +119,7 @@ def _compact_table_node(node: Any) -> Any:
 def _is_priority(value: Any, keywords: tuple[str, ...]) -> bool:
     blob = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, separators=(",", ":"))
     folded = fold(blob)
-    return bool(_ERROR_MARKER_RE.search(folded) or (keywords and any(word in folded for word in keywords)))
+    return bool(ERROR_MARKER_RE.search(folded) or (keywords and any(word in folded for word in keywords)))
 
 
 def _trim_strings(node: Any, cap: int, keywords: tuple[str, ...]) -> Any:

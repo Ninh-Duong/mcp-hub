@@ -26,16 +26,7 @@ AGENTS = {"agents"}
 JOBS = {"jobs"}
 SERVER = {"server"}
 
-KNOWN_VIOLATIONS: set[str] = {
-    "bridge -> server",
-    "jobs -> server",
-    "agents -> server",
-    "condense -> plan_merge",
-    "plan_merge -> agents",
-    "jobs.runner -> agents.coordinator._findings_payload",
-    "bitnet.condense -> condense._ERROR_MARKER_RE",
-    "bitnet.setup -> bitnet.sidecar._read_install",
-}
+KNOWN_VIOLATIONS: set[str] = set()
 
 
 def module_name(path: Path) -> str:

@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 from mcp_hub.bitnet import installer
 from mcp_hub.bitnet.installer import Installer, InstallError
-from mcp_hub.bitnet.sidecar import _read_install
+from mcp_hub.bitnet.sidecar import read_install
 from mcp_hub.settings import BitnetSettings
 
 API = "https://api.github.com/repos/owner/mcp-hub/releases"
@@ -97,12 +97,12 @@ class InstallerTest(unittest.TestCase):
         with self.assertRaises(InstallError) as caught:
             self.run_install(opener, **kwargs)
         self.assertEqual(caught.exception.code, code)
-        self.assertIsNone(_read_install(self.root))
+        self.assertIsNone(read_install(self.root))
 
     def test_installs_the_runtime_and_model_and_the_sidecar_finds_them(self) -> None:
         path = self.run_install(FakeOpener(release_files(self.runtime, self.model)))
         self.assertEqual(path, self.root / "vendor" / "bitnet" / "install.json")
-        server, model = _read_install(self.root)
+        server, model = read_install(self.root)
         self.assertEqual(server.name, "llama-server.exe")
         self.assertEqual(model.read_bytes(), self.model)
         self.assertTrue((server.parent / "ggml.dll").is_file())
@@ -196,7 +196,7 @@ class InstallerTest(unittest.TestCase):
         opener = FakeOpener(files)
         self.run_install(opener)
         self.assertNotIn(MODEL_URL, opener.calls)
-        self.assertIsNotNone(_read_install(self.root))
+        self.assertIsNotNone(read_install(self.root))
 
     def test_cancel_stops_the_download(self) -> None:
         job = self.installer(FakeOpener(release_files(self.runtime, self.model)))
@@ -204,7 +204,7 @@ class InstallerTest(unittest.TestCase):
         with self.assertRaises(InstallError) as caught:
             job.run(lambda *_: None)
         self.assertEqual(caught.exception.code, "cancelled")
-        self.assertIsNone(_read_install(self.root))
+        self.assertIsNone(read_install(self.root))
 
     def test_hub_version_reads_the_package(self) -> None:
         self.assertIsInstance(installer.hub_version(), (str, type(None)))

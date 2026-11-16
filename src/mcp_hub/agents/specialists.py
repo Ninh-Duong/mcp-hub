@@ -6,7 +6,7 @@ import re
 import uuid
 from dataclasses import dataclass
 from typing import Any
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 
 from jsonschema import Draft202012Validator
 from mcp.types import CallToolResult, TextContent
@@ -14,13 +14,26 @@ from mcp.types import CallToolResult, TextContent
 from ..audit import SENSITIVE_FIELD_RE, redact
 from ..config import HUB_ROOT
 from ..extensions import ResultCondenser
-from ..server import is_read_only_tool
+from ..tool_meta import is_read_only_tool
 from ..settings import JobSettings
 from .harness import ContextBudget, Exchange
 from .providers import ModelProvider, ModelToolCall, ModelTurn
 
 
 ROLE_PREFIXES = {"logs": "logs__", "source": "source__", "jira": "jira__", "pr": "pr__", "sql": "sql__"}
+
+
+def roles_for_servers(servers: Iterable[str], routes: Mapping[str, Any]) -> list[str]:
+    """Return the specialist agent roles whose tools route to any of the named child servers."""
+    server_set = set(servers)
+    matched: list[str] = []
+    for role, prefix in ROLE_PREFIXES.items():
+        for tool_name, route in routes.items():
+            if tool_name.startswith(prefix) and getattr(route, "server_id", None) in server_set:
+                if role not in matched:
+                    matched.append(role)
+                break
+    return matched
 # Kept as a name for existing imports; the value is settings.jobs.tool_result_chars.
 MAX_TOOL_RESULT_CHARS = JobSettings().tool_result_chars
 _EMAIL = re.compile(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b")

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from mcp_hub.bitnet.sidecar import Sidecar, _read_install, _spawn_process
+from mcp_hub.bitnet.sidecar import Sidecar, read_install, _spawn_process
 from mcp_hub.settings import BitnetSettings
 
 
@@ -85,11 +85,11 @@ class TestBitnetSidecar(unittest.IsolatedAsyncioTestCase):
     def test_read_install_missing_or_invalid(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             empty_root = Path(td)
-            self.assertIsNone(_read_install(empty_root))
+            self.assertIsNone(read_install(empty_root))
             bad_dir = empty_root / "vendor" / "bitnet"
             bad_dir.mkdir(parents=True)
             (bad_dir / "install.json").write_text("invalid json", encoding="utf-8")
-            self.assertIsNone(_read_install(empty_root))
+            self.assertIsNone(read_install(empty_root))
 
     def test_spawn_process_calls_popen(self) -> None:
         fake_popen = MagicMock(return_value=FakeProcess())

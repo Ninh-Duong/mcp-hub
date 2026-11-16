@@ -134,7 +134,7 @@ class HubSettingsTest(unittest.TestCase):
 
     def test_a_failed_write_leaves_the_old_file_and_no_temporary_file(self) -> None:
         self.write_hub_json({"version": 1, "servers": {}, "features": {}})
-        with patch.object(hub_settings.os, "replace", side_effect=OSError("locked")), self.assertRaises(OSError):
+        with patch("mcp_hub.jsonio.os.replace", side_effect=OSError("locked")), self.assertRaises(OSError):
             hub_settings.set_activity_ui(True)
         self.assertNotIn("extensions", json.loads(self.hub_json.read_text(encoding="utf-8")))
         self.assertEqual(list(self.private.glob(".hub-*")), [])

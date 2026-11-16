@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from ..textnorm import fold
+
 import re
-import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timedelta, UTC
 from collections.abc import Mapping
@@ -13,12 +14,6 @@ from ..extensions import PlanContext, PlanHints
 class RuleResult:
     hints: PlanHints
     unresolved: frozenset[str]
-
-
-def fold(text: str) -> str:
-    """Casefold and strip diacritics; keeps offsets irrelevant (match-only)."""
-    text = text.replace("\u0111", "d").replace("\u0110", "d")
-    return "".join(c for c in unicodedata.normalize("NFD", text) if not unicodedata.combining(c)).casefold()
 
 
 _ENV_PATTERNS = (

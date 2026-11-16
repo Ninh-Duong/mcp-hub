@@ -26,6 +26,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.error import HTTPError, URLError
 
+from ..jsonio import write_json_atomic
 from ..settings import BitnetSettings
 
 MANIFEST_ASSET = "bitnet-manifest.json"
@@ -255,10 +256,7 @@ def write_install(root: Path, server: Path, model: Path) -> None:
         "model": model.relative_to(root).as_posix(),
         "version": INSTALL_VERSION,
     }
-    path = bitnet_dir(root) / "install.json"
-    temp = path.with_name("install.json.tmp")
-    temp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    os.replace(temp, path)
+    write_json_atomic(bitnet_dir(root) / "install.json", data, indent=2)
 
 
 def default_opener(request: Any, timeout: float) -> Any:

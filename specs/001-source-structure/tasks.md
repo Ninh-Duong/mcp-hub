@@ -65,7 +65,7 @@
 - [X] T013 [P] [US1] Find every remaining reference to `agent-plans` outside `docs/history/` with a search of tracked files, and update each one in its own doc (`README.md`, `docs/` files) to point to `specs/`
 - [X] T014 [US1] Run `uv run --no-sync python scripts/check_docs.py` and `uv run --no-sync python -m unittest tests.test_check_docs -v`; both must pass
 - [X] T015 [US1] Run `uv run --no-sync python scripts/package_qc.py` in full; it must exit 0. Then run `uv run --no-sync python -m unittest tests.test_surface_contract -v` and confirm no difference
-- [ ] T016 [US1] Commit Phase 3: "docs: point AGENTS.md at Spec Kit specs; fix broken plan link"
+- [X] T016 [US1] Commit Phase 3: "docs: point AGENTS.md at Spec Kit specs; fix broken plan link"
 
 **Checkpoint**: QC is green on the refactor branch. The MVP gate is in place.
 
@@ -79,52 +79,52 @@
 
 ### Leaf modules (new, with tests)
 
-- [ ] T017 [P] [US2] Create `src/mcp_hub/jsonio.py` with `read_json(path)` (encoding `utf-8-sig`) and `write_json_atomic(path, value, *, indent=None, separators=None, mode=None)`: write a temporary file in the target folder, `chmod` it when `mode` is set, `os.replace` it, and delete the temporary file on failure. Each function stays under 50 lines.
-- [ ] T018 [P] [US2] Create `tests/test_jsonio.py`: a UTF-8 file with BOM reads correctly; invalid JSON raises `json.JSONDecodeError`; a failure in `json.dumps` leaves the old file unchanged; `mode=0o600` is applied to the written file; `indent` and `separators` are honored.
-- [ ] T019 [P] [US2] Create `src/mcp_hub/textnorm.py` with `fold(text)` copied from `src/mcp_hub/plan_merge.py:12`. Keep the `\u` escapes so the file stays ASCII.
-- [ ] T020 [P] [US2] Create `tests/test_textnorm.py`: check `fold` on `\u0110`, `\u0111`, a mixed-case Vietnamese phrase written with escapes, and an empty string, and assert the same outputs as the two legacy copies (`bitnet/rules.py:18` and `plan_merge.py:12`).
-- [ ] T021 [P] [US2] Create `src/mcp_hub/clients.py` with `normalize_client_name` (from `src/mcp_hub/server.py:86`) and `request_client_name` (from `src/mcp_hub/server.py:94`), moved unchanged.
-- [ ] T022 [P] [US2] Create `tests/test_clients.py`: normalization of empty, long, and unicode names; `request_client_name` returns `unknown` when the context has no client info.
-- [ ] T023 [P] [US2] Create `src/mcp_hub/tool_meta.py` with `is_read_only_tool` moved from `src/mcp_hub/server.py:1205`.
-- [ ] T024 [P] [US2] Create `tests/test_tool_meta.py`: a read-only annotated tool returns True; a tool without annotations returns False; a tool with `readOnlyHint=False` returns False.
-- [ ] T025 [P] [US2] Create `src/mcp_hub/progress.py` with the forwarded `_meta` key set and the progress relay. Use the SDK constants as in `src/mcp_hub/bridge_proxy.py:28`, and remove the hand-written copy in `src/mcp_hub/server.py:1025`.
-- [ ] T026 [P] [US2] Create `tests/test_progress.py`: assert that the key set the server forwards equals the key set the bridge forwards; the progress relay sends one notification per progress update.
+- [X] T017 [P] [US2] Create `src/mcp_hub/jsonio.py` with `read_json(path)` (encoding `utf-8-sig`) and `write_json_atomic(path, value, *, indent=None, separators=None, mode=None)`: write a temporary file in the target folder, `chmod` it when `mode` is set, `os.replace` it, and delete the temporary file on failure. Each function stays under 50 lines.
+- [X] T018 [P] [US2] Create `tests/test_jsonio.py`: a UTF-8 file with BOM reads correctly; invalid JSON raises `json.JSONDecodeError`; a failure in `json.dumps` leaves the old file unchanged; `mode=0o600` is applied to the written file; `indent` and `separators` are honored.
+- [X] T019 [P] [US2] Create `src/mcp_hub/textnorm.py` with `fold(text)` copied from `src/mcp_hub/plan_merge.py:12`. Keep the `\u` escapes so the file stays ASCII.
+- [X] T020 [P] [US2] Create `tests/test_textnorm.py`: check `fold` on `\u0110`, `\u0111`, a mixed-case Vietnamese phrase written with escapes, and an empty string, and assert the same outputs as the two legacy copies (`bitnet/rules.py:18` and `plan_merge.py:12`).
+- [X] T021 [P] [US2] Create `src/mcp_hub/clients.py` with `normalize_client_name` (from `src/mcp_hub/server.py:86`) and `request_client_name` (from `src/mcp_hub/server.py:94`), moved unchanged.
+- [X] T022 [P] [US2] Create `tests/test_clients.py`: normalization of empty, long, and unicode names; `request_client_name` returns `unknown` when the context has no client info.
+- [X] T023 [P] [US2] Create `src/mcp_hub/tool_meta.py` with `is_read_only_tool` moved from `src/mcp_hub/server.py:1205`.
+- [X] T024 [P] [US2] Create `tests/test_tool_meta.py`: a read-only annotated tool returns True; a tool without annotations returns False; a tool with `readOnlyHint=False` returns False.
+- [X] T025 [P] [US2] Create `src/mcp_hub/progress.py` with the forwarded `_meta` key set and the progress relay. Use the SDK constants as in `src/mcp_hub/bridge_proxy.py:28`, and remove the hand-written copy in `src/mcp_hub/server.py:1025`.
+- [X] T026 [P] [US2] Create `tests/test_progress.py`: assert that the key set the server forwards equals the key set the bridge forwards; the progress relay sends one notification per progress update.
 
 ### Rewire callers (fix the layering)
 
-- [ ] T027 [US2] Point `src/mcp_hub/bridge.py:21` at `clients.normalize_client_name` and remove its import from `server`
-- [ ] T028 [US2] Point `src/mcp_hub/activity_ui/client_sessions.py:11` at `clients.request_client_name`; remove the server import from `src/mcp_hub/server.py` for both helpers (keep the definitions only in `clients.py`)
-- [ ] T029 [US2] Add a test to `tests/test_bridge.py` that imports `mcp_hub.bridge` in a fresh subprocess and asserts `mcp_hub.server` is not in `sys.modules`
-- [ ] T030 [US2] Point `src/mcp_hub/jobs/policy.py:5`, `src/mcp_hub/jobs/runner.py:29`, `src/mcp_hub/agents/specialists.py:17`, and `src/mcp_hub/server.py:398` at `tool_meta.is_read_only_tool`; remove the `server` imports from `jobs/` and `agents/`
-- [ ] T031 [US2] Point `src/mcp_hub/bitnet/rules.py:18` and `src/mcp_hub/plan_merge.py:12` at `textnorm.fold`; delete their local copies
-- [ ] T032 [US2] Point `src/mcp_hub/condense.py:10` at `textnorm.fold` instead of `plan_merge`, so `condense` no longer depends on planning
-- [ ] T033 [US2] Move `roles_for_servers` from `src/mcp_hub/plan_merge.py:88` into `src/mcp_hub/agents/specialists.py`; remove the lazy import at `plan_merge.py:90`; update the caller at `src/mcp_hub/jobs/runner.py:580`
-- [ ] T034 [US2] Rename `_findings_payload` to `findings_payload` in `src/mcp_hub/agents/coordinator.py:18` and its callers (`coordinator.py:48`, `src/mcp_hub/jobs/runner.py:15` and `:630`); update the test that imports it
-- [ ] T035 [US2] Delete `MODES` from `src/mcp_hub/plan_confirm.py:22` (no references); confirm `src/mcp_hub/settings.py` holds the only list of `confirm_playbook` values
+- [X] T027 [US2] Point `src/mcp_hub/bridge.py:21` at `clients.normalize_client_name` and remove its import from `server`
+- [X] T028 [US2] Point `src/mcp_hub/activity_ui/client_sessions.py:11` at `clients.request_client_name`; remove the server import from `src/mcp_hub/server.py` for both helpers (keep the definitions only in `clients.py`)
+- [X] T029 [US2] Add a test to `tests/test_bridge.py` that imports `mcp_hub.bridge` in a fresh subprocess and asserts `mcp_hub.server` is not in `sys.modules`
+- [X] T030 [US2] Point `src/mcp_hub/jobs/policy.py:5`, `src/mcp_hub/jobs/runner.py:29`, `src/mcp_hub/agents/specialists.py:17`, and `src/mcp_hub/server.py:398` at `tool_meta.is_read_only_tool`; remove the `server` imports from `jobs/` and `agents/`
+- [X] T031 [US2] Point `src/mcp_hub/bitnet/rules.py:18` and `src/mcp_hub/plan_merge.py:12` at `textnorm.fold`; delete their local copies
+- [X] T032 [US2] Point `src/mcp_hub/condense.py:10` at `textnorm.fold` instead of `plan_merge`, so `condense` no longer depends on planning
+- [X] T033 [US2] Move `roles_for_servers` from `src/mcp_hub/plan_merge.py:88` into `src/mcp_hub/agents/specialists.py`; remove the lazy import at `plan_merge.py:90`; update the caller at `src/mcp_hub/jobs/runner.py:580`
+- [X] T034 [US2] Rename `_findings_payload` to `findings_payload` in `src/mcp_hub/agents/coordinator.py:18` and its callers (`coordinator.py:48`, `src/mcp_hub/jobs/runner.py:15` and `:630`); update the test that imports it
+- [X] T035 [US2] Delete `MODES` from `src/mcp_hub/plan_confirm.py:22` (no references); confirm `src/mcp_hub/settings.py` holds the only list of `confirm_playbook` values
 
 ### Replace duplicated JSON readers and writers
 
-- [ ] T036 [US2] Make `src/mcp_hub/config.py:145` `_read_json` delegate to `jsonio.read_json`, keeping its error messages
-- [ ] T037 [P] [US2] Replace the reader in `src/mcp_hub/hub_settings.py:106` with `jsonio.read_json`
-- [ ] T038 [P] [US2] Replace the readers in `src/mcp_hub/child_requirements.py:72`, `src/mcp_hub/projects.py:68`, `src/mcp_hub/service_config.py:58` and `:130`, `src/mcp_hub/update_state.py:30`, `src/mcp_hub/tool_pins.py:70`, `src/mcp_hub/agents/config.py:45`, `src/mcp_hub/bitnet/sidecar.py:22` with `jsonio.read_json`. Leave `extensions.py:224` alone: it reads text lines, not JSON.
-- [ ] T039 [US2] Replace the atomic writer in `src/mcp_hub/hub_settings.py:122` with `jsonio.write_json_atomic`, keeping its formatting
-- [ ] T040 [US2] Replace the atomic writer in `src/mcp_hub/tool_pins.py:109-123` with `jsonio.write_json_atomic`
-- [ ] T041 [US2] Replace the atomic writer in `src/mcp_hub/update_state.py:60-64` with `jsonio.write_json_atomic` using the same compact separators
-- [ ] T042 [US2] Replace the atomic writer in `src/mcp_hub/service_config.py:140-160` with `jsonio.write_json_atomic(..., mode=0o600)`; add a test that the written file's mode is `0600` on POSIX (skip on Windows, where `chmod` has no effect)
-- [ ] T043 [US2] Replace the writer in `src/mcp_hub/bitnet/installer.py:250-261` (`write_install`) with `jsonio.write_json_atomic(..., indent=2)`; note the unique temp name in the commit message
-- [ ] T044 [US2] Do NOT change `src/mcp_hub/desktop/prefs.py`, `desktop/connection.py`, `desktop/update.py`, or `desktop/hub_api.py` (desktop boundary; plan.md Complexity Tracking)
+- [X] T036 [US2] Make `src/mcp_hub/config.py:145` `_read_json` delegate to `jsonio.read_json`, keeping its error messages
+- [X] T037 [P] [US2] Replace the reader in `src/mcp_hub/hub_settings.py:106` with `jsonio.read_json`
+- [X] T038 [P] [US2] Replace the readers in `src/mcp_hub/child_requirements.py:72`, `src/mcp_hub/projects.py:68`, `src/mcp_hub/service_config.py:58` and `:130`, `src/mcp_hub/update_state.py:30`, `src/mcp_hub/tool_pins.py:70`, `src/mcp_hub/agents/config.py:45`, `src/mcp_hub/bitnet/sidecar.py:22` with `jsonio.read_json`. Leave `extensions.py:224` alone: it reads text lines, not JSON.
+- [X] T039 [US2] Replace the atomic writer in `src/mcp_hub/hub_settings.py:122` with `jsonio.write_json_atomic`, keeping its formatting
+- [X] T040 [US2] Replace the atomic writer in `src/mcp_hub/tool_pins.py:109-123` with `jsonio.write_json_atomic`
+- [X] T041 [US2] Replace the atomic writer in `src/mcp_hub/update_state.py:60-64` with `jsonio.write_json_atomic` using the same compact separators
+- [X] T042 [US2] Replace the atomic writer in `src/mcp_hub/service_config.py:140-160` with `jsonio.write_json_atomic(..., mode=0o600)`; add a test that the written file's mode is `0600` on POSIX (skip on Windows, where `chmod` has no effect)
+- [X] T043 [US2] Replace the writer in `src/mcp_hub/bitnet/installer.py:250-261` (`write_install`) with `jsonio.write_json_atomic(..., indent=2)`; note the unique temp name in the commit message
+- [X] T044 [US2] Do NOT change `src/mcp_hub/desktop/prefs.py`, `desktop/connection.py`, `desktop/update.py`, or `desktop/hub_api.py` (desktop boundary; plan.md Complexity Tracking)
 
 ### Tests follow the moved symbols
 
-- [ ] T045 [US2] Update every test that imports a moved or renamed symbol (`server.is_read_only_tool`, `server.normalize_client_name`, `plan_merge.fold`, `bitnet.rules.fold`, `plan_confirm.MODES`, `plan_merge.roles_for_servers`, `_findings_payload`) so the test imports the new location; find them with a search of `tests/`
-- [ ] T046 [US2] Empty `KNOWN_VIOLATIONS` in `tests/test_module_boundaries.py`; the test must pass without the set
+- [X] T045 [US2] Update every test that imports a moved or renamed symbol (`server.is_read_only_tool`, `server.normalize_client_name`, `plan_merge.fold`, `bitnet.rules.fold`, `plan_confirm.MODES`, `plan_merge.roles_for_servers`, `_findings_payload`) so the test imports the new location; find them with a search of `tests/`
+- [X] T046 [US2] Empty `KNOWN_VIOLATIONS` in `tests/test_module_boundaries.py`; the test must pass without the set
 
 ### Gate
 
-- [ ] T047 [US2] Run `uv run --no-sync python scripts/package_qc.py`, then `uv run --no-sync python -m unittest tests.test_surface_contract -v`; both must pass with no surface difference
-- [ ] T118 [US2] Make the private names used across modules public: rename `_ERROR_MARKER_RE` to `ERROR_MARKER_RE` in `src/mcp_hub/condense.py` and update `src/mcp_hub/bitnet/condense.py`; rename `_read_install` to `read_install` in `src/mcp_hub/bitnet/sidecar.py` and update `src/mcp_hub/bitnet/setup.py` (FR-006; the boundary test lists both)
-- [ ] T119 [US2] Remove `jobs.runner -> agents.coordinator._findings_payload` and the two bitnet entries from `KNOWN_VIOLATIONS` in `tests/test_module_boundaries.py` once T034 and T118 are done; the boundary test must still pass
-- [ ] T048 [US2] Commit Phase 4: "refactor(core): add leaf helpers and fix dependency direction"
+- [X] T047 [US2] Run `uv run --no-sync python scripts/package_qc.py`, then `uv run --no-sync python -m unittest tests.test_surface_contract -v`; both must pass with no surface difference
+- [X] T118 [US2] Make the private names used across modules public: rename `_ERROR_MARKER_RE` to `ERROR_MARKER_RE` in `src/mcp_hub/condense.py` and update `src/mcp_hub/bitnet/condense.py`; rename `_read_install` to `read_install` in `src/mcp_hub/bitnet/sidecar.py` and update `src/mcp_hub/bitnet/setup.py` (FR-006; the boundary test lists both)
+- [X] T119 [US2] Remove `jobs.runner -> agents.coordinator._findings_payload` and the two bitnet entries from `KNOWN_VIOLATIONS` in `tests/test_module_boundaries.py` once T034 and T118 are done; the boundary test must still pass
+- [X] T048 [US2] Commit Phase 4: "refactor(core): add leaf helpers and fix dependency direction"
 
 **Checkpoint**: Layering rules are enforced by a test. Helpers exist once.
 

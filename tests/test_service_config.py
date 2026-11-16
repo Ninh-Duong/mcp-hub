@@ -22,6 +22,21 @@ class ServiceConfigTest(unittest.TestCase):
             self.assertNotIn(config.token, repr(config))
             self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["token"], config.token)
 
+    def test_the_token_file_is_written_with_mode_0600_on_posix(self) -> None:
+        # The shared JSON writer applies the mode (research.md R3); Windows restricts the file with icacls instead.
+        import os
+        import sys
+
+        from mcp_hub.service_config import load_service_config
+
+        if sys.platform == "win32":
+            self.skipTest("POSIX permission bits; see test_the_file_is_restricted_to_this_user_with_icacls")
+        with tempfile.TemporaryDirectory() as directory:
+            private_root = Path(directory)
+            path = private_root / "service.json"
+            load_service_config(path=path, private_root=private_root)
+            self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+
     def test_rejects_config_path_outside_private_root(self) -> None:
         from mcp_hub.service_config import ServiceConfigError, load_service_config
 

@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from pathlib import Path
 
+from .jsonio import read_json
 from .config import PRIVATE_ROOT
 
 
@@ -65,7 +66,7 @@ def load_projects(
     if not config_path.exists():
         return {}
     try:
-        raw = json.loads(config_path.read_text(encoding="utf-8"))
+        raw = read_json(config_path)
     except (OSError, json.JSONDecodeError) as exc:
         raise ProjectConfigError(f"Could not read project config ({type(exc).__name__})") from None
     if not isinstance(raw, dict) or type(raw.get("version")) is not int or raw["version"] != 1:

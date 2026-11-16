@@ -15,7 +15,7 @@ _SYSTEM_PROMPT = (
 )
 
 
-def _findings_payload(findings: list[SpecialistResult]) -> list[dict[str, Any]]:
+def findings_payload(findings: list[SpecialistResult]) -> list[dict[str, Any]]:
     return [
         {
             "agent": item.role,
@@ -45,7 +45,7 @@ async def synthesize(
         "project": project,
         "environment": env,
         "issue_key": issue_key,
-        "findings": _findings_payload(findings),
+        "findings": findings_payload(findings),
     }
     user_text = minimize_model_content(
         json.dumps(payload, ensure_ascii=False), limit=12000, redactor=redactor,

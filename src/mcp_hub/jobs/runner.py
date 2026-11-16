@@ -12,7 +12,7 @@ from collections.abc import Callable
 from mcp.types import CallToolResult, TextContent, Tool
 
 from ..agents.config import AGENT_ROLES, AgentConfig
-from ..agents.coordinator import _findings_payload, synthesize
+from ..agents.coordinator import findings_payload, synthesize
 from ..agents.providers import (
     PACKAGE_MISSING_MESSAGE, PROVIDER_PACKAGES, AnthropicProvider, GeminiProvider, ModelProvider, OpenAIProvider,
     provider_package_installed,
@@ -23,10 +23,12 @@ from ..agents.specialists import (
 from ..audit import redact
 from ..extensions import DraftSummarizer, PlanAssistant, PlanContext, ResultCondenser
 from ..extensions import ObservedCondenser, ProcessingObserver, processing_step
-from ..plan_merge import fold, parse_window, roles_for_servers
+from ..plan_merge import parse_window
+from ..agents.specialists import roles_for_servers
+from ..textnorm import fold
 from ..result_cache import cache_key
 from ..security.dpapi import WINDOWS_ONLY_MESSAGE
-from ..server import is_read_only_tool
+from ..tool_meta import is_read_only_tool
 from ..settings import JobSettings
 from .policy import SideEffectPolicy
 from ..projects import ProjectConfig, validate_project_env
@@ -627,7 +629,7 @@ class JobRunner:
         coordinator = self.providers.get("coordinator")
         if coordinator is None:
             if self.summarizer is not None:
-                payload = _findings_payload(findings)
+                payload = findings_payload(findings)
                 draft = await processing_step(self.processing_observer, "local_summary",
                                               self.summarizer.summarize(request["question"], payload), source="bitnet")
                 if draft is not None:

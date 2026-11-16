@@ -1,9 +1,8 @@
 """Small, sanitized update status shared by the Hub and desktop app."""
 from __future__ import annotations
+from .jsonio import read_json, write_json_atomic
 
-import json
 import os
-import tempfile
 from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
@@ -27,7 +26,7 @@ def empty_state() -> dict[str, Any]:
 
 def read(path: Path | None = None) -> dict[str, Any]:
     try:
-        value = json.loads((path or state_path()).read_text(encoding="utf-8"))
+        value = read_json(path or state_path())
     except (OSError, ValueError):
         return empty_state()
     if not isinstance(value, dict) or value.get("state") not in _ALLOWED_STATES:
@@ -57,13 +56,7 @@ def write(value: dict[str, Any], path: Path | None = None) -> None:
         "components": [item for item in value.get("components", [])[:MAX_COMPONENTS] if _safe_component(item)],
         "events": [item for item in value.get("events", [])[-MAX_EVENTS:] if _safe_event(item)],
     }
-    fd, temporary = tempfile.mkstemp(dir=target.parent, prefix="update-", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            json.dump(safe, stream, separators=(",", ":"))
-        os.replace(temporary, target)
-    finally:
-        Path(temporary).unlink(missing_ok=True)
+    write_json_atomic(target, safe, separators=(",", ":"))
 
 
 def add_event(value: dict[str, Any], component: str, phase: str, state: str, error_code: str | None = None) -> None:

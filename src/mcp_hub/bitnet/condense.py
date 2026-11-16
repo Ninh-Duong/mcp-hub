@@ -5,7 +5,7 @@ import time
 from collections.abc import Callable
 
 from ..condense import (
-    _ERROR_MARKER_RE,
+    ERROR_MARKER_RE,
     compact_json_payload,
     format_capped as _format_capped,
     group_lines,
@@ -13,7 +13,7 @@ from ..condense import (
     template_of,
 )
 from ..extensions import Condensed, ResultCondenser
-from ..plan_merge import fold
+from ..textnorm import fold
 from .client import BitnetClient
 
 __all__ = ["BitnetCondenser", "group_lines", "template_of", "_format_capped"]
@@ -79,7 +79,7 @@ class BitnetCondenser(ResultCondenser):
     async def _condense_with_model(self, lines: list[str], total: int, task: str, budget: int) -> Condensed:
         selected, bitnet_answered = await self._select_lines(lines, task)
         for idx, line in enumerate(lines, 1):
-            if _ERROR_MARKER_RE.search(fold(line)):
+            if ERROR_MARKER_RE.search(fold(line)):
                 selected.add(idx)
         if not selected:
             capped = _format_capped(lines, budget)

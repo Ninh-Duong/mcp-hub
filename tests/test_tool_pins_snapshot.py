@@ -138,7 +138,7 @@ class SaveErrorTest(unittest.IsolatedAsyncioTestCase):
 
 
 def _failing_replace(error: Exception) -> Any:
-    return patch("mcp_hub.tool_pins.os.replace", side_effect=error)
+    return patch("mcp_hub.jsonio.os.replace", side_effect=error)
 
 
 if __name__ == "__main__":

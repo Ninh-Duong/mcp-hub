@@ -1,10 +1,9 @@
 """Pins for child tool definitions: a changed tool is noticed, and only hashes are stored."""
 from __future__ import annotations
+from .jsonio import read_json, write_json_atomic
 
 import hashlib
 import json
-import os
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -67,7 +66,7 @@ class PinStore:
         self._servers = {}
         self.corrupt = False
         try:
-            value = json.loads(self._path.read_text(encoding="utf-8"))
+            value = read_json(self._path)
         except FileNotFoundError:
             return
         except (OSError, ValueError):
@@ -115,14 +114,7 @@ class PinStore:
         self._write({"version": FILE_VERSION, "servers": servers})
 
     def _write(self, payload: dict[str, Any]) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        fd, temporary = tempfile.mkstemp(dir=self._path.parent, prefix="tool-pins-", suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as stream:
-                json.dump(payload, stream, sort_keys=True, indent=2)
-            os.replace(temporary, self._path)
-        finally:
-            Path(temporary).unlink(missing_ok=True)
+        write_json_atomic(self._path, payload, sort_keys=True, indent=2)
 
 
 def _valid_servers(value: Any) -> dict[str, dict[str, str]] | None:
