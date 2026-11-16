@@ -48,7 +48,7 @@
 - [X] T007 [P] Update `specs/001-source-structure/contracts/README.md` and `specs/001-source-structure/quickstart.md` so they point to `tests/contract_baseline/` and `tests/test_surface_contract.py` instead of `contracts/baseline/`.
 - [X] T008 Create `tests/test_module_boundaries.py`: parse the imports of `src/mcp_hub` with `ast` and enforce the rules in data-model.md (bridge must not import server; jobs and agents must not import server; results must not import planning, agents, or server; planning must not import agents or server; core must not import activity_ui, bitnet, dashboard, jobs, or agents; desktop imports nothing from `mcp_hub` outside `desktop`; no import of an underscore-prefixed name from another module). Put the current violations in a `KNOWN_VIOLATIONS` set. US2 must empty that set.
 - [X] T009 Run `uv run --no-sync python scripts/package_qc.py` and confirm it reports only the known docs failure (AGENTS.md link). Record the result in the commit message of Phase 2.
-- [ ] T010 Commit Phase 2: "test: capture behavior baseline and module boundary guard"
+- [X] T010 Commit Phase 2: "test: capture behavior baseline and module boundary guard"
 
 **Checkpoint**: Baseline and guard exist. Every later phase is checked against them.
 
@@ -60,11 +60,11 @@
 
 **Independent Test**: `uv run --no-sync python scripts/package_qc.py` exits 0; `tests/test_check_docs.py` passes.
 
-- [ ] T011 [US1] Replace the broken link on AGENTS.md line 21 (to `agent-plans/README.md`) with a link to `specs/` and the `/speckit-*` commands in `AGENTS.md`
-- [ ] T012 [US1] Update the "Start here" table row "Plan a feature, or implement one planned earlier" and the "Before you change anything" bullet about `agent-plans/` in `AGENTS.md` to describe the Spec Kit flow (`/speckit-specify` → `/speckit-plan` → `/speckit-tasks` → `/speckit-implement`)
-- [ ] T013 [P] [US1] Find every remaining reference to `agent-plans` outside `docs/history/` with a search of tracked files, and update each one in its own doc (`README.md`, `docs/` files) to point to `specs/`
-- [ ] T014 [US1] Run `uv run --no-sync python scripts/check_docs.py` and `uv run --no-sync python -m unittest tests.test_check_docs -v`; both must pass
-- [ ] T015 [US1] Run `uv run --no-sync python scripts/package_qc.py` in full; it must exit 0. Then run `uv run --no-sync python -m unittest tests.test_surface_contract -v` and confirm no difference
+- [X] T011 [US1] Replace the broken link on AGENTS.md line 21 (to `agent-plans/README.md`) with a link to `specs/` and the `/speckit-*` commands in `AGENTS.md`
+- [X] T012 [US1] Update the "Start here" table row "Plan a feature, or implement one planned earlier" and the "Before you change anything" bullet about `agent-plans/` in `AGENTS.md` to describe the Spec Kit flow (`/speckit-specify` → `/speckit-plan` → `/speckit-tasks` → `/speckit-implement`)
+- [X] T013 [P] [US1] Find every remaining reference to `agent-plans` outside `docs/history/` with a search of tracked files, and update each one in its own doc (`README.md`, `docs/` files) to point to `specs/`
+- [X] T014 [US1] Run `uv run --no-sync python scripts/check_docs.py` and `uv run --no-sync python -m unittest tests.test_check_docs -v`; both must pass
+- [X] T015 [US1] Run `uv run --no-sync python scripts/package_qc.py` in full; it must exit 0. Then run `uv run --no-sync python -m unittest tests.test_surface_contract -v` and confirm no difference
 - [ ] T016 [US1] Commit Phase 3: "docs: point AGENTS.md at Spec Kit specs; fix broken plan link"
 
 **Checkpoint**: QC is green on the refactor branch. The MVP gate is in place.

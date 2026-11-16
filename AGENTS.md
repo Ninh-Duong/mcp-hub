@@ -18,11 +18,11 @@ This repo is maintained entirely by AI agents. These rules are mandatory. Text r
 | Turn client tracking, a child MCP, or a sign-in task on or off | The user does it in the desktop app (⚙ Settings → Hub / MCPs). From the command line, use `hubctl autostart -Target hub -State on\|off` for the Hub's sign-in task; the app's own sign-in entry is in its Settings. |
 | Turn the local BitNet AI on or off, or change it | The user switches it in the desktop app; see [docs/bitnet.md](docs/bitnet.md). |
 | Change the Hub's code or docs | Read the rest of this file first. |
-| Plan a feature, or implement one planned earlier | Follow [agent-plans/README.md](agent-plans/README.md): write the agreed plan there, or carry out the named plan as written without re-discussing its Decisions. |
+| Plan a feature, or implement one planned earlier | Use Spec Kit: `/speckit-specify` → `/speckit-plan` → `/speckit-tasks` → `/speckit-implement`. Artifacts live in [specs/](specs/), one folder per feature. Carry out an approved plan there as written, without re-discussing its decisions. |
 
 ## Before you change anything
 
-- Check `agent-plans/` for an `approved` or `in-progress` plan that covers the task; if one exists, follow it.
+- Check `specs/` for a feature whose `plan.md` and `tasks.md` cover the task; if one is in progress, follow it.
 - Read `README.md` and, for a child MCP, its contract `docs/mcps/<server-id>.md`.
 - When changing child code for Hub compatibility, also follow [docs/child-mcp-compatibility.md](docs/child-mcp-compatibility.md) and the child repository's own agent rules.
 - To add or reconfigure a child MCP, follow `docs/adding-a-child-mcp.md` step by step.

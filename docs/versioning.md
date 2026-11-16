@@ -37,7 +37,7 @@ Details of the build and the workflow: [packaging-and-qc.md](packaging-and-qc.md
 
 Agents in this repository ask the user, once per finished change, whether to raise the version. They do not raise it on their own.
 
-- **When to ask:** when a change the user will notice is finished and `package_qc.py` passes (a feature, a changed behavior, a setting, a command, a route, a fix). Do not ask for a change that touches only docs, tests, or the untracked `agent-plans/` folder; say in the final message why no question was asked.
+- **When to ask:** when a change the user will notice is finished and `package_qc.py` passes (a feature, a changed behavior, a setting, a command, a route, a fix). Do not ask for a change that touches only docs, tests, or the `specs/` folder of planning artifacts; say in the final message why no question was asked.
 - **What to ask:** one question in the chat. Give the current version, the suggested bump (MINOR or PATCH under [Numbering](#numbering)) with a short reason, and the option to keep the version.
 - **Do not** ask again for each commit of the same change, and do not raise the version before the user agrees.
 - **If the user agrees:** raise `version` (and `uv.lock`), run `package_qc.py` and `smoke.py`, and commit. Remind the user that merging to `master` is the release.
