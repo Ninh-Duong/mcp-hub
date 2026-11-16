@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 
 from mcp_hub.desktop import config_page, hub_api, status
-from tests.test_desktop import TOKEN, FakeOpener
-from tests.test_desktop_client import write
+from tests.helpers.desktop import TOKEN, FakeOpener
+from tests.helpers.desktop import write
 
 
 def switch(**changes: object) -> hub_api.ServerSwitch:

@@ -2,11 +2,11 @@
 summary, listing the tools per child, and without live connection counts."""
 from __future__ import annotations
 
+from tests.helpers.fakes import plain_tool as _tool
 import tempfile
 import unittest
 from pathlib import Path
 
-from mcp.types import Tool
 
 from mcp_hub.audit import AuditLog
 from mcp_hub.config import HubConfig, ServerConfig, ToolRoute
@@ -15,8 +15,6 @@ from mcp_hub.server import HubRuntime, server_instructions
 from mcp_hub.settings import Settings
 
 
-def _tool(name: str) -> Tool:
-    return Tool(name=name, input_schema={"type": "object"}, annotations={"readOnlyHint": True})
 
 
 class InstructionsTest(unittest.TestCase):

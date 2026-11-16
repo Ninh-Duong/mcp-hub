@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from tests.helpers.fakes import FakeRuntime
 import unittest
 from types import SimpleNamespace
 
@@ -10,21 +11,6 @@ from starlette.testclient import TestClient
 CLIENT_TOKEN = "test-client-bearer-token-value-0000"
 
 
-class FakeRuntime:
-    config = SimpleNamespace(detected=("sample-child",), servers={"sample-child": object()}, unavailable={})
-    clients = {"sample-child": object()}
-
-    def child_states(self):
-        return {"sample-child": "connected"}
-
-    def config_incomplete(self):
-        return {"sample-child": ["openobserve.dev.token"]}
-
-    def activity_snapshot(self):
-        return {
-            "children": {"sample-child": {"tool_count": 2, "active_calls": 0}},
-            "events": [], "sequence": 0, "stream_id": "fake-stream",
-        }
 
 
 class FakeActivityStore:

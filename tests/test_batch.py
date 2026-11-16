@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from tests.helpers.fakes import tool
 import asyncio
 from dataclasses import replace
 import tempfile
@@ -9,7 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from mcp.types import CallToolRequestParams, CallToolResult, TextContent, Tool
+from mcp.types import CallToolRequestParams, CallToolResult, TextContent
 
 from mcp_hub import batch
 from mcp_hub.config import HubConfig, ServerConfig, ToolRoute
@@ -23,8 +24,6 @@ ROUTES = (
 )
 
 
-def tool(name: str, read_only: bool) -> Tool:
-    return Tool(name=name, input_schema={"type": "object"}, annotations={"readOnlyHint": read_only})
 
 
 class SlowClient:

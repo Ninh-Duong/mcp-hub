@@ -370,7 +370,7 @@ The command opens the window on top of other windows and renders fixed sample da
 - **Windows integration:** the mutex; the title bar, corner, and acrylic calls and their fallback; the app theme; a real screen capture (Windows only).
 - **`control`** (Hub side): the `launch_hubctl` and `run_hubctl` arguments, failures and timeouts as `OSError`, and the autostart JSON (the Hub's task only).
 
-`tests/test_desktop_window.py` covers the window on Qt's `offscreen` platform (`QT_QPA_PLATFORM=offscreen`), so no window opens and the tests run on every OS, CI included:
+`tests/test_desktop_window_status.py`, `test_desktop_settings_panel.py`, `test_desktop_update_window.py`, `test_desktop_screenshot.py`, and `test_desktop_cli.py` cover the window (their shared Qt setup is in `tests/helpers/window.py`) on Qt's `offscreen` platform (`QT_QPA_PLATFORM=offscreen`), so no window opens and the tests run on every OS, CI included:
 
 - rows and counts, tone properties, and the primary buttons;
 - starting/stopped transitions and footer errors;

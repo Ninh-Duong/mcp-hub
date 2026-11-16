@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from tests.helpers.http import BytesResponse as FakeResponse
 import hashlib
 import io
 import json
@@ -34,12 +35,6 @@ def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-class FakeResponse(io.BytesIO):
-    def __enter__(self) -> FakeResponse:
-        return self
-
-    def __exit__(self, *_exc: object) -> None:
-        self.close()
 
 
 class FakeOpener:

@@ -5,7 +5,7 @@ import unittest
 from datetime import datetime, timedelta, UTC
 from pathlib import Path
 
-from tests.test_job_store import FakeProtector
+from tests.helpers.fakes import FakeProtector
 
 
 class _Runtime:

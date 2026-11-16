@@ -1,8 +1,8 @@
 """The desktop app's update check and install (desktop/update.py): offline, with fake GitHub answers."""
 from __future__ import annotations
 
+from tests.helpers.http import BytesResponse as FakeResponse
 import hashlib
-import io
 import json
 import tempfile
 import unittest
@@ -39,12 +39,6 @@ def release_json(**changes: object) -> dict:
     return {**data, **changes}
 
 
-class FakeResponse(io.BytesIO):
-    def __enter__(self) -> FakeResponse:
-        return self
-
-    def __exit__(self, *_exc: object) -> None:
-        self.close()
 
 
 class FakeGitHub:

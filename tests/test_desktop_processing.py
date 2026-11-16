@@ -1,4 +1,5 @@
 """Offline processing-stream contract and lifecycle tests."""
+from tests.helpers.desktop import event, snapshot
 import json
 import threading
 import unittest
@@ -8,16 +9,11 @@ from urllib.error import HTTPError
 
 from mcp_hub.desktop import processing
 from mcp_hub.desktop.connection import Connection
-from tests.test_desktop_usage import FakeResponse, FakeStop
+from tests.helpers.fakes import FakeResponse, FakeStop
 
 
-def event(sequence=1, stream_id="hub-one", **values):
-    return dict(stream_id=stream_id, sequence=sequence, at="2026-11-12T03:00:00+00:00",
-                operation="plan", state="started", source="bitnet", **values)
 
 
-def snapshot(sequence=1, stream_id="hub-one", events=None):
-    return dict(stream_id=stream_id, sequence=sequence, events=events if events is not None else [event(sequence, stream_id)])
 
 
 def lines(name, data):

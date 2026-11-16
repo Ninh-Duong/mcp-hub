@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from tests.helpers.fakes import tool
 import json
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from mcp.types import CallToolResult, TextContent, Tool
+from mcp.types import CallToolResult, TextContent
 
 from mcp_hub.config import HubConfig, ServerConfig, ToolRoute
 from mcp_hub.server import HubRuntime
@@ -16,8 +17,6 @@ SYNC = ToolRoute("jira", "child", "sync_ticket", "jira__sync_ticket", cache_seco
 UNCACHED = ToolRoute("jira", "child", "list_synced", "jira__list_synced")
 
 
-def tool(name: str, read_only: bool) -> Tool:
-    return Tool(name=name, input_schema={"type": "object"}, annotations={"readOnlyHint": read_only})
 
 
 class FakeClient:

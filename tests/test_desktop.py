@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from tests.helpers.desktop import FakeOpener, TOKEN
 import importlib.util
 import json
 import re
@@ -15,7 +16,6 @@ from mcp_hub.desktop import i18n, prefs, status, theme, win32
 from mcp_hub.desktop.status import HubSnapshot
 
 DESKTOP = Path(__file__).resolve().parents[1] / "src" / "mcp_hub" / "desktop"
-TOKEN = "t" * 48
 STATUS = {
     "ok": True,
     "children": {"mcp-server-logs": "connected", "mcp-jira-sync": "reconnecting", "mcp-read-source": "disabled",
@@ -29,34 +29,8 @@ STATUS = {
 }
 
 
-class FakeResponse:
-    def __init__(self, value: object) -> None:
-        self.body = json.dumps(value).encode("utf-8")
-
-    def __enter__(self) -> FakeResponse:
-        return self
-
-    def __exit__(self, *_exc: object) -> None:
-        return None
-
-    def read(self) -> bytes:
-        return self.body
 
 
-class FakeOpener:
-    """Answers by URL path; a value that is an exception is raised instead."""
-
-    def __init__(self, answers: dict[str, object]) -> None:
-        self.answers = answers
-        self.requests: list[tuple[str, str, str | None, float]] = []
-
-    def __call__(self, request, timeout: float):
-        path = request.full_url.split("8765", 1)[1]
-        self.requests.append((request.get_method(), path, request.get_header("Authorization"), timeout))
-        answer = self.answers[path]
-        if isinstance(answer, Exception):
-            raise answer
-        return FakeResponse(answer)
 
 
 def write_connection(root: Path) -> None:

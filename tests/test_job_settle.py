@@ -7,7 +7,7 @@ import threading
 import time
 import unittest
 
-from tests.test_job_runner_hardening import _Runtime, _runner
+from tests.helpers.jobs import _Runtime, _runner
 
 
 class SettleInterruptedTest(unittest.TestCase):

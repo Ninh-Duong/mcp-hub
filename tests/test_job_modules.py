@@ -12,7 +12,7 @@ from mcp_hub.jobs.approvals import ApprovalMixin
 from mcp_hub.jobs.common import JobSlot, cancel_all, store_call
 from mcp_hub.jobs.investigation import InvestigationMixin, roles_for
 from mcp_hub.jobs.tools import build_deterministic_args, limit_text, object_schema
-from tests.test_job_runner_hardening import _runner, _Runtime
+from tests.helpers.jobs import _runner, _Runtime
 
 
 class ToolsTest(unittest.TestCase):

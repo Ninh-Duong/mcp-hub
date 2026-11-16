@@ -247,13 +247,13 @@
 
 **Independent Test**: `grep` finds no `from tests.test_` import and no duplicate fake class; `package_qc.py` passes.
 
-- [ ] T102 [US6] Create `tests/helpers/__init__.py` and `tests/helpers/fakes.py` with `FakeResponse`, `FakeClient`, `FakeProtector`, `FakeRuntime`, `FakeOpener`, `events()`, and `tool()`, copied from the first test file that defines each one (list the candidates by searching `tests/` for `class Fake` and `def events`)
-- [ ] T103 [P] [US6] Replace the cross-test imports in the nine modules that import from other tests: `tests.test_desktop` (TOKEN, FakeOpener), `tests.test_job_store` (FakeProtector), `tests.test_dashboard_api` (FakeRuntime), `tests.test_desktop_usage` (FakeResponse, FakeStop), `tests.test_desktop_processing` (snapshot, event) with imports from `tests.helpers`. Keep `snapshot` and `event` helpers in `tests/helpers/` if more than one module uses them.
-- [ ] T104 [US6] Delete the copied fake definitions in the test files that now import from `tests.helpers` (`FakeResponse` ×4, `FakeClient`/`_FakeClient` ×6, `events()` ×7, `tool()` ×5, `runtime()` ×4)
-- [ ] T105 [US6] Split `tests/test_desktop_window.py` (1579 lines) into one file per desktop module: `test_desktop_window_render.py`, `test_desktop_window_update.py`, `test_desktop_window_mini.py`, `test_desktop_window_appearance.py`, and `test_desktop_window_cli.py`. Each file keeps the same tests; no test is removed.
+- [X] T102 [US6] Create `tests/helpers/__init__.py` and `tests/helpers/fakes.py` with `FakeResponse`, `FakeClient`, `FakeProtector`, `FakeRuntime`, `FakeOpener`, `events()`, and `tool()`, copied from the first test file that defines each one (list the candidates by searching `tests/` for `class Fake` and `def events`)
+- [X] T103 [P] [US6] Replace the cross-test imports in the nine modules that import from other tests: `tests.test_desktop` (TOKEN, FakeOpener), `tests.test_job_store` (FakeProtector), `tests.test_dashboard_api` (FakeRuntime), `tests.test_desktop_usage` (FakeResponse, FakeStop), `tests.test_desktop_processing` (snapshot, event) with imports from `tests.helpers`. Keep `snapshot` and `event` helpers in `tests/helpers/` if more than one module uses them.
+- [X] T104 [US6] Delete the copied fake definitions in the test files that now import from `tests.helpers` (`FakeResponse` ×4, `FakeClient`/`_FakeClient` ×6, `events()` ×7, `tool()` ×5, `runtime()` ×4)
+- [X] T105 [US6] Split `tests/test_desktop_window.py` (1579 lines) into one file per desktop module: `test_desktop_window_render.py`, `test_desktop_window_update.py`, `test_desktop_window_mini.py`, `test_desktop_window_appearance.py`, and `test_desktop_window_cli.py`. Each file keeps the same tests; no test is removed.
 - [ ] T106 [P] [US6] Rename test files whose module moved, for clarity, for example `tests/test_plan_merge.py` → `tests/test_planning_merge.py`, `tests/test_policy.py` → `tests/test_planning_policy.py`; `check_code_standards` maps tests by import, so the rename does not break the module check
-- [ ] T107 [US6] Add a search-based test in `tests/test_module_boundaries.py` (or a new `tests/test_test_hygiene.py`) that fails if any test module imports from another `tests.test_*` module
-- [ ] T108 [US6] Run `uv run --no-sync python scripts/package_qc.py` and confirm the test count is the same as before the phase (no test removed)
+- [X] T107 [US6] Add a search-based test in `tests/test_module_boundaries.py` (or a new `tests/test_test_hygiene.py`) that fails if any test module imports from another `tests.test_*` module
+- [X] T108 [US6] Run `uv run --no-sync python scripts/package_qc.py` and confirm the test count is the same as before the phase (no test removed)
 - [ ] T109 [US6] Commit Phase 8: "test: share fakes via tests/helpers and split the desktop window tests"
 
 **Checkpoint**: Tests are organized by module, and fakes are defined once.

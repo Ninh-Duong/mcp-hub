@@ -8,7 +8,7 @@ from pathlib import Path
 from mcp.types import CallToolResult, TextContent
 
 from mcp_hub.settings import JobSettings
-from tests.test_job_store import FakeProtector
+from tests.helpers.fakes import FakeProtector
 
 
 class IssueWorkflowTest(unittest.TestCase):

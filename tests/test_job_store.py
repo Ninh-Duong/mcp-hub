@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from tests.helpers.fakes import FakeProtector
 import tempfile
 import unittest
 from datetime import datetime, timedelta, UTC
@@ -14,14 +15,6 @@ def _call(tool: str = "query_logs", *, server_id: str = "mcp-server-logs", clien
     return ToolCallRecord(server_id, tool, client, agent_role, started_at, started_at, duration_ms, state, None)
 
 
-class FakeProtector:
-    def protect(self, data: bytes) -> bytes:
-        return b"enc:" + bytes(byte ^ 0xA5 for byte in data)
-
-    def unprotect(self, data: bytes) -> bytes:
-        if not data.startswith(b"enc:"):
-            raise ValueError("not protected")
-        return bytes(byte ^ 0xA5 for byte in data[4:])
 
 
 class JobStoreTest(unittest.TestCase):
