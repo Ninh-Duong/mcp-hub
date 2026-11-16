@@ -8,7 +8,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .child_requirements import NONE, SECRET_PLACEHOLDER, missing_keys, read_requirements
+from .child_requirements import (
+    NONE,
+    SECRET_PLACEHOLDER,
+    MissingGroup,
+    missing_groups,
+    read_requirements,
+    remaining_keys,
+)
 
 
 HUB_ROOT = Path(__file__).resolve().parents[2]
@@ -72,6 +79,8 @@ class HubConfig:
     unavailable: dict[str, str] = field(default_factory=dict)
     # Required key paths still empty for a child that did start (names only, never values).
     incomplete: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    # The same gaps per requirement group, so a child's own `config_status` report can clear a group.
+    incomplete_groups: dict[str, tuple[MissingGroup, ...]] = field(default_factory=dict)
 
 
 @dataclass
@@ -83,6 +92,7 @@ class _LoadContext:
     explicit_files: set[str] = field(default_factory=set)
     unavailable: dict[str, str] = field(default_factory=dict)
     incomplete: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    incomplete_groups: dict[str, tuple[MissingGroup, ...]] = field(default_factory=dict)
 
 
 def is_sensitive_key(name: str) -> bool:
@@ -151,7 +161,8 @@ def load_config(config_path: str | Path | None = None) -> HubConfig:
     if not routes and not automatic:
         raise ConfigError("Enable at least one feature with an allowlisted tool")
     return HubConfig(config_path=path, servers=servers, routes=routes, detected=context.detected,
-                     unavailable=context.unavailable, incomplete=context.incomplete)
+                     unavailable=context.unavailable, incomplete=context.incomplete,
+                     incomplete_groups=context.incomplete_groups)
 
 
 @dataclass(frozen=True)
@@ -169,6 +180,8 @@ class ServerSwitch:
     missing: tuple[str, ...] = ()
     requirements: str = NONE
     config_file_exists: bool = False
+    # `missing` per requirement group, so a child's own `config_status` report can clear a group.
+    missing_groups: tuple[MissingGroup, ...] = ()
 
 
 def resolved_config_path(config_path: str | Path | None = None) -> Path:
@@ -212,13 +225,15 @@ def _switch(server_id: str, item: dict[str, Any], enabled: bool, context: _LoadC
     values = _child_values(server_id, item, context)
     placeholder = SECRET_PLACEHOLDER in json.dumps(values)
     requirements = read_requirements(_child_repo_dir(server_id, values))
+    gaps = missing_groups(requirements.groups, values)
     return ServerSwitch(
         server_id=server_id,
         enabled=enabled,
         reason="credentials required" if enabled and placeholder else None,
-        missing=missing_keys(requirements.groups, values),
+        missing=remaining_keys(gaps),
         requirements=requirements.status,
         config_file_exists=_editable_file(server_id, item, context) is not None,
+        missing_groups=gaps,
     )
 
 
@@ -357,9 +372,11 @@ def _load_server(server_id: str, item: dict[str, Any], context: _LoadContext) ->
             context.unavailable[server_id] = "credentials required"
             return None
         raise ConfigError(f"server {server_id} has unfilled {SECRET_PLACEHOLDER} values in its configFile")
-    missing = missing_keys(read_requirements(_child_repo_dir(server_id, local)).groups, local)
-    if missing:
-        context.incomplete[server_id] = missing  # starts anyway: the child may read these from its own files
+    gaps = missing_groups(read_requirements(_child_repo_dir(server_id, local)).groups, local)
+    if gaps:
+        # Starts anyway: the child may read these from its own files (its `config_status` says so later).
+        context.incomplete[server_id] = remaining_keys(gaps)
+        context.incomplete_groups[server_id] = gaps
     if local.get("transport") != "stdio":
         raise ConfigError(f"server {server_id} uses an unsupported transport")
     command = _string(local.get("command"), f"server {server_id} command")

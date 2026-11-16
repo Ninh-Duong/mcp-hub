@@ -80,8 +80,8 @@ How releases, numbering, and upgrades of the other parts work is in [versioning.
 
 A child MCP can declare the settings it needs in `hub-requirements.json` in its own repository (format in [child-mcp-compatibility.md](child-mcp-compatibility.md#declaring-required-settings)). The app shows the result in two places:
 
-- **Child MCPs card.** A child that started with a gap shows the warning tone and **Config incomplete**. It still runs; its tools work from its own local files. Clicking that row opens Settings on the Config tab with the child's edit button focused.
-- **Settings → Config.** One row per child with its state: **Ready**, **Missing: <key paths>** (names only), **Ready. Restart the Hub to apply.** (the file is complete but the running Hub started with the gap), **No requirements declared**, or **Requirements file is invalid**.
+- **Child MCPs card.** A child that started with a gap shows the warning tone and **Config incomplete**, unless the child's own `config_status` reports the group as set from another source, such as its local files ([Reporting configuration sources](child-mcp-compatibility.md#reporting-configuration-sources)); then the row looks like any connected child. It still runs; its tools work from its own local files. Clicking that row opens Settings on the Config tab with the child's edit button focused.
+- **Settings → Config.** One row per child with its state: **Ready** (also when the child reports a group as set from its own files), **Missing: <key paths>** (names only), **Ready. Restart the Hub to apply.** (the file is complete but the running Hub started with the gap), **No requirements declared**, or **Requirements file is invalid**.
 
 The edit button asks the Hub to create the child's private file from its template when it is missing (`POST /dashboard/api/settings/servers/{id}/config-file`), then opens that file in the default editor. The Hub returns only the path. The app never reads the file and never shows its path or values. With `MCP_HUB_CONFIG` set, or while the Hub is not running, the button is disabled and its tooltip says why. A press that fails shows the reason on that child's row.
 

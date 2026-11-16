@@ -42,6 +42,7 @@ from .audit_events import TOOL_ARGUMENTS_INVALID, TOOL_DEFINITION_CHANGED, TOOL_
 from .batch import BATCH_TOOL, BatchItem, BatchRefused, batch_result, batch_tool, parse_calls, run_batch
 from .children import Backoff, ChildOpener, ChildSupervisor, ChildUnavailable, open_stdio_client
 from .condense import RuleCondenser, condense_text_rules
+from .config_sources import ConfigSources, gaps_after_reports
 from .config import HUB_ROOT, HubConfig, ServerConfig, ToolRoute, is_sensitive_key, load_config
 from datetime import UTC, datetime
 from .events import HubEvents
@@ -137,6 +138,8 @@ class HubRuntime:
             audit_path.parent if isinstance(audit_path, Path) else default_log_dir()
         ) / "children"
         self.supervisors: dict[str, ChildSupervisor] = {}
+        # What each child reports through `config_status` about where its required settings come from.
+        self.config_sources = ConfigSources(audit, settings.children.config_status_timeout_seconds)
         self._discovered: dict[str, dict[str, Tool]] = {}
         self._read_only: set[str] = set()
         # What the usage policy knows about each routed tool, and the recent plans from hub__plan.
@@ -245,9 +248,18 @@ class HubRuntime:
         self._discovered[server_id] = tools
         self.discovered_tool_counts[server_id] = len(tools)
         self.clients[server_id] = client
+        self._schedule_config_probe(server_id, client, tools)
         if self._starting:
             return  # `connect` registers all routes once the first attempts are done
         self._schedule_announcement(self._rebuild_child_routes(server_id))
+
+    def _schedule_config_probe(self, server_id: str, client: Client, tools: dict[str, Tool]) -> None:
+        """Ask the child where its settings come from, in the background, off the tool-call path."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:  # no loop (sync tests): the file-only gaps stay
+            return
+        self._keep_background(asyncio.ensure_future(self.config_sources.probe(server_id, client, tools)))
 
     async def child_tools_changed(self, server_id: str) -> None:
         """A child sent tools/list_changed and its supervisor relisted it: rebuild its routes and announce them."""
@@ -417,8 +429,15 @@ class HubRuntime:
         return tuple(dict.fromkeys((*self.config.detected, *self.config.servers, *self.config.unavailable)))
 
     def config_incomplete(self) -> dict[str, list[str]]:
-        """Children that started with required settings still empty: key paths only, never values."""
-        return {server_id: list(keys) for server_id, keys in self.config.incomplete.items()}
+        """Children that started with required settings still empty: key paths only, never values.
+
+        A group the child reports as set through `config_status` (for example from its own local files) is left out.
+        """
+        return gaps_after_reports(self.config.incomplete, self.config.incomplete_groups, self.config_sources.reports())
+
+    def config_source_reports(self) -> dict[str, dict[str, str]]:
+        """Each connected child's `config_status` report: group ids and source words only."""
+        return self.config_sources.reports()
 
     def child_states(self) -> dict[str, str]:
         """Each known child's state: connected, connecting, reconnecting, a configured reason

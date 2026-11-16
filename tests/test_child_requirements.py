@@ -122,5 +122,37 @@ class ParseErrorsTest(unittest.TestCase):
             req.parse_requirements({"version": 1, "groups": [{"label": "  ", "anyOf": [["a.b"]]}]})
 
 
+
+class GroupIdTest(unittest.TestCase):
+    RAW = {"version": 1, "groups": [
+        {"label": "Login", "id": "mssql_login", "anyOf": [["mssql.server", "mssql.password"]]},
+        {"label": "Other", "anyOf": [["x.one"]]},
+    ]}
+
+    def test_a_group_id_is_kept_and_optional(self) -> None:
+        self.assertEqual([group.group_id for group in groups_of(self.RAW)], ["mssql_login", None])
+
+    def test_a_bad_group_id_is_refused(self) -> None:
+        for bad in ("Bad", "1x", "", 3, "a" * 65):
+            raw = {"version": 1, "groups": [{"label": "x", "id": bad, "anyOf": [["a.b"]]}]}
+            with self.assertRaises(req.RequirementsError, msg=repr(bad)):
+                req.parse_requirements(raw)
+
+    def test_a_group_the_child_reports_as_set_is_not_missing(self) -> None:
+        gaps = req.missing_groups(groups_of(self.RAW), {})
+        self.assertEqual(gaps[0], req.MissingGroup("mssql_login", ("mssql.server", "mssql.password")))
+        for source in ("env", "hub", "local", "default"):
+            self.assertEqual(req.remaining_keys(gaps, {"mssql_login": source}), ("x.one",), source)
+        for source in ("unset", "elsewhere"):
+            self.assertEqual(req.remaining_keys(gaps, {"mssql_login": source}),
+                             ("mssql.server", "mssql.password", "x.one"), source)
+        self.assertEqual(req.remaining_keys(gaps), ("mssql.server", "mssql.password", "x.one"))
+
+    def test_parse_source_report(self) -> None:
+        self.assertEqual(req.parse_source_report({"groups": {"a_b": "local"}}), {"a_b": "local"})
+        for bad in (None, {}, {"groups": {"a": "nowhere"}}, {"groups": {"A": "env"}}, {"groups": {1: "env"}}):
+            self.assertIsNone(req.parse_source_report(bad), bad)
+
+
 if __name__ == "__main__":
     unittest.main()

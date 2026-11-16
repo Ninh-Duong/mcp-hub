@@ -53,6 +53,7 @@ A child can list the settings it needs in `hub-requirements.json` at the root of
   "groups": [
     {
       "label": "OpenObserve or Seq",
+      "id": "log_account",
       "anyOf": [
         ["openobserve.default_env", "openobserve.dev.url", "openobserve.dev.token"],
         ["seq.server_url", "seq.api_key"]
@@ -65,8 +66,22 @@ A child can list the settings it needs in `hub-requirements.json` at the root of
 - Each group is satisfied when one of its `anyOf` alternatives has a filled value for every key. Keys are dotted paths into the child's private file (`config/private/mcps/<server-id>.json`).
 - A value is empty when it is missing, `null`, blank, or `<SET_BY_USER>`. Numbers and booleans always count as filled.
 - The file holds key names only. Never put values in it.
+- `id` is optional: a lowercase name (`^[a-z][a-z0-9_]{0,63}$`) that the child's `config_status` tool reports on (see [Reporting configuration sources](#reporting-configuration-sources)). A malformed `id` makes the file `invalid`.
 - No file means no requirements. A file that cannot be read or does not follow this format is reported as `invalid`, and the Hub still starts the child.
 - The Hub audits `child_config_incomplete` (server ID and key names) when a child starts with a gap, and reports the gap in `config_incomplete` on `GET /dashboard/api/status`. The desktop app shows the same gap in the **Config** settings tab and in the Child MCPs card. A gap does not stop the child, because it may still read the value from its own local files.
+
+## Reporting configuration sources
+
+The Hub file is only one of a child's configuration sources ([Configuration sources](#configuration-sources)). So that the desktop app does not report a gap the child fills from its own local files, a child can offer a `config_status` tool:
+
+- No input. Read-only, idempotent, no network or database call (`readOnlyHint: true`, `openWorldHint: false`).
+- It returns one text block (or structured content) `{"groups": {"<group-id>": "env|hub|local|default|unset"}}`, one entry per `id` in its `hub-requirements.json`. Source words only, never values, paths, or emails.
+- After each connect, the Hub calls it once in the background, waiting at most `children.configStatusTimeoutSeconds` ([settings.md](settings.md)), and keeps the answer until the next connect.
+- A group the child reports as `env`, `hub`, `local`, or `default` is no longer a gap in `config_incomplete` on `GET /dashboard/api/status` or in `missing` on `GET /dashboard/api/settings`. `unset`, an error, a timeout, or another shape keeps the gap read from the Hub file.
+- The Hub audits each answer as `child_config_status` (group IDs and source words, or `error_type`).
+- `config_status` is for the Hub only: do not add it to a feature allowlist in `config/hub.example.json`, so agents never see it.
+
+`mcp-server-logs` (`log_account`), `mcp-pr-companion` (`bitbucket`), and `mcp-sqlserver` (`mssql_login`) offer it.
 
 ## Tests and documentation to update
 

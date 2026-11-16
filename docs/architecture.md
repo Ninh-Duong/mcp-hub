@@ -13,7 +13,7 @@
 
 ## Module layout
 
-Dependencies flow one way: `child_requirements` (a leaf, importing nothing from the Hub) → `config` → `settings` → `audit` / `extensions` / `hub_settings` → `server` (with `children`, `child_logs`, `result_cache`, `events`, `tool_pins`, `result_shape`, `schema_rewrite`, `instructions`) → `http` → `service`. `dashboard`, `jobs`, `agents`, `bridge`, `preflight`, and `control` use only public functions and methods of those modules; `activity_ui` is imported only by `service.py`. `desktop` imports nothing from `mcp_hub` outside `mcp_hub.desktop` (a test checks it): it finds the Hub through the connection file the service writes and talks to it only through its HTTP API, so it ships as its own installer. Every module below is imported by at least one test.
+Dependencies flow one way: `child_requirements` (a leaf, importing nothing from the Hub) → `config` → `settings` → `audit` / `extensions` / `hub_settings` → `server` (with `children`, `child_logs`, `config_sources`, `result_cache`, `events`, `tool_pins`, `result_shape`, `schema_rewrite`, `instructions`) → `http` → `service`. `dashboard`, `jobs`, `agents`, `bridge`, `preflight`, and `control` use only public functions and methods of those modules; `activity_ui` is imported only by `service.py`. `desktop` imports nothing from `mcp_hub` outside `mcp_hub.desktop` (a test checks it): it finds the Hub through the connection file the service writes and talks to it only through its HTTP API, so it ships as its own installer. Every module below is imported by at least one test.
 
 | Layer | Module (`src/mcp_hub/`) | Responsibility |
 |---|---|---|
@@ -36,6 +36,7 @@ Dependencies flow one way: `child_requirements` (a leaf, importing nothing from 
 | | `playbooks.py` | Parse the task recipes in `docs/playbooks/<id>.md` (frontmatter and steps) once at start. See [playbooks/README.md](playbooks/README.md) |
 | | `children.py` | One `ChildSupervisor` task per child: launch (`child_environment`), handshake, tool listing, reconnect with backoff |
 | | `child_logs.py` | Size-capped child stderr logs (`logs/children/<server-id>.log`) drained by a thread |
+| | `config_sources.py` | Asks each connected child's `config_status` tool where its required settings come from, and drops the gaps it reports as set (group IDs and source words only) |
 | | `result_cache.py` | In-memory TTL cache for read-only tool results, single-flight, size-bounded |
 | Transport | `http.py` | Authenticated Streamable HTTP app: client/admin bearer checks, Host/Origin checks, `/health` |
 | | `bridge.py` | The stdio bridge (`mcp-hub-bridge`) to the shared service, with its optional presence stream |

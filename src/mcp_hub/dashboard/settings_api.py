@@ -7,33 +7,42 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from .. import control, hub_settings
+from ..child_requirements import remaining_keys
 from ..config import ConfigError, ServerSwitch
 from ..extensions import BITNET
 
 
-def settings_payload(settings: hub_settings.HubSettings) -> dict[str, Any]:
+SourceReports = Mapping[str, Mapping[str, str]]
+_NO_REPORTS: SourceReports = {}
+
+
+def settings_payload(settings: hub_settings.HubSettings, reports: SourceReports = _NO_REPORTS) -> dict[str, Any]:
     return {
         "editable": settings.editable,
         "activity_ui": settings.activity_ui,
         "bitnet": settings.bitnet,
-        "servers": [_server_payload(item) for item in settings.servers],
+        "servers": [_server_payload(item, reports.get(item.server_id)) for item in settings.servers],
     }
 
 
-def _server_payload(item: ServerSwitch) -> dict[str, Any]:
-    """Names and states only: the missing key paths, never the values behind them."""
+def _server_payload(item: ServerSwitch, report: Mapping[str, str] | None = None) -> dict[str, Any]:
+    """Names and states only: the missing key paths, never the values behind them.
+
+    A group the child reports as set through `config_status` (for example from its own local files) is not missing.
+    """
+    missing = remaining_keys(item.missing_groups, report) if item.missing_groups else item.missing
     return {
         "id": item.server_id,
         "enabled": item.enabled,
         "reason": item.reason,
-        "missing": list(item.missing),
+        "missing": list(missing),
         "requirements": item.requirements,
         "config_file_exists": item.config_file_exists,
     }
@@ -60,8 +69,15 @@ class SettingsHandlers:
         store: Any = hub_settings,
         read_autostart: Callable[[], dict[str, bool]] = control.autostart_state,
         write_autostart: Callable[[str, bool], dict[str, bool]] = control.set_autostart,
+        source_reports: Callable[[], SourceReports] | None = None,
     ) -> None:
         self.store, self.read_autostart, self.write_autostart = store, read_autostart, write_autostart
+        self.source_reports = source_reports
+
+    def use_source_reports(self, source_reports: Callable[[], SourceReports]) -> None:
+        """Where the running Hub keeps its children's `config_status` reports (set by DashboardHandlers)."""
+        if self.source_reports is None:
+            self.source_reports = source_reports
 
     def routes(self) -> list[Route]:
         return [
@@ -75,7 +91,9 @@ class SettingsHandlers:
 
     async def _read(self) -> Response:
         try:
-            return JSONResponse(settings_payload(await asyncio.to_thread(self.store.read_settings)))
+            settings = await asyncio.to_thread(self.store.read_settings)
+            reports = self.source_reports() if self.source_reports is not None else _NO_REPORTS
+            return JSONResponse(settings_payload(settings, reports))
         except (ConfigError, OSError):
             return _error("Hub settings could not be read.", 500)
 

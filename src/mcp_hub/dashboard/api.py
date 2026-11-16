@@ -32,6 +32,9 @@ class DashboardHandlers:
         self.shutdown_callback = shutdown_callback
         self.extensions = tuple(extensions)
         self.settings = settings or SettingsHandlers()
+        source_reports = getattr(runtime, "config_source_reports", None)
+        if callable(source_reports):
+            self.settings.use_source_reports(source_reports)
         self.updates = updates or UpdateHandlers(control_launcher or launch_hubctl)
 
     def routes(self) -> list[Route]:

@@ -57,6 +57,8 @@ class ChildrenSettings:
     reconnect_max_seconds: float = 60.0
     # Longest the Hub waits for children at start; a child that has not answered by then joins later.
     startup_wait_seconds: float = 10.0
+    # Longest the Hub waits for a child's `config_status` answer after it connects.
+    config_status_timeout_seconds: float = 5.0
 
 
 @dataclass(frozen=True)
@@ -168,7 +170,7 @@ _MINIMUMS = {
     ("protocol", "tools_list_ttl_ms"): 0,
     ("policy", "repeat_after_seconds"): 0,
 }
-_MAXIMUMS = {("http", "port"): 65535, ("bitnet", "port"): 65535}
+_MAXIMUMS = {("http", "port"): 65535, ("bitnet", "port"): 65535, ("children", "config_status_timeout_seconds"): 60}
 # Text settings and the values each accepts.
 _CHOICES = {
     ("policy", "mode"): ("enforce", "warn", "off"),

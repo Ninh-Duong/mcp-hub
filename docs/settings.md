@@ -37,6 +37,7 @@ The values an operator may want to change live in one optional `settings` object
 | `children` | `reconnectInitialSeconds` | `1` | The first delay before a dropped child MCP is started again; it doubles after each failed attempt. |
 | `children` | `reconnectMaxSeconds` | `60` | The longest delay between reconnect attempts. A session that stayed up this long resets the delay. |
 | `children` | `startupWaitSeconds` | `10` | Longest the Hub waits for children at start; a child that has not answered by then joins later, and the Hub serves without it. |
+| `children` | `configStatusTimeoutSeconds` | `5` | Longest the Hub waits for a child's `config_status` answer after the child connects (at most `60`). Without an answer, the Config tab keeps the gaps it reads from the Hub file ([child-mcp-compatibility.md](child-mcp-compatibility.md#reporting-configuration-sources)). |
 | `logs` | `maxBytes` | `5242880` (5 MiB) | Size at which `logs/mcp-hub.jsonl` rotates, and the cap of each child's stderr log. |
 | `logs` | `backups` | `3` | Rotated audit logs kept (`.1` to `.3`); `0` or more. |
 | `cache` | `maxEntries` | `256` | Read-only results the Hub keeps in memory for their `cacheSeconds`. |
