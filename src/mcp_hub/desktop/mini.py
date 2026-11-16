@@ -6,18 +6,17 @@ and state word instead. Tooltips carry the names; dragging the bar moves the win
 """
 from __future__ import annotations
 
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtWidgets import QHBoxLayout, QLabel
+from . import theme
+from .widgets import Card, dot_icon, icon_button, label
 from collections.abc import Callable
 from typing import Any
-
-from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QHBoxLayout, QLabel
 from qfluentwidgets import FluentIcon
+from .widgets import current_palette, tone_pixmap
 
-from . import theme
-from .widgets import Card, current_palette, dot_icon, icon_button, label, tone_pixmap
 
-# (server ID, tone or "live", tooltip) for one child dot.
 ChildDot = tuple[str, str, str]
 
 
@@ -96,3 +95,72 @@ class MiniBar(Card):
             event.accept()
             return
         super().mousePressEvent(event)
+
+
+class MiniMixin:
+    """Compact (mini bar) mode of StatusWindow (moved out of app.py)."""
+
+    def set_compact(self, on: bool) -> None:
+        """Shrink to the frameless mini bar above other windows, or grow back to the full window."""
+        if on == self.compact:
+            return
+        if on:
+            self._full_pos = self.pos()
+            self.show_settings(False)
+        # Read before show(): showing the recreated window reports a move that would overwrite it.
+        target = self._compact_pos if on else self._full_pos
+        self.compact = on
+        for card in (*self.cards, self.settings):
+            card.setVisible(not on and (card is not self.settings or self.settings_button.isChecked()))
+        self.update_card.setVisible(not on and self.update_release is not None)
+        self.mini.setVisible(on)
+        margin = 0 if on else theme.SPACE_S
+        self.outer.setContentsMargins(margin, margin, margin, margin)
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, on)
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, on or self._capture_on_top)
+        self.show()  # a flag change recreates the native window
+        if target is not None:
+            self.move(target)
+        self.apply_theme()
+        self.save_timer.start()
+
+    def restore_compact(self, saved: dict[str, Any], on_screen: Callable[[int, int], bool]) -> None:
+        """Reopen as the mini bar when it was left that way, at its last place if that is still on a screen."""
+        position = saved.get("compact_pos")
+        if position and on_screen(*position):
+            self._compact_pos = QPoint(*position)
+        if saved.get("compact"):
+            self.set_compact(True)
+
+    def moveEvent(self, event: Any) -> None:  # noqa: N802 - Qt override
+        if self.compact:
+            self._compact_pos = self.pos()
+            self.save_timer.start()
+        super().moveEvent(event)
+
+    def _mini_state(self, activity_ui: bool) -> tuple:
+        """What the mini bar shows: the Hub tone, each child's tone (or `live`), and the counts."""
+        snapshot = self.snapshot
+        if snapshot is None or snapshot.hub != "running":
+            return (snapshot.tone if snapshot else "wait", snapshot.hub if snapshot else None, (), "", 0)
+        now = self.now()
+        children = tuple(
+            (child.server_id, child.tone, child.state, self.usage_board.usage(child.server_id, now) if activity_ui else None)
+            for child in snapshot.children
+        )
+        ok = sum(child.tone == "ok" for child in snapshot.children)
+        clients = len(snapshot.clients) if activity_ui else -1
+        return (snapshot.tone, snapshot.hub, children, f"{ok}/{len(snapshot.children)}", clients)
+
+    def _render_mini(self, _hub: str | None) -> None:
+        tone, hub, children, count, clients = self._mini_state(bool(self.snapshot and self.snapshot.activity_ui))
+        hub_text = self.t.hub_label(hub) if hub else self.t("desktop.checking")
+        dots = []
+        for server_id, child_tone, state, line in children:
+            if line is not None and line.kind == "active":
+                detail = self.t("desktop.usage.line", clients=", ".join(line.clients), when=self.t("desktop.usage.now"))
+                dots.append((server_id, "live", self.t("desktop.mini.dot", name=server_id, detail=detail)))
+            else:
+                dots.append((server_id, child_tone, self.t("desktop.mini.dot", name=server_id, detail=self.t.state_label(state))))
+        client_text = self.t("desktop.mini.clients", count=clients) if clients >= 0 and hub == "running" else ""
+        self.mini.show_state(None if hub == "running" else (tone, hub_text), dots, count, client_text)

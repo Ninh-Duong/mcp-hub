@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.error import URLError
 
 from mcp_hub.desktop import status, theme, usage
+from mcp_hub.desktop.stream import parse_sse
 from mcp_hub.desktop.usage import ChildUsage, UsageBoard
 
 NOW = datetime(2026, 10, 31, 9, 30, tzinfo=UTC)
@@ -29,7 +30,7 @@ class ParseSseTest(unittest.TestCase):
             "event: activity\n", "data: [1, 2]\n", "\n",
             "data:{\"state\": \"started\"}\r\n", "\r\n",
         ]
-        self.assertEqual(list(usage.parse_sse(lines)), [
+        self.assertEqual(list(parse_sse(lines)), [
             ("snapshot", {"activity": {"children": {}}}),
             ("message", {"state": "started"}),
         ])

@@ -4,14 +4,15 @@ from __future__ import annotations
 import re
 import threading
 import urllib.request
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from http.client import HTTPException
 from typing import Any
 from urllib.error import HTTPError
 
-from . import status, theme, usage
+from . import status, usage
+from .stream import STREAM_ERRORS, StreamController
 from .connection import load_connection
 
 OPERATIONS = frozenset({"plan", "child_call", "condense", "job_plan", "local_summary"})
@@ -138,28 +139,21 @@ def stream_processing(
     *, connect: Callable[[], Any] = open_processing_stream,
 ) -> None:
     """Forward typed messages through the app queue; reconnect quietly for an older Hub."""
-    delay, unavailable = 1.0, False
-    while not stop.is_set():
-        try:
-            with connect() as response:
-                for name, value in usage.parse_sse(_decoded_lines(response, stop)):
-                    message = parse_message(name, value)
-                    if message is not None and not stop.is_set():
-                        put(("processing", message))
-                        delay, unavailable = 1.0, False
-        except HTTPError as exc:
-            if exc.code in {401, 404} and not unavailable and not stop.is_set():
-                put(("processing_unavailable", None))
-                unavailable = True
-        except (status.DesktopError, OSError, ValueError, HTTPException):
-            pass
-        if stop.wait(delay):
-            return
-        delay = min(delay * 2, theme.STREAM_RETRY_MAX_SECONDS)
+    state = {"unavailable": False}
+
+    def handle(name: str, value: dict[str, Any]) -> bool:
+        message = parse_message(name, value)
+        if message is None or stop.is_set():
+            return False
+        put(("processing", message))
+        state["unavailable"] = False
+        return True
+
+    def on_http_error(exc: HTTPError) -> None:
+        if exc.code in {401, 404} and not state["unavailable"] and not stop.is_set():
+            put(("processing_unavailable", None))
+            state["unavailable"] = True
+
+    StreamController(connect, stop, handle, errors=(*STREAM_ERRORS, HTTPException), on_http_error=on_http_error).run()
 
 
-def _decoded_lines(response: Iterable[bytes], stop: threading.Event) -> Iterator[str]:
-    for line in response:
-        if stop.is_set():
-            return
-        yield line.decode("utf-8", "replace")

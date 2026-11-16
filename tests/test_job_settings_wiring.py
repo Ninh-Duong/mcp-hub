@@ -25,7 +25,7 @@ def _runner(**limits: object) -> JobRunner:
 class SpecialistLimitsTest(unittest.IsolatedAsyncioTestCase):
     async def test_the_executor_gets_rounds_and_result_size_from_settings(self) -> None:
         runner = _runner(specialist_max_rounds=3, tool_result_chars=1234, context_chars=5000)
-        with patch("mcp_hub.jobs.runner.SpecialistExecutor") as executor_type:
+        with patch("mcp_hub.jobs.investigation.SpecialistExecutor") as executor_type:
             executor_type.return_value.run = AsyncMock(return_value=SpecialistResult("logs", "", (), "done"))
             await runner._run_specialist("job-1", "logs", REQUEST)
         kwargs = executor_type.call_args.kwargs
@@ -45,15 +45,15 @@ class SpecialistLimitsTest(unittest.IsolatedAsyncioTestCase):
 class PromptCacheTest(unittest.TestCase):
     def test_create_provider_passes_the_prompt_cache_to_anthropic(self) -> None:
         config = AgentConfig("logs", "anthropic", "test-model", "logs-test-key")
-        with patch("mcp_hub.jobs.runner.provider_package_installed", return_value=True), \
-                patch("mcp_hub.jobs.runner.AnthropicProvider") as provider_type:
+        with patch("mcp_hub.jobs.tools.provider_package_installed", return_value=True), \
+                patch("mcp_hub.jobs.tools.AnthropicProvider") as provider_type:
             create_provider(config, prompt_cache=False)
         self.assertFalse(provider_type.call_args.kwargs["prompt_cache"])
 
     def test_the_job_runner_builds_anthropic_providers_with_its_limit(self) -> None:
         agents = {"logs": AgentConfig("logs", "anthropic", "test-model", "logs-test-key")}
-        with patch("mcp_hub.jobs.runner.provider_package_installed", return_value=True), \
-                patch("mcp_hub.jobs.runner.AnthropicProvider") as provider_type:
+        with patch("mcp_hub.jobs.tools.provider_package_installed", return_value=True), \
+                patch("mcp_hub.jobs.tools.AnthropicProvider") as provider_type:
             JobRunner(
                 store=MagicMock(), runtime=MagicMock(), projects={}, agents=agents,
                 limits=JobSettings(prompt_cache=False),

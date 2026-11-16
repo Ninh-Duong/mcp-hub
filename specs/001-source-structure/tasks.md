@@ -187,29 +187,29 @@
 
 ### Job runner
 
-- [ ] T070 [US4] Create `tests/test_job_settle.py` first: a job whose task is cancelled during a running write ends in state `interrupted`, and the test fails if the settle step is skipped (write it before the change, expect it to pass on current code, then keep it as the guard)
-- [ ] T071 [US4] Create `src/mcp_hub/jobs/tools.py` from `src/mcp_hub/jobs/runner.py:53-140` (`_build_deterministic_args`, `_ENV`, `_JOB_ID`, `_JOB_TOOLS`, `_object_schema`, `_limit_text`, `create_provider`). Split `_build_deterministic_args` (57 lines) into `_logs_args` and `_sql_args` so each function is under 50 lines.
-- [ ] T072 [P] [US4] Create `src/mcp_hub/jobs/approvals.py` from `src/mcp_hub/jobs/runner.py:378-464` (the approval flow) and `tests/test_job_approvals.py` covering approve, reject, wrong code, and an expired approval
-- [ ] T073 [P] [US4] Create `src/mcp_hub/jobs/investigation.py` from `src/mcp_hub/jobs/runner.py:622-771` (investigation and specialist steps) and a test file for the moved steps
-- [ ] T074 [US4] Fix `_settle_interrupted` at `src/mcp_hub/jobs/runner.py:429` and `:529` per research.md R8: run it through a worker thread inside the `except asyncio.CancelledError` branch, then confirm `tests/test_job_settle.py` still passes. If the test shows that is unsafe, keep the call synchronous, add a note in plan.md Complexity Tracking, and stop this task
-- [ ] T075 [US4] Confirm `src/mcp_hub/jobs/runner.py` is under 500 lines and no function in `jobs/` is over 50 lines (`scripts/check_code_standards.py` enforces the second)
+- [X] T070 [US4] Create `tests/test_job_settle.py` first: a job whose task is cancelled during a running write ends in state `interrupted`, and the test fails if the settle step is skipped (write it before the change, expect it to pass on current code, then keep it as the guard)
+- [X] T071 [US4] Create `src/mcp_hub/jobs/tools.py` from `src/mcp_hub/jobs/runner.py:53-140` (`_build_deterministic_args`, `_ENV`, `_JOB_ID`, `_JOB_TOOLS`, `_object_schema`, `_limit_text`, `create_provider`). Split `_build_deterministic_args` (57 lines) into `_logs_args` and `_sql_args` so each function is under 50 lines.
+- [X] T072 [P] [US4] Create `src/mcp_hub/jobs/approvals.py` from `src/mcp_hub/jobs/runner.py:378-464` (the approval flow) and `tests/test_job_approvals.py` covering approve, reject, wrong code, and an expired approval
+- [X] T073 [P] [US4] Create `src/mcp_hub/jobs/investigation.py` from `src/mcp_hub/jobs/runner.py:622-771` (investigation and specialist steps) and a test file for the moved steps
+- [X] T074 [US4] Fix `_settle_interrupted` at `src/mcp_hub/jobs/runner.py:429` and `:529` per research.md R8: run it through a worker thread inside the `except asyncio.CancelledError` branch, then confirm `tests/test_job_settle.py` still passes. If the test shows that is unsafe, keep the call synchronous, add a note in plan.md Complexity Tracking, and stop this task
+- [X] T075 [US4] Confirm `src/mcp_hub/jobs/runner.py` is under 500 lines and no function in `jobs/` is over 50 lines (`scripts/check_code_standards.py` enforces the second)
 
 ### Desktop app
 
-- [ ] T076 [P] [US4] Create `src/mcp_hub/desktop/stream.py` with `StreamController`, extracted from the reconnect loop in `src/mcp_hub/desktop/usage.py:146-186` and `src/mcp_hub/desktop/processing.py:126-165`; keep each module's parser function in place
-- [ ] T077 [US4] Switch `src/mcp_hub/desktop/usage.py` and `src/mcp_hub/desktop/processing.py` to `StreamController`; `tests/test_desktop_usage.py` and `tests/test_desktop_processing.py` must pass unchanged
-- [ ] T078 [P] [US4] Create `src/mcp_hub/desktop/appearance.py` from `src/mcp_hub/desktop/app.py:278-358` (theme, language, saved preferences)
-- [ ] T079 [P] [US4] Create `src/mcp_hub/desktop/render.py` from `src/mcp_hub/desktop/app.py:359-595` (render pipeline for children, clients, usage, BitNet)
-- [ ] T080 [P] [US4] Create `src/mcp_hub/desktop/update_controller.py` from `src/mcp_hub/desktop/app.py:674-804` (update flow)
-- [ ] T081 [US4] Move mini mode from `src/mcp_hub/desktop/app.py:1021-1096` into `src/mcp_hub/desktop/mini.py`
-- [ ] T082 [US4] Move the command line and screenshot code from `src/mcp_hub/desktop/app.py:1097-1183` into `src/mcp_hub/desktop/__main__.py`; keep `app.main` importable, because `packaging/desktop/entry.py` imports it (re-export or update the import in that file)
-- [ ] T083 [US4] Use `constants.APP_DATA_DIR` in `src/mcp_hub/desktop/hub_api.py:142` instead of the literal `"mcp-hub-status"`
-- [ ] T084 [US4] Confirm `src/mcp_hub/desktop/app.py` holds only window assembly and is under 400 lines; no function in `desktop/` is over 50 lines
+- [X] T076 [P] [US4] Create `src/mcp_hub/desktop/stream.py` with `StreamController`, extracted from the reconnect loop in `src/mcp_hub/desktop/usage.py:146-186` and `src/mcp_hub/desktop/processing.py:126-165`; keep each module's parser function in place
+- [X] T077 [US4] Switch `src/mcp_hub/desktop/usage.py` and `src/mcp_hub/desktop/processing.py` to `StreamController`; `tests/test_desktop_usage.py` and `tests/test_desktop_processing.py` must pass unchanged
+- [X] T078 [P] [US4] Create `src/mcp_hub/desktop/appearance.py` from `src/mcp_hub/desktop/app.py:278-358` (theme, language, saved preferences)
+- [X] T079 [P] [US4] Create `src/mcp_hub/desktop/render.py` from `src/mcp_hub/desktop/app.py:359-595` (render pipeline for children, clients, usage, BitNet)
+- [X] T080 [P] [US4] Create `src/mcp_hub/desktop/update_controller.py` from `src/mcp_hub/desktop/app.py:674-804` (update flow)
+- [X] T081 [US4] Move mini mode from `src/mcp_hub/desktop/app.py:1021-1096` into `src/mcp_hub/desktop/mini.py`
+- [X] T082 [US4] Move the command line and screenshot code from `src/mcp_hub/desktop/app.py:1097-1183` into `src/mcp_hub/desktop/__main__.py`; keep `app.main` importable, because `packaging/desktop/entry.py` imports it (re-export or update the import in that file)
+- [X] T083 [US4] Use `constants.APP_DATA_DIR` in `src/mcp_hub/desktop/hub_api.py:142` instead of the literal `"mcp-hub-status"`
+- [X] T084 [US4] Confirm `src/mcp_hub/desktop/app.py` holds only window assembly and is under 400 lines; no function in `desktop/` is over 50 lines
 
 ### Gate and docs
 
-- [ ] T085 [US4] Update `docs/desktop-app.md` (module list and what each new module does), and `docs/architecture.md` and `docs/operations/shared-agent-hub.md` for the `jobs/` split
-- [ ] T086 [US4] Run `uv run --no-sync python scripts/package_qc.py` and the surface contract test (no difference)
+- [X] T085 [US4] Update `docs/desktop-app.md` (module list and what each new module does), and `docs/architecture.md` and `docs/operations/shared-agent-hub.md` for the `jobs/` split
+- [X] T086 [US4] Run `uv run --no-sync python scripts/package_qc.py` and the surface contract test (no difference)
 - [ ] T087 [US4] Run `uv run --no-sync python scripts/smoke.py` on the maintainer's machine (needs child configuration; report which children were skipped)
 - [ ] T088 [US4] Desktop manual check per quickstart section 6: status view, update card, mini mode, usage and processing views, and window close (the Hub keeps running)
 - [ ] T089 [US4] Commit Phase 6: "refactor(jobs,desktop): split job runner and desktop app into focused modules"
