@@ -1,0 +1,55 @@
+{
+  "calls_per_run": 500,
+  "modes": {
+    "ui_off": {
+      "median": {
+        "mean": 1.72,
+        "p50": 1.61,
+        "p95": 2.19
+      },
+      "runs": [
+        {
+          "mean": 1.9,
+          "p50": 1.69,
+          "p95": 2.64
+        },
+        {
+          "mean": 1.67,
+          "p50": 1.58,
+          "p95": 1.99
+        },
+        {
+          "mean": 1.72,
+          "p50": 1.61,
+          "p95": 2.19
+        }
+      ]
+    },
+    "ui_on": {
+      "median": {
+        "mean": 1.72,
+        "p50": 1.64,
+        "p95": 2.18
+      },
+      "runs": [
+        {
+          "mean": 1.82,
+          "p50": 1.75,
+          "p95": 2.27
+        },
+        {
+          "mean": 1.71,
+          "p50": 1.63,
+          "p95": 2.18
+        },
+        {
+          "mean": 1.72,
+          "p50": 1.64,
+          "p95": 2.17
+        }
+      ]
+    }
+  },
+  "note": "Manual baseline from scripts/bench_call_path.py; not run by unit tests.",
+  "unit": "ms"
+}

@@ -6,7 +6,7 @@ All items were resolved from the repository itself. No external research was nee
 
 - **Decision**: Before Phase 1, record a baseline of the public surface and the call-path latency on the refactor branch. The baseline covers the MCP tool list (names, descriptions, input schemas), the HTTP route table, the audit event names, the settings keys with their defaults, and the latency from `scripts/bench_call_path.py`.
 - **Rationale**: SC-006 and SC-007 compare "before" and "after". Without a recorded baseline these criteria cannot be checked.
-- **How**: Build the MCP server with `create_mcp_server` against the fake child in `tests/fake_stdio_child.py`, so no real credentials or network are used. Dump the result as sorted JSON. Read the route table from `create_http_app`. Read audit names from `audit_events.py` and `docs/security-and-logging.md`. Store the snapshot under `specs/001-source-structure/contracts/baseline/`. It must contain no values from `config/private/` (AGENTS.md).
+- **How**: Build the MCP server with `create_mcp_server` against the fake child in `tests/fake_stdio_child.py`, so no real credentials or network are used. Dump the result as sorted JSON. Read the route table from `create_http_app`. Read audit names from `audit_events.py` and `docs/security-and-logging.md`. Store the snapshot under `tests/contract_baseline/`, guarded by `tests/test_surface_contract.py` (the plan first named `specs/`; moved so the check keeps running). It must contain no values from `config/private/` (AGENTS.md).
 - **Alternatives considered**: Compare only by reading code. Rejected, because it cannot prove that schemas are identical.
 
 ## R2. Merge the two `fold` copies into `textnorm.py`

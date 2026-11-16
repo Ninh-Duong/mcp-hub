@@ -18,7 +18,7 @@ Expected: `[QC] ... passed` for lint, unit tests, coverage (≥ 85 percent), lea
 
 ## 2. Contract diff (every phase)
 
-Regenerate the surfaces listed in `contracts/README.md` and compare them with `contracts/baseline/`.
+Regenerate the surfaces listed in `contracts/README.md` and compare them with `tests/contract_baseline/`: `uv run --no-sync python -m unittest tests.test_surface_contract -v`.
 
 Expected: no difference for tools, routes, audit events, entry points, or existing settings keys. New settings keys appear only where research.md R7 lists them, each with its documented default.
 
@@ -46,7 +46,7 @@ Expected: every import edge matches the table in `data-model.md`. Added in Phase
 uv run --no-sync python scripts/bench_call_path.py
 ```
 
-Compare with `contracts/baseline/bench.json`. Expected: not more than 5 percent slower.
+Compare with `tests/contract_baseline/bench.json` (median p50 and mean). Expected: not more than 5 percent slower.
 
 ## 6. Desktop app (Phase 3 and after)
 

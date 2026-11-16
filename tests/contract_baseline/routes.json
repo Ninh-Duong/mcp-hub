@@ -1,0 +1,142 @@
+[
+  {
+    "methods": [
+      "GET",
+      "HEAD"
+    ],
+    "name": "activity",
+    "path": "/dashboard/api/activity"
+  },
+  {
+    "methods": [
+      "GET",
+      "HEAD"
+    ],
+    "name": "activity_stream",
+    "path": "/dashboard/api/activity/stream"
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "name": "install_route",
+    "path": "/dashboard/api/bitnet/install"
+  },
+  {
+    "methods": [
+      "GET",
+      "HEAD"
+    ],
+    "name": "processing_stream",
+    "path": "/dashboard/api/bitnet/processing/stream"
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "name": "service_control",
+    "path": "/dashboard/api/control/{command:str}"
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "name": "request_shutdown",
+    "path": "/dashboard/api/service/shutdown"
+  },
+  {
+    "methods": [
+      "GET",
+      "HEAD"
+    ],
+    "name": "settings",
+    "path": "/dashboard/api/settings"
+  },
+  {
+    "methods": [
+      "GET",
+      "HEAD",
+      "POST"
+    ],
+    "name": "autostart",
+    "path": "/dashboard/api/settings/autostart"
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "name": "bitnet",
+    "path": "/dashboard/api/settings/bitnet"
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "name": "server",
+    "path": "/dashboard/api/settings/servers/{server_id:str}"
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "name": "config_file",
+    "path": "/dashboard/api/settings/servers/{server_id:str}/config-file"
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "name": "tracking",
+    "path": "/dashboard/api/settings/tracking"
+  },
+  {
+    "methods": [
+      "GET",
+      "HEAD"
+    ],
+    "name": "status",
+    "path": "/dashboard/api/status"
+  },
+  {
+    "methods": [
+      "GET",
+      "HEAD"
+    ],
+    "name": "status",
+    "path": "/dashboard/api/update"
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "name": "start",
+    "path": "/dashboard/api/update"
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "name": "check",
+    "path": "/dashboard/api/update/check"
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "name": "retry",
+    "path": "/dashboard/api/update/retry"
+  },
+  {
+    "methods": [
+      "GET",
+      "HEAD"
+    ],
+    "name": "_health",
+    "path": "/health"
+  },
+  {
+    "methods": [],
+    "name": "StreamableHTTPASGIApp",
+    "path": "/mcp"
+  }
+]

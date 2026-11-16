@@ -41,13 +41,13 @@
 
 **CRITICAL**: No user story phase starts until this phase is complete.
 
-- [ ] T003 Create `tests/surface_capture.py` with one function per surface: MCP tools (name, description, inputSchema, built by `create_mcp_server` against `tests/fake_stdio_child.py`), HTTP routes (`http.create_http_app`), audit event names (`audit_events.py`), settings keys and defaults (`settings.py`), and entry points (`pyproject.toml` `[project.scripts]` plus the `-m` modules used in `scripts/*.ps1`). The module must not read `config/private/` or `logs/`, and must patch `config.PRIVATE_ROOT` and the audit path (AGENTS.md test rules).
-- [ ] T004 Generate the baseline JSON files `tests/contract_baseline/tools.json`, `routes.json`, `audit_events.json`, `settings.json`, `entry_points.json` from `tests/surface_capture.py`, sorted and indented. Review them by eye for secrets or machine paths before committing (`scripts/check_leaks.py` also scans them).
-- [ ] T005 Create `tests/test_surface_contract.py`: for each baseline file, build the current surface and assert equality. Settings may gain keys only when `settings.json` lists them in an allowed-additions set; old keys and defaults must match exactly.
-- [ ] T006 [P] Record the latency baseline: run `scripts/bench_call_path.py` three times on the current branch and write the median numbers (no hostname or path) to `tests/contract_baseline/bench.json`. Mark the file as manual-only (not run by unit tests).
-- [ ] T007 [P] Update `specs/001-source-structure/contracts/README.md` and `specs/001-source-structure/quickstart.md` so they point to `tests/contract_baseline/` and `tests/test_surface_contract.py` instead of `contracts/baseline/`.
-- [ ] T008 Create `tests/test_module_boundaries.py`: parse the imports of `src/mcp_hub` with `ast` and enforce the rules in data-model.md (bridge must not import server; jobs and agents must not import server; results must not import planning, agents, or server; planning must not import agents or server; core must not import activity_ui, bitnet, dashboard, jobs, or agents; desktop imports nothing from `mcp_hub` outside `desktop`; no import of an underscore-prefixed name from another module). Put the current violations in a `KNOWN_VIOLATIONS` set. US2 must empty that set.
-- [ ] T009 Run `uv run --no-sync python scripts/package_qc.py` and confirm it reports only the known docs failure (AGENTS.md link). Record the result in the commit message of Phase 2.
+- [X] T003 Create `tests/surface_capture.py` with one function per surface: MCP tools (name, description, inputSchema, built by `create_mcp_server` against `tests/fake_stdio_child.py`), HTTP routes (`http.create_http_app`), audit event names (`audit_events.py`), settings keys and defaults (`settings.py`), and entry points (`pyproject.toml` `[project.scripts]` plus the `-m` modules used in `scripts/*.ps1`). The module must not read `config/private/` or `logs/`, and must patch `config.PRIVATE_ROOT` and the audit path (AGENTS.md test rules).
+- [X] T004 Generate the baseline JSON files `tests/contract_baseline/tools.json`, `routes.json`, `audit_events.json`, `settings.json`, `entry_points.json` from `tests/surface_capture.py`, sorted and indented. Review them by eye for secrets or machine paths before committing (`scripts/check_leaks.py` also scans them).
+- [X] T005 Create `tests/test_surface_contract.py`: for each baseline file, build the current surface and assert equality. The comparison is exact. An intended change (for example new settings keys in Phase 7) regenerates the baseline with `python -m tests.surface_capture` in the same commit, and the commit message explains it.
+- [X] T006 [P] Record the latency baseline: run `scripts/bench_call_path.py` three times on the current branch and write the median numbers (no hostname or path) to `tests/contract_baseline/bench.json`. Mark the file as manual-only (not run by unit tests).
+- [X] T007 [P] Update `specs/001-source-structure/contracts/README.md` and `specs/001-source-structure/quickstart.md` so they point to `tests/contract_baseline/` and `tests/test_surface_contract.py` instead of `contracts/baseline/`.
+- [X] T008 Create `tests/test_module_boundaries.py`: parse the imports of `src/mcp_hub` with `ast` and enforce the rules in data-model.md (bridge must not import server; jobs and agents must not import server; results must not import planning, agents, or server; planning must not import agents or server; core must not import activity_ui, bitnet, dashboard, jobs, or agents; desktop imports nothing from `mcp_hub` outside `desktop`; no import of an underscore-prefixed name from another module). Put the current violations in a `KNOWN_VIOLATIONS` set. US2 must empty that set.
+- [X] T009 Run `uv run --no-sync python scripts/package_qc.py` and confirm it reports only the known docs failure (AGENTS.md link). Record the result in the commit message of Phase 2.
 - [ ] T010 Commit Phase 2: "test: capture behavior baseline and module boundary guard"
 
 **Checkpoint**: Baseline and guard exist. Every later phase is checked against them.
@@ -122,6 +122,8 @@
 ### Gate
 
 - [ ] T047 [US2] Run `uv run --no-sync python scripts/package_qc.py`, then `uv run --no-sync python -m unittest tests.test_surface_contract -v`; both must pass with no surface difference
+- [ ] T118 [US2] Make the private names used across modules public: rename `_ERROR_MARKER_RE` to `ERROR_MARKER_RE` in `src/mcp_hub/condense.py` and update `src/mcp_hub/bitnet/condense.py`; rename `_read_install` to `read_install` in `src/mcp_hub/bitnet/sidecar.py` and update `src/mcp_hub/bitnet/setup.py` (FR-006; the boundary test lists both)
+- [ ] T119 [US2] Remove `jobs.runner -> agents.coordinator._findings_payload` and the two bitnet entries from `KNOWN_VIOLATIONS` in `tests/test_module_boundaries.py` once T034 and T118 are done; the boundary test must still pass
 - [ ] T048 [US2] Commit Phase 4: "refactor(core): add leaf helpers and fix dependency direction"
 
 **Checkpoint**: Layering rules are enforced by a test. Helpers exist once.
@@ -232,7 +234,7 @@
 - [ ] T097 [US5] Create `tests/test_settings_defaults.py`: a table of every moved key and its old literal default; each key's default must equal that literal
 - [ ] T098 [US5] Document every new key in `docs/settings.md` with its default and meaning; `scripts/check_docs.py` must pass
 - [ ] T099 [US5] Add a comment at `src/mcp_hub/desktop/system.py:23` (`DRAIN_WAIT_SECONDS = 40`) naming `HttpSettings.shutdown_drain_seconds`, because the desktop cannot import `settings.py`
-- [ ] T100 [US5] Run `uv run --no-sync python scripts/package_qc.py` and the surface contract test; the only allowed difference is the new keys listed in `tests/contract_baseline/settings.json` allowed-additions
+- [ ] T100 [US5] Run `uv run --no-sync python scripts/package_qc.py` and the surface contract test; the only allowed difference is the new settings keys, with `tests/contract_baseline/settings.json` regenerated in that same commit
 - [ ] T101 [US5] Commit Phase 7: "refactor(settings): move hard-coded tunables into settings with unchanged defaults"
 
 **Checkpoint**: No tunable from the review remains as a literal in code.
