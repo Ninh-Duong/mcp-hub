@@ -270,7 +270,7 @@
 - [X] T113 Run `uv run --no-sync python scripts/bench_call_path.py` and compare with `tests/contract_baseline/bench.json` (SC-007)
 - [X] T114 Search tracked files outside `docs/history/` for old module paths and removed names (`agent-plans`, `plan_merge`, `result_cache`, `full_results`, `server.py` paths that moved); fix each one
 - [X] T115 Run `/speckit-converge` against this tasks file and the spec; append any remaining work as new tasks
-- [ ] T116 Ask the maintainer whether to raise the version, as `docs/versioning.md` requires; do not change `pyproject.toml` without their answer
+- [X] T116 Ask the maintainer whether to raise the version, as `docs/versioning.md` requires; do not change `pyproject.toml` without their answer. Done: the maintainer approved a MINOR bump to 0.9.0 (commit 4402286).
 - [X] T117 Review the branch history with `git log --oneline master..refactor/source-structure`; there must be one commit per phase (FR-021) and no commit on master
 
 ---
