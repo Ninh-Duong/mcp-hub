@@ -4,6 +4,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..jsonio import read_json
 from ..config import PRIVATE_ROOT, SECRET_PLACEHOLDER
 
 
@@ -42,7 +43,7 @@ def load_agent_configs(
     if not config_path.exists():
         return {role: AgentConfig(role, None, None) for role in AGENT_ROLES}
     try:
-        raw = json.loads(config_path.read_text(encoding="utf-8"))
+        raw = read_json(config_path)
     except (OSError, json.JSONDecodeError) as exc:
         raise AgentConfigError(f"Could not read agent config ({type(exc).__name__})") from exc
     if not isinstance(raw, dict) or type(raw.get("version")) is not int or raw["version"] != 1:

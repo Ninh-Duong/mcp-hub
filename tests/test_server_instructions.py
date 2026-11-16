@@ -2,20 +2,19 @@
 summary, listing the tools per child, and without live connection counts."""
 from __future__ import annotations
 
+from tests.helpers.fakes import plain_tool as _tool
 import tempfile
 import unittest
 from pathlib import Path
 
-from mcp.types import Tool
 
 from mcp_hub.audit import AuditLog
 from mcp_hub.config import HubConfig, ServerConfig, ToolRoute
-from mcp_hub.server import INSTRUCTIONS_SUMMARY, HubRuntime, _server_instructions
+from mcp_hub.instructions import INSTRUCTIONS_SUMMARY
+from mcp_hub.server import HubRuntime, server_instructions
 from mcp_hub.settings import Settings
 
 
-def _tool(name: str) -> Tool:
-    return Tool(name=name, input_schema={"type": "object"}, annotations={"readOnlyHint": True})
 
 
 class InstructionsTest(unittest.TestCase):
@@ -34,26 +33,26 @@ class InstructionsTest(unittest.TestCase):
         return runtime
 
     def test_instructions_start_with_the_summary_and_list_the_tools(self) -> None:
-        text = _server_instructions(self.runtime(), with_jobs=False)
+        text = server_instructions(self.runtime(), with_jobs=False)
         self.assertTrue(text.startswith(INSTRUCTIONS_SUMMARY))
         self.assertIn("- child: child__tool0, child__tool1", text)
 
     def test_instructions_have_no_live_connection_counts(self) -> None:
         runtime = self.runtime()
-        before = _server_instructions(runtime, with_jobs=True)
+        before = server_instructions(runtime, with_jobs=True)
         runtime.clients["child"] = object()
-        after = _server_instructions(runtime, with_jobs=True)
+        after = server_instructions(runtime, with_jobs=True)
         self.assertEqual(before, after)
         self.assertNotIn("connected children", after)
         self.assertNotIn("Detected siblings", after)
 
     def test_instructions_stay_within_the_budget_with_many_tools(self) -> None:
-        text = _server_instructions(self.runtime(tool_count=400), with_jobs=True)
+        text = server_instructions(self.runtime(tool_count=400), with_jobs=True)
         self.assertLessEqual(len(text), 4096)
         self.assertTrue(text.startswith(INSTRUCTIONS_SUMMARY))
 
     def test_a_cut_rules_section_names_client_rules_not_the_tool_list(self) -> None:
-        text = _server_instructions(self.runtime(), with_jobs=True)
+        text = server_instructions(self.runtime(), with_jobs=True)
         self.assertRegex(text, r"\+\d+ more lines in docs/client-rules\.md$")
         self.assertNotIn("see tools/list", text)
 

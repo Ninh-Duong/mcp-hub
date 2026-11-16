@@ -10,7 +10,7 @@ from ..settings import JobSettings
 
 # One request is retried at most this many times by the SDK, each attempt bounded by the provider timeout.
 MAX_RETRIES = 2
-DEFAULT_TIMEOUT_SECONDS = 60.0
+DEFAULT_TIMEOUT_SECONDS = JobSettings().provider_timeout_seconds
 
 
 # The SDK package each provider imports lazily on its first request (optional investigation dependencies).
@@ -52,7 +52,7 @@ class ModelProvider(Protocol):
         messages: list[dict[str, Any]],
         tools: list[Any],
         *,
-        max_output_tokens: int = 2048,
+        max_output_tokens: int = JobSettings().provider_output_tokens,
     ) -> ModelTurn: ...
 
 
@@ -80,7 +80,7 @@ class OpenAIProvider(_Provider):
     provider_name = "OpenAI"
 
     async def complete(
-        self, messages: list[dict[str, Any]], tools: list[Any], *, max_output_tokens: int = 2048,
+        self, messages: list[dict[str, Any]], tools: list[Any], *, max_output_tokens: int = JobSettings().provider_output_tokens,
     ) -> ModelTurn:
         try:
             client = self._client or self._create_client()
@@ -117,7 +117,7 @@ class AnthropicProvider(_Provider):
         self.prompt_cache = prompt_cache
 
     async def complete(
-        self, messages: list[dict[str, Any]], tools: list[Any], *, max_output_tokens: int = 2048,
+        self, messages: list[dict[str, Any]], tools: list[Any], *, max_output_tokens: int = JobSettings().provider_output_tokens,
     ) -> ModelTurn:
         try:
             client = self._client or self._create_client()
@@ -148,7 +148,7 @@ class GeminiProvider(_Provider):
     provider_name = "Gemini"
 
     async def complete(
-        self, messages: list[dict[str, Any]], tools: list[Any], *, max_output_tokens: int = 2048,
+        self, messages: list[dict[str, Any]], tools: list[Any], *, max_output_tokens: int = JobSettings().provider_output_tokens,
     ) -> ModelTurn:
         try:
             client = self._client or self._create_client()

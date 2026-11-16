@@ -21,3 +21,9 @@ APP_DATA_DIR = APP_NAME
 HUB_TASK = "mcp-hub"
 # The GitHub repository whose latest Release holds the installer the app offers as an update.
 UPDATE_REPOSITORY = "Ninh-Duong/mcp-hub"
+
+
+NOT_DRAWN = object()
+CAPTURE_POSITION = (80, 80)
+START_TIMEOUT_KEY = "desktop.error.startTimeout"
+STICKY_ERROR_KEYS = frozenset({START_TIMEOUT_KEY, "desktop.error.controlUnavailable"})

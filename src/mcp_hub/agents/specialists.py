@@ -6,21 +6,34 @@ import re
 import uuid
 from dataclasses import dataclass
 from typing import Any
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 
 from jsonschema import Draft202012Validator
 from mcp.types import CallToolResult, TextContent
 
 from ..audit import SENSITIVE_FIELD_RE, redact
-from ..config import HUB_ROOT
+from ..config import DOCS_ROOT
 from ..extensions import ResultCondenser
-from ..server import is_read_only_tool
-from ..settings import JobSettings
+from ..tool_meta import is_read_only_tool
+from ..settings import BitnetSettings, JobSettings
 from .harness import ContextBudget, Exchange
 from .providers import ModelProvider, ModelToolCall, ModelTurn
 
 
 ROLE_PREFIXES = {"logs": "logs__", "source": "source__", "jira": "jira__", "pr": "pr__", "sql": "sql__"}
+
+
+def roles_for_servers(servers: Iterable[str], routes: Mapping[str, Any]) -> list[str]:
+    """Return the specialist agent roles whose tools route to any of the named child servers."""
+    server_set = set(servers)
+    matched: list[str] = []
+    for role, prefix in ROLE_PREFIXES.items():
+        for tool_name, route in routes.items():
+            if tool_name.startswith(prefix) and getattr(route, "server_id", None) in server_set:
+                if role not in matched:
+                    matched.append(role)
+                break
+    return matched
 # Kept as a name for existing imports; the value is settings.jobs.tool_result_chars.
 MAX_TOOL_RESULT_CHARS = JobSettings().tool_result_chars
 _EMAIL = re.compile(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b")
@@ -128,7 +141,7 @@ def _filter_sensitive_fields(value: Any) -> Any:
 
 
 def _role_prompt(role: str) -> str:
-    role_doc = HUB_ROOT / "docs" / "agents" / f"{role}.md"
+    role_doc = DOCS_ROOT / "agents" / f"{role}.md"
     return role_doc.read_text(encoding="utf-8") if role_doc.is_file() else _DEFAULT_PROMPT
 
 
@@ -190,8 +203,9 @@ class SpecialistExecutor:
         context_chars: int = JobSettings().context_chars,
         tool_result_chars: int = JobSettings().tool_result_chars,
         condenser: ResultCondenser | None = None,
-        condense_min_chars: int = 9000,
-        condense_timeout_seconds: float = 8.0,
+        condense_min_chars: int = BitnetSettings().condense_min_chars,
+        condense_timeout_seconds: float = BitnetSettings().condense_timeout_seconds,
+        provider_output_tokens: int = JobSettings().provider_output_tokens,
     ) -> None:
         self.runtime = runtime
         self.provider = provider
@@ -204,6 +218,7 @@ class SpecialistExecutor:
         self.condenser = condenser
         self.condense_min_chars = condense_min_chars
         self.condense_timeout_seconds = condense_timeout_seconds
+        self.provider_output_tokens = provider_output_tokens
 
     async def run(self, job_id: str, role: str, task: str) -> SpecialistResult:
         tools = tools_for_role(role, self.runtime.public_tools, self.tool_filter)
@@ -213,7 +228,9 @@ class SpecialistExecutor:
         rounds: list[_Round] = []
         evidence: list[EvidenceRef] = []
         for _ in range(self.max_rounds):
-            turn = await self.provider.complete(self._transcript(base, rounds), tools)
+            turn = await self.provider.complete(
+                self._transcript(base, rounds), tools, max_output_tokens=self.provider_output_tokens,
+            )
             if not turn.tool_calls:
                 return SpecialistResult(role, turn.text.strip(), tuple(evidence))
             exchanges: list[Exchange] = []

@@ -6,15 +6,28 @@ redaction, result cache, the child's timeout). Only read-only tools may be batch
 """
 from __future__ import annotations
 
-import asyncio
-from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
-from time import perf_counter
+import logging
+from dataclasses import replace
+from time import monotonic, perf_counter
+from collections.abc import Mapping
 from typing import Any
-
-from mcp.types import CallToolResult, TextContent, Tool
-
+from mcp.types import (
+    CallToolResult,
+    TextContent,
+    Tool,
+)
+from .results.shape import result_succeeded
+from .results.condense import condense_text_rules
+from .extensions import ProcessingEvent, emit_processing
+from .planning import policy
+from .planning.policy import CallFacts
+from .results.shape import is_condensable
+from .results.runtime import FULL_RESULT_TOOL, error_result, join_text
+import asyncio
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from .settings import BatchSettings
+
 
 BATCH_TOOL = "hub__batch"
 MIN_BATCH_CALLS = 2
@@ -149,3 +162,118 @@ def batch_result(items: list[BatchItem], limit: int = MAX_BATCH_RESULT_CHARS) ->
             budget = max(0, budget - len(block.text))
             content.append(TextContent(type="text", text=text))
     return CallToolResult(content=content, is_error=not any(item.ok for item in items))
+
+
+class BatchMixin:
+    """hub__batch on HubRuntime: packing, policy, and the call that runs a batch in parallel."""
+
+    async def _call_batch(self, arguments: dict[str, Any], request_id: str, client_name: str) -> CallToolResult:
+        """Run independent read-only calls in parallel; each one is audited as `<request_id>.<i>`."""
+        fields = {"request_id": request_id, "feature": "hub", "server": "mcp-hub", "tool": BATCH_TOOL}
+        servers = {name: route.server_id for name, route in self.routes.items()}
+        builtin = frozenset({FULL_RESULT_TOOL}) if self.full_results is not None else frozenset()
+        try:
+            calls = parse_calls(
+                arguments, servers, frozenset(self._read_only), self.settings.batch.max_calls, builtin_tools=builtin,
+            )
+        except BatchRefused as exc:
+            self.audit.write("tool.call.denied", level=logging.WARNING, **fields, reason=str(exc))
+            return error_result(str(exc))
+        plan_id = arguments.get(policy.PLAN_ID_ARG)
+        calls = [replace(call, arguments=policy.split_plan_id(call.arguments)[1]) for call in calls]
+        refusal = self._batch_policy(plan_id, calls, fields, builtin)
+        if refusal is not None:
+            return refusal
+        self.audit.write("tool.call.started", **fields, calls=len(calls))
+        started = perf_counter()
+        plan = self.plans.get(plan_id)
+
+        async def call_child(tool: str, tool_arguments: dict[str, Any], item_id: str) -> CallToolResult:
+            if tool == FULL_RESULT_TOOL and self.full_results is not None:
+                res = self._get_full_result(tool_arguments, item_id)
+                policy.record(plan, tool, tool_arguments, result_succeeded(res))
+                return res
+            res = await self.call_child_tool(tool, tool_arguments, request_id=item_id, client_name=client_name)
+            policy.record(plan, tool, tool_arguments, result_succeeded(res))
+            return await self._maybe_condense(tool, res, plan.task if plan else None, item_id)
+
+        items = await run_batch(calls, call_child, request_id, result_succeeded,
+                                timeout=self.settings.batch.timeout_seconds, per_child=self.settings.batch.max_per_child)
+        items = self._pack_batch_items(items, plan.task if plan else None, request_id)
+        result = batch_result(items)
+        failed = sum(not item.ok for item in items)
+        event, level = ("tool.call.failed", logging.ERROR) if result.is_error else ("tool.call.succeeded", logging.INFO)
+        self.audit.write(event, level=level, **fields, calls=len(calls), failed=failed,
+                         duration_ms=int((perf_counter() - started) * 1000))
+        return result
+
+    def _pack_batch_items(self, items: list[BatchItem], task: str | None, request_id: str) -> list[BatchItem]:
+        """Shrink oversized un-condensed batch items proportionally to keep the whole batch inline."""
+        if self.condenser is None or self.full_results is None:
+            return items
+        pack_limit = self.settings.batch.pack_chars
+        total = sum(len(join_text(item.result.content)) for item in items if item.result and item.ok)
+        if total <= pack_limit:
+            return items
+        eligible = [
+            (idx, item, join_text(item.result.content))
+            for idx, item in enumerate(items)
+            if item.ok and item.result and item.call.tool != FULL_RESULT_TOOL
+            and "[Condensed by mcp-hub:" not in join_text(item.result.content)
+            and "[Compacted losslessly by mcp-hub.]" not in join_text(item.result.content)
+            and len(join_text(item.result.content)) >= 1200
+            and is_condensable(self._output_schema(item.call.tool), item.result)
+        ]
+        if not eligible:
+            return items
+        fixed = total - sum(len(text) for _, _, text in eligible)
+        budget = max(2500, (pack_limit - fixed) // len(eligible))
+        packed = list(items)
+        for idx, item, text in eligible:
+            if len(text) > budget:
+                condensed = self._pack_condense(text, budget, task)
+                route = self.routes.get(item.call.tool)
+                server = route.server_id if route else "unknown"
+                new_res = self._finish_condensed(
+                    item.result, text, condensed, f"{request_id}.{item.call.index}", server, item.call.tool, 0,
+                )
+                packed[idx] = BatchItem(item.call, new_res, item.ok, item.duration_ms)
+        return packed
+
+    def _pack_condense(self, text: str, budget: int, task: str | None) -> Any:
+        if self.processing_observer is None:
+            return condense_text_rules(text, budget, task)
+        started = monotonic()
+        emit_processing(self.processing_observer, ProcessingEvent("condense", "started", "rules"))
+        try:
+            result = condense_text_rules(text, budget, task)
+        except Exception:
+            emit_processing(self.processing_observer, ProcessingEvent(
+                "condense", "failed", "fallback", duration_ms=int((monotonic() - started) * 1000),
+                error_code="unexpected",
+            ))
+            raise
+        emit_processing(self.processing_observer, ProcessingEvent(
+            "condense", "succeeded", "rules", duration_ms=int((monotonic() - started) * 1000),
+        ))
+        return result
+
+    def _batch_policy(
+        self, plan_id: Any, calls: list[Any], fields: dict[str, Any],
+        builtin_tools: frozenset[str] = frozenset(),
+    ) -> CallToolResult | None:
+        """Refuse the whole batch when one call breaks the plan (enforce mode); None lets it run."""
+        if self.policy_mode != "enforce":
+            return None
+        items = [
+            (self._call_facts.get(call.tool) or CallFacts(call.tool, "mcp-hub", True, False), call.arguments)
+            for call in calls
+        ]
+        found = policy.check_batch(
+            self.plans.get(plan_id), items, self._health_tools, plan_id, builtin_tools=builtin_tools,
+        )
+        if found is None:
+            return None
+        index, violation = found
+        self.audit.write("tool.call.denied", level=logging.WARNING, **fields, reason=f"policy:{violation.rule}")
+        return error_result(f"Policy: call {index}: {violation.message}")

@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import unittest
 
-from mcp_hub import plan_confirm
-from mcp_hub.playbooks import Playbook
-from mcp_hub.policy import PolicyRefused
+from mcp_hub.planning import confirm as plan_confirm
+from mcp_hub.planning.playbooks import Playbook
+from mcp_hub.planning.policy import PolicyRefused
 
 
 def playbook(pb_id: str, when: str) -> Playbook:
@@ -19,7 +19,7 @@ PLAYBOOKS = {
 TASK = "count the functions in the repository that split on a comma"
 
 
-class FakeClock:
+class PlanConfirmFakeClock:
     def __init__(self) -> None:
         self.now = 0.0
 
@@ -55,7 +55,7 @@ class NeedsConfirmationTest(unittest.TestCase):
 
 class ConfirmTokensTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.clock = FakeClock()
+        self.clock = PlanConfirmFakeClock()
         self.tokens = plan_confirm.ConfirmTokens(600, clock=self.clock)
         self.token = self.tokens.issue(TASK, ["source-search", plan_confirm.NONE_CHOICE])
 

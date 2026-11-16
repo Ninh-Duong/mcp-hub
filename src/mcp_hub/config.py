@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .jsonio import read_json
 from .child_requirements import (
     NONE,
     SECRET_PLACEHOLDER,
@@ -19,6 +20,8 @@ from .child_requirements import (
 
 
 HUB_ROOT = Path(__file__).resolve().parents[2]
+# The documentation folder: child contracts, agent roles, and playbooks are read from its subfolders.
+DOCS_ROOT = HUB_ROOT / "docs"
 # `MCP_HUB_PRIVATE_DIR` relocates all private files (tests and tools that must not touch the real ones).
 PRIVATE_DIR_ENV = "MCP_HUB_PRIVATE_DIR"
 PRIVATE_ROOT = Path(os.environ.get(PRIVATE_DIR_ENV) or HUB_ROOT / "config" / "private").resolve()
@@ -145,7 +148,7 @@ def _private_file(path_value: Any, label: str) -> Path:
 def _read_json(path: Path, label: str) -> dict[str, Any]:
     # utf-8-sig: user-edited files saved by Notepad or Windows PowerShell often start with a BOM.
     try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
+        value = read_json(path)
     except (OSError, json.JSONDecodeError) as exc:
         raise ConfigError(f"Could not read {label}: {type(exc).__name__}") from exc
     return _mapping(value, label)

@@ -13,12 +13,12 @@ from mcp.types import CallToolRequestParams, CallToolResult, TextContent, Tool
 from mcp_hub.audit import AuditLog
 from mcp_hub.config import HubConfig, ToolRoute
 from mcp_hub.extensions import Condensed, PlanContext, PlanHints
-from mcp_hub.full_results import FullResultStore
+from mcp_hub.results.full_results import FullResultStore
 from mcp_hub.server import FULL_RESULT_TOOL, HubRuntime
 from mcp_hub.settings import PolicySettings, Settings
 
 
-class FakeCondenser:
+class ServerFakeCondenser:
     def __init__(
         self,
         text: str = "condensed summary",
@@ -132,7 +132,7 @@ class ServerCondenseHookTest(unittest.IsolatedAsyncioTestCase):
         self.runtime._read_only.add("logs__query")
         self.store = FullResultStore(max_entries=10, ttl_seconds=60.0)
         self.runtime.full_results = self.store
-        self.runtime.condenser = FakeCondenser()
+        self.runtime.condenser = ServerFakeCondenser()
 
     async def test_small_result_not_condensed(self) -> None:
         small = CallToolResult(content=[TextContent(type="text", text="small result")])
@@ -180,7 +180,7 @@ class ServerCondenseHookTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("log line with information", json.dumps(ev))
 
     async def test_condenser_failure_falls_back_to_original(self) -> None:
-        self.runtime.condenser = FakeCondenser(fail=True)
+        self.runtime.condenser = ServerFakeCondenser(fail=True)
         large_text = "log line with information\n" * 400
         large = CallToolResult(content=[TextContent(type="text", text=large_text)])
         res = await self.runtime._maybe_condense("logs__query", large, "find errors", "req-1")
@@ -239,7 +239,7 @@ class ServerCondenseHookTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("[Compacted losslessly by mcp-hub.]", combined)
 
     def test_runtime_contract_strips_setup_sections_when_tools_heading_present(self) -> None:
-        from mcp_hub.server import runtime_contract
+        from mcp_hub.instructions import runtime_contract
 
         contract = runtime_contract("mcp-sqlserver")
         self.assertIn("## Tools", contract)
@@ -275,7 +275,7 @@ class ServerPlanAssistTest(unittest.IsolatedAsyncioTestCase):
         self.config = HubConfig(self.root / "hub.json", {}, (route,))
         settings = Settings(policy=PolicySettings(confirm_playbook="off"))
         self.runtime = HubRuntime(self.config, self.audit, settings=settings)
-        from mcp_hub.policy import CallFacts
+        from mcp_hub.planning.policy import CallFacts
         self.runtime.routes["logs__query"] = route
         self.runtime._call_facts["logs__query"] = CallFacts("logs__query", "logs-server", True, True)
         self.runtime.public_tools = [Tool(name="logs__query", input_schema={"type": "object"})]
@@ -340,14 +340,14 @@ class ServerPlanAssistTest(unittest.IsolatedAsyncioTestCase):
 
 class ServerInstructionsTest(unittest.TestCase):
     def test_instructions_include_condensed_and_bitnet_guidance(self) -> None:
-        from mcp_hub.server import _server_instructions
+        from mcp_hub.server import server_instructions
 
         runtime = MagicMock()
         runtime.tools_by_server.return_value = {"srv1": ["tool1"]}
         runtime.config.detected = []
         runtime.clients = {}
 
-        instructions = _server_instructions(runtime, with_jobs=True)
+        instructions = server_instructions(runtime, with_jobs=True)
         self.assertIn("Results may be condensed", instructions)
         self.assertIn("hub__get_full_result", instructions)
         self.assertIn("With BitNet on, hub__plan may fill", instructions)

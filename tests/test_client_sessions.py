@@ -25,7 +25,7 @@ from mcp_hub.http import create_http_app
 from mcp_hub.server import HubRuntime, create_mcp_server
 
 
-class FakeClock:
+class ClientSessionsFakeClock:
     def __init__(self) -> None:
         self.now = datetime(2026, 10, 30, 9, 0, tzinfo=UTC)
 
@@ -35,7 +35,7 @@ class FakeClock:
 
 class ClientSessionsTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.clock = FakeClock()
+        self.clock = ClientSessionsFakeClock()
         self.sessions = ClientSessions(idle_timeout=60, clock=self.clock)
 
     def test_listen_stream_is_live_until_closed(self) -> None:

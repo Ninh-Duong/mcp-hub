@@ -2,6 +2,7 @@
 carries the cache hint from `protocol.toolsListTtlMs` (FR-008)."""
 from __future__ import annotations
 
+from tests.helpers.fakes import plain_tool as _tool
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,7 +12,7 @@ from mcp.types import Tool
 
 from mcp_hub.audit import AuditLog
 from mcp_hub.config import HubConfig, ServerConfig, ToolRoute
-from mcp_hub.full_results import FullResultStore
+from mcp_hub.results.full_results import FullResultStore
 from mcp_hub.server import HubRuntime, create_mcp_server
 from mcp_hub.settings import ProtocolSettings, Settings
 
@@ -20,8 +21,6 @@ ALPHA = ToolRoute("feature", "alpha-server", "alpha", "alpha-server__alpha")
 ZETA = ToolRoute("feature", "alpha-server", "zeta", "alpha-server__zeta")
 
 
-def _tool(name: str) -> Tool:
-    return Tool(name=name, input_schema={"type": "object"}, annotations={"readOnlyHint": True})
 
 
 class ToolListOrderTest(unittest.IsolatedAsyncioTestCase):

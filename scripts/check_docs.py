@@ -37,7 +37,7 @@ RETIRED = (
     "start.ps1 -Service", "same bearer token",
 )
 _LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
-_ENV = re.compile(r"\bMCP_HUB_[A-Z0-9_]*[A-Z0-9]\b")
+ENV_SCHEMA = re.compile(r"\bMCP_HUB_[A-Z0-9_]*[A-Z0-9]\b")
 _EVENT = re.compile(r"^[a-z_]+(?:\.[a-z_]+)+$")
 
 
@@ -140,9 +140,9 @@ def env_problems() -> list[str]:
     for folder, pattern in ((SRC, "*.py"), (ROOT / "scripts", "*"), (ROOT / "packaging", "*"), (ROOT / "tests", "*.py")):
         for path in folder.rglob(pattern):
             if path.is_file() and path.suffix in {".py", ".ps1", ".sh", ".pyw", ".spec"}:
-                used.update(_ENV.findall(path.read_text(encoding="utf-8")))
+                used.update(ENV_SCHEMA.findall(path.read_text(encoding="utf-8")))
     used = {name for name in used if not name.startswith("MCP_HUB_TEST_")}  # test fixtures, not settings
-    documented = {name for name in table_names(REFERENCE) if _ENV.fullmatch(name)}
+    documented = {name for name in table_names(REFERENCE) if ENV_SCHEMA.fullmatch(name)}
     return ([f"environment variable {name} is used but not in docs/reference.md" for name in sorted(used - documented)]
             + [f"environment variable {name} is in docs/reference.md but unused" for name in sorted(documented - used)])
 

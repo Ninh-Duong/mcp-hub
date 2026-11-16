@@ -10,10 +10,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from mcp.types import CallToolRequestParams, CallToolResult, TextContent, Tool
 
-from mcp_hub import plan_confirm, policy
+from mcp_hub.planning import confirm as plan_confirm, policy
 from mcp_hub.config import ConfigError, HubConfig, ServerConfig, ToolRoute
-from mcp_hub.playbooks import Playbook, load_playbooks, parse_playbook
-from mcp_hub.policy import CallFacts, PlanBook, PlanCatalog, PolicyRefused
+from mcp_hub.planning.playbooks import Playbook, load_playbooks, parse_playbook
+from mcp_hub.planning.policy import CallFacts, PlanBook, PlanCatalog, PolicyRefused
 from mcp_hub.projects import LogTarget, ProjectConfig
 from mcp_hub.server import HubRuntime
 from mcp_hub.settings import PolicySettings, Settings, parse_settings
@@ -274,7 +274,7 @@ class EnforceGateTest(RuntimeGateTest):
         self.assertNotIn("task", created)
 
     async def test_the_plan_returns_each_childs_contract(self) -> None:
-        with patch("mcp_hub.server.child_contract", return_value="CONTRACT TEXT"):
+        with patch("mcp_hub.instructions.child_contract", return_value="CONTRACT TEXT"):
             result = await self.call("hub__plan", plan_args())
         self.assertIn("CONTRACT TEXT", result.content[0].text)
         self.assertIn("logs__query", result.content[0].text)
@@ -449,7 +449,7 @@ class PlaybookRuntimeTest(RuntimeGateTest):
         self.assertIn("rcid-bug", policy.plan_tool(load_playbooks()).description)
 
     async def test_plan_allows_builtin_full_result_in_batch_and_includes_sql_hints(self) -> None:
-        from mcp_hub.full_results import FullResultStore
+        from mcp_hub.results.full_results import FullResultStore
         from mcp_hub.projects import SqlTarget
 
         store = FullResultStore(max_entries=10, ttl_seconds=60.0)
@@ -474,7 +474,7 @@ class PlaybookRuntimeTest(RuntimeGateTest):
 
 class SummaryTest(unittest.TestCase):
     def test_the_instruction_summary_fits_codex_and_names_the_plan(self) -> None:
-        from mcp_hub.server import INSTRUCTIONS_SUMMARY
+        from mcp_hub.instructions import INSTRUCTIONS_SUMMARY
 
         self.assertLessEqual(len(INSTRUCTIONS_SUMMARY), 512)
         self.assertIn("hub__plan", INSTRUCTIONS_SUMMARY)

@@ -24,12 +24,12 @@ class ActivityRuntimeTest(unittest.IsolatedAsyncioTestCase):
             {"sample-child": ServerConfig("sample-child", "python", (), self.tmp, {}, ())},
             (ToolRoute("sample", "sample-child", "inspect", "sample-child__inspect"),),
         )
-        self.store = JobStore(self.tmp / "jobs.sqlite3", protector=_FakeProtector())
+        self.store = JobStore(self.tmp / "jobs.sqlite3", protector=ActivityFakeProtector())
         audit = AuditLog(self.tmp / "audit.jsonl")
         self.audit = audit
         self.runtime = HubRuntime(config, audit)
         self.ui = install(self.runtime, store=self.store, audit=audit)
-        self.runtime.clients["sample-child"] = _FakeClient()
+        self.runtime.clients["sample-child"] = ActivityFakeClient()
         self.runtime.routes["sample-child__inspect"] = config.routes[0]
         self.runtime.discovered_tool_counts = {"sample-child": 3}
 
@@ -130,7 +130,7 @@ class ActivityRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.runtime.activity_snapshot()
         gate = asyncio.Event()
         entered = asyncio.Event()
-        client = _FakeClient(gate=gate, entered=entered)
+        client = ActivityFakeClient(gate=gate, entered=entered)
         self.runtime.clients["sample-child"] = client
 
         calls = [asyncio.create_task(self.runtime.call_child_tool(
@@ -159,7 +159,7 @@ class ActivityRuntimeTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_cancelled_call_is_persisted_as_interrupted(self) -> None:
         entered = asyncio.Event()
-        self.runtime.clients["sample-child"] = _FakeClient(
+        self.runtime.clients["sample-child"] = ActivityFakeClient(
             gate=asyncio.Event(), entered=entered, expected_entries=1,
         )
         call = asyncio.create_task(self.runtime.call_child_tool("sample-child__inspect", {}, request_id="cancel-me"))
@@ -177,7 +177,7 @@ class ActivityRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.runtime.activity_snapshot()["children"]["sample-child"]["active_calls"], 0)
 
     async def test_child_error_exposes_type_but_not_error_text(self) -> None:
-        self.runtime.clients["sample-child"] = _FakeClient(error=RuntimeError("private-value-from-child"))
+        self.runtime.clients["sample-child"] = ActivityFakeClient(error=RuntimeError("private-value-from-child"))
         await self.runtime.call_child_tool("sample-child__inspect", {}, request_id="failed-call")
 
         child = self.runtime.activity_snapshot()["children"]["sample-child"]
@@ -193,7 +193,7 @@ class ActivityRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report["events"][0]["error_type"], "RuntimeError")
 
     async def test_tool_error_result_is_marked_failed_without_copying_message(self) -> None:
-        self.runtime.clients["sample-child"] = _FakeClient(result=CallToolResult(
+        self.runtime.clients["sample-child"] = ActivityFakeClient(result=CallToolResult(
             content=[TextContent(type="text", text="Error: private tool response")], isError=True,
         ))
         await self.runtime.call_child_tool("sample-child__inspect", {}, request_id="tool-error")
@@ -205,7 +205,7 @@ class ActivityRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("private tool response", str(snapshot))
 
 
-class _FakeClient:
+class ActivityFakeClient:
     def __init__(self, *, gate: asyncio.Event | None = None, entered: asyncio.Event | None = None, expected_entries: int = 2, error: Exception | None = None, result: CallToolResult | None = None) -> None:
         self.gate = gate
         self.entered = entered
@@ -228,7 +228,7 @@ class _FakeClient:
         return CallToolResult(content=[TextContent(type="text", text="ok")])
 
 
-class _FakeProtector:
+class ActivityFakeProtector:
     def protect(self, data: bytes) -> bytes:
         return data
 

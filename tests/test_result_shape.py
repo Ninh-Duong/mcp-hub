@@ -5,7 +5,7 @@ from typing import Any
 
 from mcp.types import CallToolResult, ImageContent, TextContent
 
-from mcp_hub.result_shape import is_condensable, parse_page_args, with_condensed_meta
+from mcp_hub.results.shape import is_condensable, parse_page_args, with_condensed_meta
 
 _SCHEMA: dict[str, Any] = {"type": "object", "properties": {"n": {"type": "integer"}}}
 

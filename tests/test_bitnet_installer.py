@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from tests.helpers.http import BytesResponse as FakeResponse
 import hashlib
 import io
 import json
@@ -13,7 +14,7 @@ from unittest.mock import patch
 
 from mcp_hub.bitnet import installer
 from mcp_hub.bitnet.installer import Installer, InstallError
-from mcp_hub.bitnet.sidecar import _read_install
+from mcp_hub.bitnet.sidecar import read_install
 from mcp_hub.settings import BitnetSettings
 
 API = "https://api.github.com/repos/owner/mcp-hub/releases"
@@ -34,15 +35,9 @@ def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-class FakeResponse(io.BytesIO):
-    def __enter__(self) -> FakeResponse:
-        return self
-
-    def __exit__(self, *_exc: object) -> None:
-        self.close()
 
 
-class FakeOpener:
+class BitnetInstallerFakeOpener:
     """URL -> bytes, or an exception to raise; records every URL asked for."""
 
     def __init__(self, responses: dict[str, object]) -> None:
@@ -84,25 +79,25 @@ class InstallerTest(unittest.TestCase):
         self.runtime, self.model = runtime_zip(), b"gguf model bytes" * 1000
         self.steps: list[tuple[str, int | None]] = []
 
-    def installer(self, opener: FakeOpener, *, free: int = 10**12, platform: str = "win32",
+    def installer(self, opener: BitnetInstallerFakeOpener, *, free: int = 10**12, platform: str = "win32",
                   machine: str = "AMD64", avx2: bool = True, version: str | None = "1.2.3") -> Installer:
         return Installer(self.root, self.settings, opener=opener, version=lambda: version,
                          disk_usage=lambda _path: SimpleNamespace(free=free), platform=platform, machine=machine,
                          cpu_supports_avx2=lambda: avx2)
 
-    def run_install(self, opener: FakeOpener, **kwargs: object) -> Path:
+    def run_install(self, opener: BitnetInstallerFakeOpener, **kwargs: object) -> Path:
         return self.installer(opener, **kwargs).run(lambda step, pct: self.steps.append((step, pct)))
 
-    def assert_fails(self, code: str, opener: FakeOpener, **kwargs: object) -> None:
+    def assert_fails(self, code: str, opener: BitnetInstallerFakeOpener, **kwargs: object) -> None:
         with self.assertRaises(InstallError) as caught:
             self.run_install(opener, **kwargs)
         self.assertEqual(caught.exception.code, code)
-        self.assertIsNone(_read_install(self.root))
+        self.assertIsNone(read_install(self.root))
 
     def test_installs_the_runtime_and_model_and_the_sidecar_finds_them(self) -> None:
-        path = self.run_install(FakeOpener(release_files(self.runtime, self.model)))
+        path = self.run_install(BitnetInstallerFakeOpener(release_files(self.runtime, self.model)))
         self.assertEqual(path, self.root / "vendor" / "bitnet" / "install.json")
-        server, model = _read_install(self.root)
+        server, model = read_install(self.root)
         self.assertEqual(server.name, "llama-server.exe")
         self.assertEqual(model.read_bytes(), self.model)
         self.assertTrue((server.parent / "ggml.dll").is_file())
@@ -116,12 +111,12 @@ class InstallerTest(unittest.TestCase):
     def test_an_unreleased_version_uses_the_latest_release(self) -> None:
         files = release_files(self.runtime, self.model)
         files[f"{API}/latest"] = files.pop(f"{API}/tags/v1.2.3")
-        opener = FakeOpener(files)
+        opener = BitnetInstallerFakeOpener(files)
         self.run_install(opener)
         self.assertEqual(opener.calls[:2], [f"{API}/tags/v1.2.3", f"{API}/latest"])
 
     def test_a_wrong_checksum_deletes_the_file_and_installs_nothing(self) -> None:
-        opener = FakeOpener(release_files(self.runtime, self.model, model_sha="0" * 64))
+        opener = BitnetInstallerFakeOpener(release_files(self.runtime, self.model, model_sha="0" * 64))
         self.assert_fails("checksum", opener)
         model_dir = self.root / "vendor" / "bitnet" / "models" / self.settings.model
         self.assertEqual(list(model_dir.iterdir()), [])
@@ -129,24 +124,24 @@ class InstallerTest(unittest.TestCase):
     def test_a_body_larger_than_the_manifest_says_is_refused(self) -> None:
         files = release_files(self.runtime, self.model)
         files[MODEL_URL] = self.model + b"extra"
-        self.assert_fails("checksum", FakeOpener(files))
+        self.assert_fails("checksum", BitnetInstallerFakeOpener(files))
 
     def test_network_errors_are_reported_without_details(self) -> None:
         files = release_files(self.runtime, self.model)
         files[MODEL_URL] = URLError("offline")
-        self.assert_fails("network", FakeOpener(files))
-        self.assert_fails("network", FakeOpener({f"{API}/tags/v1.2.3": OSError("reset")}))
+        self.assert_fails("network", BitnetInstallerFakeOpener(files))
+        self.assert_fails("network", BitnetInstallerFakeOpener({f"{API}/tags/v1.2.3": OSError("reset")}))
 
     def test_too_little_disk_space_stops_before_any_download(self) -> None:
-        opener = FakeOpener(release_files(self.runtime, self.model))
+        opener = BitnetInstallerFakeOpener(release_files(self.runtime, self.model))
         self.assert_fails("disk", opener, free=1)
         self.assertEqual(opener.calls, [])
 
     def test_only_windows_is_supported(self) -> None:
-        self.assert_fails("platform", FakeOpener({}), platform="linux")
+        self.assert_fails("platform", BitnetInstallerFakeOpener({}), platform="linux")
 
     def test_cpu_without_avx2_fails_before_disk_or_network_checks(self) -> None:
-        opener = FakeOpener({})
+        opener = BitnetInstallerFakeOpener({})
         self.assert_fails("cpu", opener, avx2=False)
         self.assertEqual(opener.calls, [])
         self.assertFalse((self.root / "vendor").exists())
@@ -154,7 +149,7 @@ class InstallerTest(unittest.TestCase):
     def test_only_x64_is_supported_by_the_current_runtime(self) -> None:
         for machine in ("ARM64", "unknown"):
             with self.subTest(machine=machine):
-                opener = FakeOpener({})
+                opener = BitnetInstallerFakeOpener({})
                 self.assert_fails("platform", opener, machine=machine)
                 self.assertEqual(opener.calls, [])
 
@@ -172,39 +167,39 @@ class InstallerTest(unittest.TestCase):
     def test_a_release_without_the_bitnet_files_is_reported(self) -> None:
         files = release_files(self.runtime, self.model)
         files[f"{API}/tags/v1.2.3"] = json.dumps({"assets": []}).encode()
-        self.assert_fails("release", FakeOpener(files))
+        self.assert_fails("release", BitnetInstallerFakeOpener(files))
 
     def test_a_manifest_with_a_bad_model_name_is_refused(self) -> None:
         files = release_files(self.runtime, self.model)
         manifest = json.loads(files[MANIFEST_URL])
         manifest["model"]["file"] = "../../evil.gguf"
         files[MANIFEST_URL] = json.dumps(manifest).encode()
-        self.assert_fails("release", FakeOpener(files))
+        self.assert_fails("release", BitnetInstallerFakeOpener(files))
 
     def test_a_runtime_zip_that_escapes_its_folder_is_refused(self) -> None:
         bad = runtime_zip(("../outside.exe", "llama-server.exe"))
-        self.assert_fails("extract", FakeOpener(release_files(bad, self.model)))
+        self.assert_fails("extract", BitnetInstallerFakeOpener(release_files(bad, self.model)))
         self.assertFalse((self.root / "vendor" / "bitnet" / "outside.exe").exists())
 
     def test_a_runtime_without_llama_server_is_refused(self) -> None:
-        self.assert_fails("extract", FakeOpener(release_files(runtime_zip(("readme.txt",)), self.model)))
+        self.assert_fails("extract", BitnetInstallerFakeOpener(release_files(runtime_zip(("readme.txt",)), self.model)))
 
     def test_a_second_run_reuses_files_that_already_match(self) -> None:
         files = release_files(self.runtime, self.model)
-        self.run_install(FakeOpener(files))
+        self.run_install(BitnetInstallerFakeOpener(files))
         (self.root / "vendor" / "bitnet" / "install.json").unlink()
-        opener = FakeOpener(files)
+        opener = BitnetInstallerFakeOpener(files)
         self.run_install(opener)
         self.assertNotIn(MODEL_URL, opener.calls)
-        self.assertIsNotNone(_read_install(self.root))
+        self.assertIsNotNone(read_install(self.root))
 
     def test_cancel_stops_the_download(self) -> None:
-        job = self.installer(FakeOpener(release_files(self.runtime, self.model)))
+        job = self.installer(BitnetInstallerFakeOpener(release_files(self.runtime, self.model)))
         job.cancel.set()
         with self.assertRaises(InstallError) as caught:
             job.run(lambda *_: None)
         self.assertEqual(caught.exception.code, "cancelled")
-        self.assertIsNone(_read_install(self.root))
+        self.assertIsNone(read_install(self.root))
 
     def test_hub_version_reads_the_package(self) -> None:
         self.assertIsInstance(installer.hub_version(), (str, type(None)))

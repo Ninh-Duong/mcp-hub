@@ -1,7 +1,6 @@
-"""Desktop status window tests on Qt's offscreen platform: no window opens, and they run on every OS."""
+"""Desktop window tests: Status window (StatusWindow, its default actions, and the Fluent widgets)."""
 from __future__ import annotations
 
-import os
 import tempfile
 import threading
 import time
@@ -9,160 +8,17 @@ import unittest
 from dataclasses import replace
 from datetime import datetime, timedelta, UTC
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-try:
-    from PySide6.QtCore import Qt
-    from PySide6.QtTest import QTest
-    from PySide6.QtWidgets import QApplication
 
-    from mcp_hub.desktop import app, hub_page, mini, screenshot, settings, system, update_card, widgets
-    from qfluentwidgets import HyperlinkButton, PrimaryPushButton, TransparentToolButton
-    QT_MISSING = None
-except ImportError as exc:  # Qt's system libraries are missing (for example a bare Linux host)
-    QT_MISSING = f"Qt is unavailable: {exc}"
-
-from mcp_hub.desktop import i18n, prefs, status, theme, update
-from mcp_hub.desktop.hub_api import HubSettings, ServerSwitch, UpdateStatus
+from mcp_hub.desktop import i18n, prefs, status, theme
 from mcp_hub.desktop.status import ChildRow, HubSnapshot
+from tests.helpers.window import Qt, QTest, app, mini, screenshot, system, widgets, HyperlinkButton, PrimaryPushButton, TransparentToolButton, QT_MISSING, qt_app, running, assert_rows_fit, texts, checked, pick, enabled, WindowFakeStore
 
 
 def setUpModule() -> None:
-    if QT_MISSING is None:
-        app.application()
-
-
-def running(*children: ChildRow, activity_ui: bool = False, clients: tuple[str, ...] = (),
-            recent: tuple[str, ...] = ()) -> HubSnapshot:
-    return HubSnapshot(hub="running", activity_ui=activity_ui, children=children, clients=clients, recent=recent,
-                       checked_at=datetime(2026, 10, 30, 10, 42, 5))
-
-
-def fake_switch(server_id: str, enabled: bool) -> ServerSwitch:
-    """mcp-server-logs needs credentials and a key; the other child needs nothing."""
-    if server_id == "mcp-server-logs":
-        return ServerSwitch(server_id, enabled, "credentials required", missing=("openobserve.dev.token",),
-                            requirements="declared", config_file_exists=True)
-    return ServerSwitch(server_id, enabled, None)
-
-
-class FakeStore:
-    """HubClient stand-in: keeps the saved choices in memory."""
-
-    def __init__(self) -> None:
-        self.activity_ui, self.editable, self.fail = False, True, False
-        self.bitnet = False
-        self.reads = 0
-        self.enabled = {"mcp-server-logs": True, "mcp-jira-sync": False}
-        self.update = UpdateStatus("", "idle", (), ())
-        self.retries: list[tuple[str, ...]] = []
-        self.prepared: list[str] = []
-        self.prepare_error: Exception | None = None
-        self.config_file = Path("/private/mcps/mcp-server-logs.json")
-
-    def check_updates(self):
-        return self.update
-
-    def read_update(self):
-        return self.update
-
-    def read_saved_update(self):
-        return self.update
-
-    def start_update(self):
-        self.update = UpdateStatus("run-1", "complete", (), ())
-        return self.update
-
-    def retry_update(self, components):
-        self.retries.append(components)
-        self.update = UpdateStatus("run-1", "complete", (), ())
-        return self.update
-
-    def read_settings(self) -> HubSettings:
-        self.reads += 1
-        if self.fail:
-            raise OSError("locked")
-        servers = tuple(fake_switch(server_id, enabled) for server_id, enabled in self.enabled.items())
-        return HubSettings(self.activity_ui, servers, self.editable, bitnet=self.bitnet)
-
-    def prepare_child_config(self, server_id: str) -> str:
-        if self.prepare_error is not None:
-            raise self.prepare_error
-        self.prepared.append(server_id)
-        return str(self.config_file)
-
-    def set_activity_ui(self, enabled: bool) -> None:
-        self.activity_ui = enabled
-
-    def set_bitnet(self, enabled: bool) -> None:
-        self.bitnet = enabled
-
-    installs = 0
-    fail_install = False
-
-    def install_bitnet(self) -> None:
-        if self.fail_install:
-            raise OSError("refused")
-        self.installs += 1
-
-    def set_server_enabled(self, server_id: str, enabled: bool) -> None:
-        self.enabled[server_id] = enabled
-
-
-def elided(widget, text: str, width: int | None = None) -> str:
-    """`text` as show_elided cuts it for this one-line label (fonts differ by platform)."""
-    return widget.fontMetrics().elidedText(text, Qt.TextElideMode.ElideRight, width or widget.width())
-
-
-def full_text(label) -> str:
-    """A label's whole text: show_elided keeps it in the tooltip when the label is cut."""
-    return label.toolTip() or label.text()
-
-
-def assert_rows_fit(test: unittest.TestCase, rows) -> None:
-    """Every Row's shown text and detail fit the row's width, whatever the font: cut text never overflows."""
-    for index in range(rows.count()):
-        widget = rows.itemAt(index).widget()
-        row = widget.row if isinstance(widget, widgets.UsageRow) else widget
-        if isinstance(row, widgets.Row):
-            used = sum(part.fontMetrics().horizontalAdvance(part.text()) for part in (row.text, row.detail))
-            test.assertLessEqual(used, widgets.row_room() + widgets.theme.SPACE_S, row.text.text())
-
-
-def texts(rows, *, whole: bool = False) -> list[str]:
-    """Visible text of each item in a rows layout: `tone name detail` for a Row, else the label text.
-
-    With `whole`, each label's full text instead of the elided one.
-    """
-    read = full_text if whole else (lambda label: label.text())
-    found: list[str] = []
-    for index in range(rows.count()):
-        widget = rows.itemAt(index).widget()
-        if isinstance(widget, widgets.UsageRow):
-            widget = widget.row
-        if isinstance(widget, widgets.Row):
-            parts = (widget.glyph.property("tone") or "", read(widget.text), read(widget.detail))
-            found.append(" ".join(part for part in parts if part))
-        elif widget is not None and not isinstance(widget, widgets.ProcessingLog):
-            found.append(read(widget))
-    return found
-
-
-def checked(segmented, value) -> bool:
-    """Whether `value` is the selected segment of a SegmentedWidget."""
-    return segmented.currentRouteKey() == str(value)
-
-
-def pick(segmented, value) -> None:
-    """Click one segment, as the user does."""
-    widgets.segment(segmented, value).click()
-
-
-def enabled(segmented, value) -> bool:
-    return widgets.segment(segmented, value).isEnabled()
+    qt_app()
 
 
 @unittest.skipIf(QT_MISSING, QT_MISSING or "")
@@ -177,7 +33,7 @@ class StatusWindowTest(unittest.TestCase):
         self.glass = False
         self.tmp = tempfile.TemporaryDirectory()
         self.prefs_path = Path(self.tmp.name) / "desktop.json"
-        self.store = FakeStore()
+        self.store = WindowFakeStore()
         self.autostart = {"hub": True, "app": True}
         self.autostart_calls: list[tuple[str, bool]] = []
         self.utc = datetime(2026, 10, 31, 9, 30, tzinfo=UTC)
@@ -199,7 +55,7 @@ class StatusWindowTest(unittest.TestCase):
 
     def test_processing_rows_localize_fade_and_preserve_children(self):
         from mcp_hub.desktop import processing
-        from tests.test_desktop_processing import event, snapshot
+        from tests.helpers.desktop import event, snapshot
         child = ChildRow("mcp-server-logs", "connected", "ok")
         self.window.apply(replace(running(child), bitnet=status.BitnetInfo(True, True, "ready")))
         self.assertTrue(self.processing_started.wait(2))
@@ -228,7 +84,7 @@ class StatusWindowTest(unittest.TestCase):
 
     def test_processing_absent_route_clears_rows_without_changing_footer(self):
         from mcp_hub.desktop import processing
-        from tests.test_desktop_processing import snapshot
+        from tests.helpers.desktop import snapshot
         ready = replace(running(), bitnet=status.BitnetInfo(True, True, "ready"))
         self.window.apply(ready)
         self.assertTrue(self.processing_started.wait(2))
@@ -244,7 +100,7 @@ class StatusWindowTest(unittest.TestCase):
 
     def test_processing_disable_restart_close_drops_stale_generation(self):
         from mcp_hub.desktop import processing
-        from tests.test_desktop_processing import snapshot
+        from tests.helpers.desktop import snapshot
         ready = replace(running(), bitnet=status.BitnetInfo(True, True, "ready"))
         self.window.apply(ready)
         self.assertTrue(self.processing_started.wait(2))
@@ -1017,492 +873,6 @@ class StatusWindowTest(unittest.TestCase):
 
 
 @unittest.skipIf(QT_MISSING, QT_MISSING or "")
-class SettingsPanelTest(unittest.TestCase):
-    def setUp(self) -> None:
-        self.changes: list[dict[str, object]] = []
-        self.languages: list[str] = []
-        self.resets: list[bool] = []
-        self.panel = settings.AppearancePage(
-            on_change=lambda **change: self.changes.append(change),
-            on_language=self.languages.append, on_reset=lambda: self.resets.append(True),
-        )
-
-    def tearDown(self) -> None:
-        self.panel.deleteLater()
-
-    def test_controls_report_choices_through_the_callbacks(self) -> None:
-        pick(self.panel.theme_segments, "dark")
-        pick(self.panel.language_segments, "vi")
-        pick(self.panel.glass_segments, False)
-        self.panel.opacity.setValue(70)
-        self.panel.tint.setValue(5)
-        self.panel.reset_button.click()
-        self.assertEqual(self.changes, [{"theme": "dark"}, {"glass": False}, {"card_opacity": 70}, {"tint": 5}])
-        self.assertEqual(self.languages, ["vi"])
-        self.assertEqual(self.resets, [True])
-
-    def test_sync_shows_the_appearance_without_reporting_it(self) -> None:
-        self.panel.retranslate(i18n.Translator("vi"))
-        self.panel.sync(theme.Appearance(theme="dark", card_opacity=60, tint=30), "vi", glass_available=True)
-        self.assertEqual(self.changes, [])
-        self.assertTrue(checked(self.panel.theme_segments, "dark"))
-        self.assertTrue(checked(self.panel.language_segments, "vi"))
-        self.assertEqual((self.panel.opacity.value(), self.panel.opacity_value.text()), (60, "60%"))
-        self.assertEqual(self.panel.tint.value(), 30)
-        self.assertEqual(widgets.segment(self.panel.language_segments, "en").text(), "EN")
-        self.assertEqual(widgets.segment(self.panel.theme_segments, "dark").text(), i18n.load_strings("vi")["desktop.settings.themeDark"])
-
-    def test_tabs_show_one_page_and_report_the_open_tab(self) -> None:
-        opened: list[str] = []
-        restarts: list[bool] = []
-        pages = {name: widgets.Page() for name in settings.TABS}
-        panel = settings.SettingsPanel(theme.WINDOW_WIDTH, pages, on_tab=opened.append, on_restart=lambda: restarts.append(True))
-        try:
-            panel.retranslate(i18n.Translator("vi"))
-            self.assertEqual(widgets.segment(panel.tab_segments, "mcps").text(), "MCP con")
-            pick(panel.tab_segments, "mcps")
-            self.assertEqual(opened, ["appearance", "mcps"])
-            self.assertTrue(pages["appearance"].isHidden())
-            self.assertFalse(pages["mcps"].isHidden())
-            self.assertTrue(panel.restart_button.isHidden())
-            panel.show_pending(True)
-            self.assertFalse(panel.restart_button.isHidden())
-        finally:
-            panel.deleteLater()
-
-    def test_children_page_without_children_says_so(self) -> None:
-        page = hub_page.ChildrenPage(on_toggle=lambda *_args: None)
-        try:
-            page.sync(HubSettings(activity_ui=False, servers=(), editable=True))
-            page.retranslate(i18n.Translator("en"))
-            self.assertEqual(page.note.text(), "No child MCPs found next to the Hub.")
-        finally:
-            page.deleteLater()
-
-
-@unittest.skipIf(QT_MISSING, QT_MISSING or "")
-class UpdateWindowTest(unittest.TestCase):
-    """The update card discovers system updates and installs the app after Hub work."""
-
-    def setUp(self) -> None:
-        self.tmp = tempfile.TemporaryDirectory()
-        self.release = update.Release((0, 2, 0), "https://example.com/s.exe", "https://example.com/s.exe.sha256",
-                                      "https://example.com/releases/tag/v0.2.0")
-        self.found: update.Release | None = self.release
-        self.checks, self.installed, self.opened = 0, [], []
-        self.install_error: Exception | None = None
-        self.window = self.make_window(update.Updater("0.1.1", self.check, self.install, self.opened.append))
-
-    def make_window(self, updater: update.Updater | None):
-        self.store = FakeStore()
-        return app.StatusWindow(
-            i18n.Translator("en"), fetch=lambda: HubSnapshot(hub="stopped"),
-            launch=lambda _arguments: None, style=lambda *_a, **_k: False, prefs_path=Path(self.tmp.name) / "desktop.json",
-            hub_store=self.store, read_autostart=lambda: {"hub": True, "app": True},
-            write_autostart=lambda _target, _enabled: {"hub": True, "app": True}, run_worker=lambda job: job(),
-            stream=lambda _put, _stop: None, updater=updater,
-        )
-
-    def check(self) -> update.Release | None:
-        self.checks += 1
-        return self.found
-
-    def install(self, release: update.Release) -> None:
-        self.installed.append(release)
-        if self.install_error is not None:
-            raise self.install_error
-
-    def tearDown(self) -> None:
-        self.window.poll_timer.stop()
-        self.window.update_timer.stop()
-        self.window.update_check_timer.stop()
-        self.window.drain_timer.stop()
-        self.window.close()
-        self.window.deleteLater()
-        self.tmp.cleanup()
-
-    def offer(self, snapshot: HubSnapshot | None = None) -> None:
-        if snapshot is not None:
-            self.window.apply(snapshot)
-        self.window.check_updates()
-        self.window.process_results()
-
-    def card(self):
-        return self.window.update_card
-
-    def test_without_an_app_updater_the_card_still_checks_hub_updates(self) -> None:
-        window = self.make_window(None)
-        self.addCleanup(window.close)
-        window.check_updates()
-        window.process_results()
-        self.assertFalse(window.update_card.isHidden())
-        self.assertEqual(self.checks, 0)
-
-    def test_the_check_runs_once_when_the_window_starts_and_not_at_every_poll(self) -> None:
-        with patch.object(self.window, "refresh"):
-            self.window.start()
-        self.assertEqual(self.checks, 1)
-        self.window.apply(running(ChildRow("a", "connected", "ok")))
-        self.window.refresh()
-        self.assertEqual(self.checks, 1)
-
-    def test_a_newer_release_shows_the_card_with_what_the_user_has(self) -> None:
-        self.assertFalse(self.card().isHidden())
-        self.offer(running(ChildRow("mcp-jira-sync", "connected", "ok")))
-        self.assertFalse(self.card().isHidden())
-        self.assertEqual(self.card().title.text(), "UPDATES")
-        self.assertEqual(self.card().version_line.text(), "Version 0.2.0 is available")
-        self.assertFalse(self.card().update_primary.isHidden())  # the Hub runs: Update is the one primary action
-        self.assertTrue(self.card().update_button.isHidden())
-        self.assertEqual(self.card().note.text(), "You have 0.1.1.")
-        self.assertEqual((self.card().update_button.text(), self.card().notes_button.text()), ("Update", "What's new"))
-        self.assertTrue(self.card().update_button.isEnabled())
-        self.assertIsInstance(self.card(), update_card.UpdateCard)
-        self.assertNotIn(self.card(), self.window.cards)  # the full window shows it; the mini bar never does
-
-    def test_no_newer_release_still_shows_manual_check(self) -> None:
-        self.found = None
-        self.offer(running(ChildRow("a", "connected", "ok")))
-        self.assertFalse(self.card().isHidden())
-        self.assertEqual(self.window.footer.text(), "Updated 10:42:05")  # no error either
-
-    def test_the_card_is_in_the_chosen_language(self) -> None:
-        self.offer(running(ChildRow("a", "connected", "ok")))
-        vi = i18n.load_strings("vi")
-        self.window.set_language("vi")
-        self.assertEqual(self.card().title.text(), vi["desktop.update.title"])
-        self.assertEqual(self.card().version_line.text(), vi["desktop.update.available"].replace("{version}", "0.2.0"))
-        self.assertEqual(self.card().update_button.text(), vi["desktop.update.button"])
-        self.assertNotEqual(self.card().update_button.text(), "Update")
-        self.window.set_language("en")
-        self.assertEqual(self.card().update_button.text(), "Update")
-
-    def test_a_stopped_hub_can_be_started_for_the_update(self) -> None:
-        self.offer(HubSnapshot(hub="stopped"))
-        self.assertTrue(self.card().update_button.isEnabled())
-        self.assertEqual(self.card().note.text(), "You have 0.1.1. The Hub is not running; Update will start it.")
-
-    def test_a_failing_child_does_not_block_the_system_update(self) -> None:
-        self.offer(running(ChildRow("mcp-jira-sync", "connected", "ok"), ChildRow("mcp-read-source", "unavailable", "error"),
-                           ChildRow("mcp-pr-companion", "reconnecting", "wait")))
-        self.assertTrue(self.card().update_button.isEnabled())
-        self.window.install_update()
-        self.window.process_results()
-        self.assertEqual(self.installed, [self.release])
-
-    @staticmethod
-    def partial_run() -> UpdateStatus:
-        return UpdateStatus("run-1", "partial", (
-            {"id": "mcp-jira-sync", "kind": "child", "state": "failed", "phase": "pull",
-             "error_code": "worktree_dirty"},
-        ), ({"component": "mcp-jira-sync", "phase": "pull"},))
-
-    def test_partial_system_update_still_installs_app_and_keeps_failed_retry_state(self) -> None:
-        self.offer(running(ChildRow("mcp-jira-sync", "connected", "ok")))
-        failed = self.partial_run()
-        self.window._user_update = True  # the user pressed Update
-        self.window.update_status = failed
-        self.window._update_changed("update_status", failed)
-        self.assertEqual(self.installed, [self.release])
-        self.assertEqual(self.window.update_status, failed)
-        self.assertIn("mcp-jira-sync", self.card().summary.text() + self.card().summary.toolTip())
-        self.assertIn("Local changes need attention", self.card().summary.text() + self.card().summary.toolTip())
-        self.assertEqual(full_text(self.card().log.rows[0]), "mcp-jira-sync: Downloading code")
-        self.assertFalse(self.card().retry_button.isHidden())
-        self.assertTrue(self.card().update_button.isHidden())  # one main button at a time
-
-    def test_a_check_that_ends_never_installs_or_closes_the_app(self) -> None:
-        # The loop seen in the field: a startup/hourly check ended partial or complete and the app reinstalled itself.
-        self.offer(running(ChildRow("a", "connected", "ok")))
-        for state in ("partial", "complete"):
-            with self.subTest(state=state), patch.object(self.window, "close") as close:
-                self.window._update_changed("update_status", replace(self.partial_run(), state=state))
-                self.window.process_results()
-                close.assert_not_called()
-        self.assertEqual(self.installed, [])
-
-    def test_a_hub_check_that_needs_attention_is_not_shown_as_an_install_failure(self) -> None:
-        self.store.update = self.partial_run()
-        self.offer(running(ChildRow("a", "connected", "ok")))
-        self.assertEqual(self.card().note.text(), "Some items need attention.")
-        self.assertEqual(self.card().note.property("role"), "caption")
-        summary = self.card().summary
-        self.assertEqual(summary.text(), elided(summary, "0/1 done · mcp-jira-sync: Local changes need attention",
-                                                theme.WINDOW_WIDTH - 2 * theme.SPACE_M))
-        self.assertIn("mcp-jira-sync: Failed — Local changes need attention", summary.toolTip())
-
-    def test_the_progress_log_rolls_three_fading_lines(self) -> None:
-        events = tuple({"component": f"mcp-{index}", "phase": "check", "at": str(index)} for index in range(5))
-        self.store.update = UpdateStatus("run-1", "running", (), events)
-        self.offer(running(ChildRow("a", "connected", "ok")))
-        log = self.card().log
-        self.assertEqual([full_text(row) for row in log.rows],
-                         [f"mcp-{index}: Checking for updates" for index in (4, 3, 2)])
-        self.assertEqual([row.graphicsEffect().opacity() for row in log.rows], [1, .65, .4])
-        self.assertEqual(log.height(), log.row_height() * 3)
-
-    def test_the_buttons_show_their_whole_label_in_every_language(self) -> None:
-        self.store.update = self.partial_run()
-        self.offer(running(ChildRow("a", "connected", "ok")))
-        self.window.show()
-        for language in ("en", "vi"):
-            with self.subTest(language=language):
-                self.window.set_language(language)
-                QApplication.processEvents()
-                for name in ("retry_button", "notes_button"):
-                    widget = getattr(self.card(), name)
-                    self.assertFalse(widget.isHidden(), name)
-                    # The layout gives each button at least what its whole label needs, in every language.
-                    self.assertGreaterEqual(widget.width(), widget.sizeHint().width(), name)
-
-    def test_accounts_still_to_fill_in_and_disabled_children_do_not_block(self) -> None:
-        self.offer(running(ChildRow("a", "credentials required", "error"), ChildRow("b", "disabled", "off"),
-                           ChildRow("c", "connecting", "wait")))
-        self.assertTrue(self.card().update_button.isEnabled())
-
-    def test_update_downloads_then_installs_and_closes_the_window(self) -> None:
-        self.offer(running(ChildRow("a", "connected", "ok")))
-        self.card().update_button.click()
-        self.assertEqual(self.card().note.text(), "Updating mcp-hub and its enabled MCPs…")
-        self.assertFalse(self.card().update_button.isEnabled())
-        with patch.object(self.window, "close") as close:
-            self.window.process_results()
-        self.assertEqual(self.installed, [self.release])
-        self.assertEqual(self.card().note.text(), "Installing. The app closes and opens again by itself.")
-        self.assertFalse(self.card().update_button.isEnabled())
-        close.assert_called_once_with()
-
-    def test_a_second_click_while_it_works_does_not_start_another_download(self) -> None:
-        self.offer(running(ChildRow("a", "connected", "ok")))
-        self.window.install_update()
-        self.window.install_update()
-        self.window.process_results()
-        self.assertEqual(len(self.installed), 1)
-
-    def test_a_failed_update_shows_one_fixed_sentence_and_can_be_tried_again(self) -> None:
-        self.offer(running(ChildRow("a", "connected", "ok")))
-        for error in (update.DesktopError("secret local-path detail"), OSError("denied")):
-            with self.subTest(error=type(error).__name__):
-                self.install_error = error
-                self.card().update_button.click()
-                self.window.process_results()
-                self.assertEqual(self.card().note.text(),
-                                 "The update did not install. Try again, or download it from the Releases page.")
-                self.assertEqual(self.card().note.property("role"), "error")
-                self.assertTrue(self.card().update_button.isEnabled())
-                self.assertNotIn("secret", self.card().note.text() + self.window.footer.text())
-        self.install_error = None
-        with patch.object(self.window, "close") as close:
-            self.card().update_button.click()
-            self.window.process_results()
-        close.assert_called_once_with()
-        self.assertEqual(len(self.installed), 3)
-
-    def test_whats_new_opens_the_release_page(self) -> None:
-        self.window.show_update_notes()  # nothing offered yet
-        self.assertEqual(self.opened, [])
-        self.offer(running(ChildRow("a", "connected", "ok")))
-        self.card().notes_button.click()
-        self.assertEqual(self.opened, [self.release])
-
-    def test_the_mini_bar_hides_the_card_and_the_full_window_brings_it_back(self) -> None:
-        self.offer(running(ChildRow("a", "connected", "ok")))
-        self.window.show()
-        self.window.set_compact(True)
-        self.assertTrue(self.card().isHidden())
-        self.window.render()
-        self.assertTrue(self.card().isHidden())
-        self.window.set_compact(False)
-        self.assertFalse(self.card().isHidden())
-
-    def test_a_poll_that_changes_nothing_redraws_nothing(self) -> None:
-        snapshot = running(ChildRow("a", "connected", "ok"))
-        self.offer(snapshot)
-        with patch.object(self.window, "_render_update") as draw:
-            self.window.apply(snapshot)
-            self.window.render()
-        draw.assert_not_called()
-        with patch.object(self.window, "_render_update") as draw:
-            self.window.apply(running(ChildRow("a", "unavailable", "error")))
-        draw.assert_not_called()
-
-    def test_the_preview_shows_and_hides_the_card_for_screenshots(self) -> None:
-        self.window.preview_update(self.release)
-        self.assertFalse(self.card().isHidden())
-        self.window.preview_update(None)
-        self.assertFalse(self.card().isHidden())
-        self.assertEqual(self.card().title.text(), "UPDATES")
-
-
-@unittest.skipIf(QT_MISSING, QT_MISSING or "")
-class ScreenshotTest(unittest.TestCase):
-    def test_capture_all_saves_every_combination(self) -> None:
-        class FakeWindow:
-            def __init__(self) -> None:
-                self.t, self.shown, self.captured, self.previewed = i18n.Translator("en"), [], False, []
-                self.releases: list = []
-
-            def preview_update(self, release) -> None:
-                self.releases.append(release)
-
-            def show_for_capture(self) -> None:
-                self.captured = True
-
-            def set_theme(self, name: str) -> None:
-                self.theme_name = name
-
-            def set_language(self, language: str) -> None:
-                self.t.set_language(language)
-
-            def show_settings(self, visible: bool) -> None:
-                self.settings_open = visible
-
-            def set_compact(self, on: bool) -> None:
-                self.compact = on
-
-            def show_tab(self, name: str) -> None:
-                self.settings_open, self.tab = True, name
-
-            def process_results(self) -> None:
-                self.drained = True
-
-            def now(self) -> datetime:
-                return datetime(2026, 10, 31, tzinfo=UTC)
-
-            def preview_usage(self, board) -> None:
-                self.previewed.append(board.usage("mcp-server-logs", self.now()))
-
-            def apply(self, snapshot: HubSnapshot) -> None:
-                self.shown.append((self.theme_name, self.t.language, snapshot.hub))
-
-        window = FakeWindow()
-        with tempfile.TemporaryDirectory() as tmp:
-            saved = screenshot.capture_all(window, Path(tmp) / "shots", ["running", "settings-hub"], ["en", "vi"], ["dark"],
-                                           capture=lambda _window, path: path.write_bytes(b"png"), settle=lambda _window: None)
-            self.assertEqual([path.name for path in saved], [
-                "running-en-dark.png", "settings-hub-en-dark.png", "running-vi-dark.png", "settings-hub-vi-dark.png",
-            ])
-            self.assertEqual(saved[0].read_bytes(), b"png")
-        self.assertTrue(window.captured)
-        self.assertEqual(window.shown[-1], ("dark", "vi", "running"))
-        self.assertTrue(window.settings_open)
-        self.assertEqual(window.tab, "hub")
-        self.assertTrue(window.drained)
-        self.assertEqual(window.previewed, [None] * 4)  # only the `ui` and `compact` samples show usage
-        self.assertEqual(window.releases, [None] * 4)  # and only the update samples show the update card
-        self.assertFalse(window.compact)
-
-    def test_the_update_sample_shows_the_card(self) -> None:
-        window = type("W", (), {})()
-        window.t, window.shown, window.releases = i18n.Translator("en"), [], []
-        for name, _value in (("show_for_capture", None), ("set_theme", None), ("set_language", None), ("show_settings", None),
-                            ("set_compact", None), ("preview_usage", None), ("process_results", None)):
-            setattr(window, name, lambda *_a, **_k: None)
-        window.now = lambda: datetime(2026, 10, 31, tzinfo=UTC)
-        window.apply = lambda snapshot: window.shown.append(snapshot)
-        window.preview_update = window.releases.append
-        with tempfile.TemporaryDirectory() as tmp:
-            screenshot.capture_all(window, Path(tmp), ["update"], ["en"], ["light"],
-                                   capture=lambda _w, path: path.write_bytes(b"png"), settle=lambda _w: None)
-        self.assertEqual(window.releases, [screenshot.SAMPLE_RELEASE])
-
-    def test_samples_cover_every_hub_state(self) -> None:
-        self.assertEqual({sample.hub for sample in screenshot.SAMPLES.values()}, set(status.HUB_TONES))
-        self.assertEqual(screenshot.STATES[-5:], ("settings", "settings-hub", "settings-mcps", "settings-config", "compact"))
-        sample = screenshot.SampleSettings()
-        self.assertIsNone(sample.set_activity_ui(True))
-        self.assertIsNone(sample.set_server_enabled("mcp-server-logs", False))
-        self.assertIs(sample.read_settings(), screenshot.SAMPLE_HUB_SETTINGS)
-
-    def test_window_image_renders_or_reads_the_screen(self) -> None:
-        window = app.StatusWindow(i18n.Translator("en"), style=lambda *_args, **_kwargs: False)
-        try:
-            self.assertFalse(screenshot.window_image(window, screen_capture=False).isNull())
-            with patch.object(screenshot.win32, "window_rect", return_value=(0, 0, 2, 1)), \
-                    patch.object(screenshot.win32, "capture_screen", return_value=(2, 1, b"\x10\x20\x30\x00" * 2)):
-                image = screenshot.window_image(window, screen_capture=True)
-            self.assertEqual((image.width(), image.height()), (2, 1))
-            self.assertEqual(image.pixelColor(0, 0).name(), "#302010")
-            with tempfile.TemporaryDirectory() as tmp:
-                with patch.object(screenshot, "window_image", return_value=window.grab().toImage()):
-                    screenshot.save_window_png(window, Path(tmp) / "shot.png")
-                self.assertTrue((Path(tmp) / "shot.png").read_bytes().startswith(b"\x89PNG"))
-                with patch.object(screenshot, "window_image", return_value=MagicMock(save=lambda *_args: False)), \
-                        self.assertRaises(OSError):
-                    screenshot.save_window_png(window, Path(tmp) / "nope.png")
-        finally:
-            window.close()
-
-
-@unittest.skipIf(QT_MISSING, QT_MISSING or "")
-class MainTest(unittest.TestCase):
-    def test_parse_args_validates_lists(self) -> None:
-        args = app.parse_args(["--screenshot", "out", "--states", "running, ui", "--theme", "dark"])
-        self.assertEqual((args.screenshot, args.states, args.lang, args.theme), ("out", ["running", "ui"], ["en", "vi"], ["dark"]))
-        self.assertIsNone(app.parse_args([]).screenshot)
-        for bad in (["--states", "nope"], ["--lang", ""], ["--theme", "light,neon"]):
-            with self.subTest(bad=bad), patch("sys.stderr"), self.assertRaises(SystemExit):
-                app.parse_args(bad)
-
-    def test_version_prints_the_app_version_and_starts_nothing(self) -> None:
-        with patch.object(app.win32, "acquire_single_instance") as guard, patch.object(app, "application") as application, \
-                patch.object(app.update, "app_version", return_value="0.1.1"), patch("builtins.print") as printed:
-            self.assertEqual(app.main(["--version"]), 0)
-        printed.assert_called_once_with("0.1.1")
-        guard.assert_not_called()
-        application.assert_not_called()
-        with patch.object(app.update, "app_version", return_value=None), patch("builtins.print") as printed:
-            app.main(["--version"])
-        printed.assert_called_once_with("unknown")
-
-    def test_main_exits_quietly_when_another_copy_runs(self) -> None:
-        with patch.object(app.win32, "acquire_single_instance", return_value=None), \
-                patch.object(app, "application") as application:
-            self.assertEqual(app.main([]), 0)
-        application.assert_not_called()
-
-    def test_main_opens_the_window_with_saved_choices(self) -> None:
-        fake_app = SimpleNamespace(exec=lambda: 0)
-        with patch.object(app.win32, "acquire_single_instance", return_value=7), \
-                patch.object(app, "application", return_value=fake_app), \
-                patch.object(app.prefs, "load_prefs", return_value={"theme": "dark", "language": "vi", "tint": 20}), \
-                patch.object(app, "StatusWindow") as window_class:
-            self.assertEqual(app.main([]), 0)
-        self.assertEqual(window_class.call_args.kwargs["appearance"], theme.Appearance(theme="dark", tint=20))
-        self.assertEqual(window_class.call_args.args[0].language, "vi")
-        window_class.return_value.show.assert_called_once()
-        window_class.return_value.start.assert_called_once()
-
-    def test_main_gives_the_window_the_default_updater(self) -> None:
-        sentinel = object()
-        with patch.object(app.win32, "acquire_single_instance", return_value=7), \
-                patch.object(app, "application", return_value=SimpleNamespace(exec=lambda: 0)), \
-                patch.object(app.prefs, "load_prefs", return_value={}), \
-                patch.object(app.update, "default_updater", return_value=sentinel), patch.object(app, "StatusWindow") as window_class:
-            app.main([])
-        self.assertIs(window_class.call_args.kwargs["updater"], sentinel)
-
-    def test_screenshot_mode_reports_success_and_failure(self) -> None:
-        args = app.parse_args(["--screenshot", "out"])
-        with patch.object(app, "StatusWindow") as window_class, \
-                patch.object(app.screenshot, "capture_all", return_value=[Path("a.png")]), patch("builtins.print") as printed:
-            self.assertEqual(app.run_screenshots(args), 0)
-        self.assertEqual(printed.call_args.args[0], "a.png")
-        window_class.return_value.close.assert_called_once()
-        with patch.object(app, "StatusWindow"), patch.object(app.screenshot, "capture_all", side_effect=OSError("disk")), \
-                patch("builtins.print") as printed:
-            self.assertEqual(app.run_screenshots(args), 1)
-        self.assertIn("could not be saved", printed.call_args.args[0])
-        with patch.object(app, "application"), patch.object(app, "run_screenshots", return_value=0) as run:
-            self.assertEqual(app.main(["--screenshot", "out"]), 0)
-        run.assert_called_once()
-
-    def test_application_sets_the_app_font(self) -> None:
-        self.assertEqual(app.application().font().pointSize(), theme.FONT_POINTS["body"])
-        self.assertIs(app.application(), QApplication.instance())
-
-
-@unittest.skipIf(QT_MISSING, QT_MISSING or "")
 class DefaultActionsTest(unittest.TestCase):
     """The window's default actions: the Hub's API for settings and control, the system for the rest."""
 
@@ -1528,7 +898,6 @@ class DefaultActionsTest(unittest.TestCase):
                 app.set_autostart("everything", True)
 
 
-
 @unittest.skipIf(QT_MISSING, QT_MISSING or "")
 class FluentWidgetsTest(unittest.TestCase):
     """The Fluent conversion: each tone has its own shape, icon-only buttons are named, primary buttons are Fluent's."""
@@ -1538,7 +907,7 @@ class FluentWidgetsTest(unittest.TestCase):
         self.window = app.StatusWindow(
             i18n.Translator("en"), fetch=lambda: HubSnapshot(hub="stopped"),
             launch=lambda _arguments: None, style=lambda *_a, **_k: False, prefs_path=Path(self.tmp.name) / "desktop.json",
-            hub_store=FakeStore(), read_autostart=lambda: {"hub": True, "app": True},
+            hub_store=WindowFakeStore(), read_autostart=lambda: {"hub": True, "app": True},
             write_autostart=lambda _target, _enabled: {"hub": True, "app": True}, run_worker=lambda job: job(),
             stream=lambda _put, _stop: None,
         )
@@ -1574,6 +943,3 @@ class FluentWidgetsTest(unittest.TestCase):
         self.window.apply(running())
         self.assertTrue(self.window.start_button.isHidden())
         self.assertIsInstance(self.window.update_card.notes_button, HyperlinkButton)
-
-if __name__ == "__main__":
-    unittest.main()

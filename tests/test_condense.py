@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from mcp_hub.condense import (
+from mcp_hub.results.condense import (
     RuleCondenser,
     compact_json_payload,
     format_capped,

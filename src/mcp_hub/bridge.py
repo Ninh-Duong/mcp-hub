@@ -18,7 +18,7 @@ from mcp.types import METHOD_NOT_FOUND, Implementation
 
 from .bridge_proxy import DownstreamLink, create_bridge_server
 from .service_config import load_service_config
-from .server import normalize_client_name
+from .clients import normalize_client_name
 from .settings import BridgeSettings
 
 logger = logging.getLogger(__name__)

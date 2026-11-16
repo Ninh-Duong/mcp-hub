@@ -5,11 +5,10 @@ import logging
 from typing import Any
 
 from ..audit import AuditLog
+from ..settings import ActivitySettings
 from .tracker import ToolCallRecord
 
-BATCH_SIZE = 50
-BATCH_SECONDS = 1.0
-QUEUE_LIMIT = 10_000
+_DEFAULTS = ActivitySettings()
 _STOP = object()
 
 
@@ -22,7 +21,8 @@ class ActivityRecorder:
 
     def __init__(
         self, store: Any, audit: AuditLog, *,
-        batch_size: int = BATCH_SIZE, interval: float = BATCH_SECONDS, queue_limit: int = QUEUE_LIMIT,
+        batch_size: int = _DEFAULTS.batch_size, interval: float = _DEFAULTS.batch_seconds,
+        queue_limit: int = _DEFAULTS.queue_limit,
     ) -> None:
         self.store = store
         self.audit = audit

@@ -22,7 +22,7 @@ from ..extensions import BITNET, DashboardExtension
 from ..settings import BitnetSettings
 from .installer import Installer, InstallError
 from .processing import ProcessingFeed
-from .sidecar import Sidecar, _read_install
+from .sidecar import Sidecar, read_install
 
 INSTALL_ROUTE = "/dashboard/api/bitnet/install"
 PROCESSING_ROUTE = "/dashboard/api/bitnet/processing/stream"
@@ -48,7 +48,7 @@ class BitnetSetup:
         self.processing_feed = processing_feed
         self._new_installer = installer_factory or (lambda: Installer(root, settings))
         self._enable = enable
-        self.installed = _read_install(root) is not None
+        self.installed = read_install(root) is not None
         self.step: str | None = None
         self.progress: int | None = None
         self.error: str | None = None
@@ -168,7 +168,7 @@ class BitnetSetup:
             self._installer.cancel.set()
         if self._task is not None and not self._task.done():
             try:
-                await asyncio.wait_for(asyncio.shield(self._task), timeout=5.0)
+                await asyncio.wait_for(asyncio.shield(self._task), timeout=self.settings.setup_wait_seconds)
             except (TimeoutError, Exception):
                 pass
 

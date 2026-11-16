@@ -10,32 +10,31 @@ from collections.abc import Callable
 import uvicorn
 
 from .audit import AuditLog
-from .config import HUB_ROOT, HubConfig, load_config
+from .config import HUB_ROOT
 from .extensions import ACTIVITY_UI, BITNET, KNOWN_EXTENSIONS, read_launch_extensions, saved_extensions
 from .http import create_http_app
 from .agents.config import load_agent_configs
 from .dashboard.api import create_dashboard_routes
-from .playbooks import Playbook, load_playbooks
-from .projects import load_projects
 from .jobs.runner import JobRunner
 from .jobs.store import JobStore
 from .preflight import refresh_windows_path
+from .bootstrap import load_settings_logged, load_start_inputs
 from .server import HubRuntime, create_mcp_server, enable_core_condenser, tool_pins_path
 from .service_config import load_service_config, new_admin_token, write_connection_file
-from .settings import HttpSettings, Settings, load_settings
+from .settings import HttpSettings
 
 
 async def run_http() -> None:
     """Run the shared service on 127.0.0.1 and the configured port (settings.http.port)."""
-    settings = _load_settings()
+    settings = load_settings_logged()
     service_config = load_service_config(port=settings.http.port)
     admin_token = new_admin_token()
     audit = AuditLog(logs=settings.logs)
     await asyncio.to_thread(_publish_connection, service_config, admin_token, audit)
     requested = read_launch_extensions(audit=audit) | saved_extensions()
-    config, playbooks = _load_hub_config(audit)
+    inputs = load_start_inputs(audit, settings)
+    config, playbooks, projects = inputs.config, inputs.playbooks, inputs.projects
     agent_configs = load_agent_configs()
-    projects = load_projects()
     job_store = _open_job_store(settings.jobs.retention_days)
     runtime = HubRuntime(config, audit, settings, playbooks=playbooks, projects=projects, pin_path=tool_pins_path())
     try:
@@ -48,7 +47,7 @@ async def run_http() -> None:
             )
             job_runner.resume_queued_jobs()
             job_runner.watch_pending_approvals()
-            hub_root = getattr(config, "root", None) or HUB_ROOT
+            hub_root = HUB_ROOT
             extensions = install_extensions(
                 requested, runtime, job_store, audit, job_runner=job_runner, root=hub_root,
             )
@@ -85,7 +84,7 @@ async def _serve(
     try:
         await _serve_until_stopped(
             app, host, port, shutdown_event, job_store, ui.close_listeners if ui is not None else None,
-            drain_seconds=getattr(runtime, "settings", Settings()).http.shutdown_drain_seconds,
+            drain_seconds=runtime.settings.http.shutdown_drain_seconds,
         )
     finally:
         await job_runner.close()
@@ -115,7 +114,7 @@ def install_extensions(
         from .activity_ui import install as install_activity_ui
 
         installed[ACTIVITY_UI] = install_activity_ui(runtime, store=store, audit=audit)
-    hub_root = root or getattr(getattr(runtime, "config", None), "root", None) or HUB_ROOT
+    hub_root = root or HUB_ROOT
     if BITNET in requested:
         from .bitnet import install as install_bitnet
 
@@ -138,26 +137,6 @@ def _publish_connection(service_config: Any, admin_token: str, audit: AuditLog) 
         write_connection_file(service_config, admin_token)
     except OSError as exc:
         audit.write("connection_file.failed", level=logging.WARNING, error_type=type(exc).__name__)
-
-
-def _load_settings() -> Settings:
-    """The Hub config's `settings` block; a bad value stops the start and is logged like a bad config."""
-    try:
-        return load_settings()
-    except Exception as exc:
-        audit = AuditLog()
-        audit.write("config.load.failed", level=logging.ERROR, error_type=type(exc).__name__, error=str(exc))
-        audit.close()
-        raise
-
-
-def _load_hub_config(audit: AuditLog) -> tuple[HubConfig, dict[str, Playbook]]:
-    """The Hub config and the playbooks; either one invalid stops the start and is logged."""
-    try:
-        return load_config(), load_playbooks()
-    except Exception as exc:
-        audit.write("config.load.failed", level=logging.ERROR, error_type=type(exc).__name__, error=str(exc))
-        raise
 
 
 def _open_job_store(retention_days: int) -> JobStore:

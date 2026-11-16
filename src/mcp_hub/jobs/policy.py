@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..server import is_read_only_tool
+from ..tool_meta import is_read_only_tool
 
 
 # These tools only refresh documented encrypted local caches as part of a read workflow.

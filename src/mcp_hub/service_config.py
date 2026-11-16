@@ -4,11 +4,11 @@ import json
 import os
 import secrets
 import subprocess
-import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .jsonio import read_json, write_json_atomic
 from .config import PRIVATE_DIR_ENV, PRIVATE_ROOT
 from .settings import HttpSettings
 
@@ -52,10 +52,10 @@ def load_service_config(
             raise ServiceConfigError("Service config is missing; start the Hub first")
         config_path.parent.mkdir(parents=True, exist_ok=True)
         value = {"version": 1, "host": "127.0.0.1", "port": port, "token": secrets.token_urlsafe(48)}
-        _write_private_json(config_path, value)
+        write_json_atomic(config_path, value, indent=2, trailing_newline=True, mode=0o600)
     else:
         try:
-            value = json.loads(config_path.read_text(encoding="utf-8"))
+            value = read_json(config_path)
         except (OSError, json.JSONDecodeError) as exc:
             raise ServiceConfigError(f"Could not read service config ({type(exc).__name__})") from exc
 
@@ -69,7 +69,7 @@ def load_service_config(
         raise ServiceConfigError("Service bearer token must contain at least 32 characters")
     if create and value.get("port") != port:
         value = {**value, "port": port}
-        _write_private_json(config_path, value)
+        write_json_atomic(config_path, value, indent=2, trailing_newline=True, mode=0o600)
     stored_port = value.get("port")
     if isinstance(stored_port, bool) or not isinstance(stored_port, int) or not 1024 <= stored_port <= 65535:
         raise ServiceConfigError("The shared service port must be between 1024 and 65535")
@@ -127,35 +127,11 @@ def write_connection_file(
     path = path or connection_file()
     value = {"version": 1, "url": f"http://{config.host}:{config.port}", "token": admin_token}
     try:
-        if json.loads(path.read_text(encoding="utf-8")) == value:
+        if read_json(path) == value:
             return False
     except (OSError, ValueError):
         pass
     path.parent.mkdir(parents=True, exist_ok=True)
-    _write_private_json(path, value)
+    write_json_atomic(path, value, indent=2, trailing_newline=True, mode=0o600)
     restrict(path)
     return True
-
-
-def _write_private_json(path: Path, value: dict[str, object]) -> None:
-    data = json.dumps(value, indent=2) + "\n"
-    temp_path: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            dir=path.parent,
-            prefix="service-",
-            suffix=".tmp",
-            delete=False,
-        ) as temp_file:
-            temp_file.write(data)
-            temp_path = Path(temp_file.name)
-        try:
-            temp_path.chmod(0o600)
-        except OSError:
-            pass
-        temp_path.replace(path)
-    finally:
-        if temp_path is not None:
-            temp_path.unlink(missing_ok=True)

@@ -12,8 +12,8 @@ satisfied even when the Hub file leaves it empty, because the child reads it fro
 This module is a leaf: it imports nothing from the Hub, so `config` can use it.
 """
 from __future__ import annotations
+from .jsonio import read_json
 
-import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -69,7 +69,7 @@ def read_requirements(repo_dir: Path) -> Requirements:
     if not path.is_file():
         return Requirements(NONE)
     try:
-        raw = json.loads(path.read_text(encoding="utf-8-sig"))
+        raw = read_json(path)
         return Requirements(DECLARED, parse_requirements(raw))
     except (OSError, ValueError, RequirementsError):
         return Requirements(INVALID)

@@ -1,8 +1,8 @@
 """The desktop app as a pure client: its connection file, the Hub API calls, its own system work, and its boundary."""
 from __future__ import annotations
 
+from tests.helpers.desktop import write
 import ast
-import json
 import subprocess
 import tempfile
 import unittest
@@ -12,14 +12,11 @@ from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError, URLError
 
 from mcp_hub.desktop import connection, hub_api, system, win32
-from tests.test_desktop import TOKEN, FakeOpener
+from tests.helpers.desktop import TOKEN, FakeOpener
 
 DESKTOP = Path(__file__).resolve().parents[1] / "src" / "mcp_hub" / "desktop"
 
 
-def write(path: Path, value: object) -> Path:
-    path.write_text(json.dumps(value), encoding="utf-8")
-    return path
 
 
 class ConnectionTest(unittest.TestCase):

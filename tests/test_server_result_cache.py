@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from tests.helpers.fakes import tool
 import json
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from mcp.types import CallToolResult, TextContent, Tool
+from mcp.types import CallToolResult, TextContent
 
 from mcp_hub.config import HubConfig, ServerConfig, ToolRoute
 from mcp_hub.server import HubRuntime
@@ -16,11 +17,9 @@ SYNC = ToolRoute("jira", "child", "sync_ticket", "jira__sync_ticket", cache_seco
 UNCACHED = ToolRoute("jira", "child", "list_synced", "jira__list_synced")
 
 
-def tool(name: str, read_only: bool) -> Tool:
-    return Tool(name=name, input_schema={"type": "object"}, annotations={"readOnlyHint": read_only})
 
 
-class FakeClient:
+class ResultCacheFakeClient:
     def __init__(self, *, error: bool = False) -> None:
         self.calls: list[str] = []
         self.error = error
@@ -38,7 +37,7 @@ class HubResultCacheTest(unittest.IsolatedAsyncioTestCase):
         config = HubConfig(tmp / "hub.json", {"child": ServerConfig("child", "python", (), tmp, {}, ())}, (READ, SYNC, UNCACHED))
         self.audit = MagicMock()
         self.runtime = HubRuntime(config, self.audit)
-        self.client = FakeClient()
+        self.client = ResultCacheFakeClient()
         # SYNC declares a TTL but is not read-only, so it must never be cached.
         self.runtime.child_connected("child", self.client, {
             "read_ticket": tool("read_ticket", True), "sync_ticket": tool("sync_ticket", False),

@@ -54,7 +54,7 @@ def _text(text: str) -> CallToolResult:
     return CallToolResult(content=[TextContent(type="text", text=text)])
 
 
-class FakeChild:
+class ConformanceFakeChild:
     """An SDK server that lists `tools` and answers each call with the canned result for its name."""
 
     def __init__(self, tools: list[Tool], answers: dict[str, CallToolResult]) -> None:
@@ -83,10 +83,10 @@ class FakeChild:
 class HubWithFakeChildren(unittest.IsolatedAsyncioTestCase):
     """The Hub, started with two fake children, served by `create_mcp_server`. Test classes below add the checks."""
 
-    def _make_children(self) -> dict[str, FakeChild]:
+    def _make_children(self) -> dict[str, ConformanceFakeChild]:
         return {
-            BETA: FakeChild([_tool("lookup")], {"lookup": _text("found")}),
-            ALPHA: FakeChild(
+            BETA: ConformanceFakeChild([_tool("lookup")], {"lookup": _text("found")}),
+            ALPHA: ConformanceFakeChild(
                 [_tool("count", COUNT_SCHEMA), _tool("echo"), _tool("fail")],
                 {
                     "count": CallToolResult(content=[TextContent(type="text", text='{"count": 3}')],

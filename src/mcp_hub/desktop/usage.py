@@ -7,17 +7,17 @@ short line per child on the Qt thread.
 """
 from __future__ import annotations
 
-import json
 import threading
 import urllib.request
 from collections import Counter
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
 
 from . import status, theme
+from .stream import StreamController
 from .connection import load_connection
 
 # Longer than twice the stream's 15 s keep-alive, so a dead connection is noticed.
@@ -33,33 +33,6 @@ class ChildUsage:
     clients: tuple[str, ...]
     tool: str | None = None
     minutes_ago: int = 0
-
-
-def parse_sse(lines: Iterable[str]) -> Iterator[tuple[str, dict[str, Any]]]:
-    """Yield `(event name, JSON object)` per event; comments (keep-alives) and non-object data are skipped."""
-    name, data = "message", []
-    for raw in lines:
-        line = raw.rstrip("\r\n")
-        if not line:
-            payload = _json_object("\n".join(data)) if data else None
-            if payload is not None:
-                yield name, payload
-            name, data = "message", []
-        elif not line.startswith(":"):
-            field, _, value = line.partition(":")
-            value = value[1:] if value.startswith(" ") else value
-            if field == "event":
-                name = value
-            elif field == "data":
-                data.append(value)
-
-
-def _json_object(text: str) -> dict[str, Any] | None:
-    try:
-        value = json.loads(text)
-    except ValueError:
-        return None
-    return value if isinstance(value, dict) else None
 
 
 def _parse_time(value: Any) -> datetime | None:
@@ -163,26 +136,12 @@ def stream_usage(
     connect: Callable[[], Any] = open_activity_stream,
 ) -> None:
     """Worker: forward `usage_snapshot` / `usage_event` messages until `stop` is set, reconnecting with backoff."""
-    delay = 1.0
-    while not stop.is_set():
-        try:
-            with connect() as response:
-                for name, data in parse_sse(_lines(response, stop)):
-                    delay = 1.0
-                    _forward(put, name, data)
-        except (status.DesktopError, OSError, ValueError):
-            pass
-        if stop.wait(delay):
-            return
-        delay = min(delay * 2, theme.STREAM_RETRY_MAX_SECONDS)
 
+    def handle(name: str, data: dict[str, Any]) -> bool:
+        _forward(put, name, data)
+        return True
 
-def _lines(response: Iterable[bytes], stop: threading.Event) -> Iterator[str]:
-    """Decoded lines until `stop` is set; keep-alives arrive every 15 s, so the check runs at least that often."""
-    for line in response:
-        if stop.is_set():
-            return
-        yield line.decode("utf-8", "replace")
+    StreamController(connect, stop, handle).run()
 
 
 def _forward(put: Callable[[tuple[str, Any]], None], name: str, data: dict[str, Any]) -> None:

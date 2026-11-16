@@ -6,6 +6,8 @@ from typing import Any
 
 from mcp.types import CallToolResult, TextContent
 
+from ..audit import redact
+
 CONDENSED_META_KEY = "mcp-hub/condensed"
 
 
@@ -58,3 +60,31 @@ def _whole_number(value: Any) -> int | None:
     if isinstance(value, str) and value.isascii() and value.isdigit():
         return int(value)
     return None
+
+
+
+# Error text markers and the summary limit for a failed result (moved from instructions.py).
+SUMMARY_REDACTION_MARGIN = 256
+
+_ERROR_PREFIXES = ("❌", "Error:")
+
+SUMMARY_LIMIT = 1000
+
+
+def _first_text(result: CallToolResult) -> str:
+    for block in getattr(result, "content", ()) or ():
+        if isinstance(block, TextContent) and block.text.strip():
+            return block.text.strip()
+    return ""
+
+def result_succeeded(result: CallToolResult) -> bool:
+    """The Hub's single failure check: not `is_error`, and the first text does not start with an error prefix."""
+    return not bool(getattr(result, "is_error", False)) and not _first_text(result).startswith(_ERROR_PREFIXES)
+
+def result_error_summary(result: CallToolResult) -> str | None:
+    """None for a successful result; otherwise the redacted start of its first text block (may be empty)."""
+    if result_succeeded(result):
+        return None
+    text = _first_text(result)
+    # Truncate before the redaction regexes run; the margin keeps a secret cut at the limit matchable.
+    return redact(text[:SUMMARY_LIMIT + SUMMARY_REDACTION_MARGIN], limit=SUMMARY_LIMIT)

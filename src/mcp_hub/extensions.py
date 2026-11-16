@@ -17,6 +17,7 @@ from time import monotonic
 from typing import Any, Literal, Protocol, get_args
 from collections.abc import Callable
 
+from .jsonio import read_json
 from .config import PRIVATE_ROOT, ConfigError, resolved_config_path
 
 ACTIVITY_UI = "activity-ui"
@@ -203,7 +204,7 @@ def saved_extensions(config_path: Path | None = None) -> frozenset[str]:
     Never raises: a missing, unreadable, or malformed file means none, and the Hub starts in fast mode.
     """
     try:
-        raw = json.loads((config_path or resolved_config_path()).read_text(encoding="utf-8-sig"))
+        raw = read_json(config_path or resolved_config_path())
         names = raw.get(EXTENSIONS_KEY, [])
     except (OSError, ValueError, AttributeError, ConfigError):
         return frozenset()

@@ -4,8 +4,8 @@ import asyncio
 import time
 from collections.abc import Callable
 
-from ..condense import (
-    _ERROR_MARKER_RE,
+from ..results.condense import (
+    ERROR_MARKER_RE,
     compact_json_payload,
     format_capped as _format_capped,
     group_lines,
@@ -13,7 +13,8 @@ from ..condense import (
     template_of,
 )
 from ..extensions import Condensed, ResultCondenser
-from ..plan_merge import fold
+from ..textnorm import fold
+from ..settings import BitnetSettings
 from .client import BitnetClient
 
 __all__ = ["BitnetCondenser", "group_lines", "template_of", "_format_capped"]
@@ -24,7 +25,7 @@ _SYSTEM_PROMPT = (
 )
 
 
-def _chunk_numbered_lines(lines: list[str], max_chars: int = 10000) -> list[list[tuple[int, str]]]:
+def _chunk_numbered_lines(lines: list[str], max_chars: int = BitnetSettings().condense_chunk_chars) -> list[list[tuple[int, str]]]:
     chunks: list[list[tuple[int, str]]] = []
     current: list[tuple[int, str]] = []
     current_len = 0
@@ -46,13 +47,15 @@ class BitnetCondenser(ResultCondenser):
         self,
         client: BitnetClient,
         *,
-        max_chars: int = 9000,
-        timeout: float = 8.0,
+        max_chars: int = BitnetSettings().condense_min_chars,
+        timeout: float = BitnetSettings().condense_timeout_seconds,
+        chunk_chars: int = BitnetSettings().condense_chunk_chars,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.client = client
         self.max_chars = max_chars
         self.timeout = timeout
+        self.chunk_chars = chunk_chars
         self.clock = clock
 
     async def condense(
@@ -79,7 +82,7 @@ class BitnetCondenser(ResultCondenser):
     async def _condense_with_model(self, lines: list[str], total: int, task: str, budget: int) -> Condensed:
         selected, bitnet_answered = await self._select_lines(lines, task)
         for idx, line in enumerate(lines, 1):
-            if _ERROR_MARKER_RE.search(fold(line)):
+            if ERROR_MARKER_RE.search(fold(line)):
                 selected.add(idx)
         if not selected:
             capped = _format_capped(lines, budget)
@@ -92,7 +95,7 @@ class BitnetCondenser(ResultCondenser):
         start = self.clock()
         selected: set[int] = set()
         answered = False
-        for chunk in _chunk_numbered_lines(lines, max_chars=10000):
+        for chunk in _chunk_numbered_lines(lines, max_chars=self.chunk_chars):
             budget = self.timeout - (self.clock() - start)
             if budget <= 0:
                 break

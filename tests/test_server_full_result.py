@@ -7,7 +7,7 @@ from pathlib import Path
 
 from mcp_hub.audit import AuditLog
 from mcp_hub.config import HubConfig
-from mcp_hub.full_results import FullResultStore
+from mcp_hub.results.full_results import FullResultStore
 from mcp_hub.server import HubRuntime
 from mcp_hub.settings import Settings
 

@@ -20,6 +20,8 @@ from .constants import HUB_TASK, RUN_VALUE
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 # A stopping Hub closes its port at once but its task runs on while it drains (up to 20 s); the task ignores a new
 # run until then, so the start waits for that instance to end first.
+# Keep this at least the Hub's shutdown drain: settings.http.shutdown_drain_seconds (default 20 s). The app
+# cannot import settings.py, so the value is repeated here.
 DRAIN_WAIT_SECONDS = 40
 START_TIMEOUT_SECONDS = DRAIN_WAIT_SECONDS + 15
 START_SCRIPT = (

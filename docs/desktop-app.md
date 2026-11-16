@@ -146,7 +146,16 @@ The **connection file** is `%LOCALAPPDATA%\mcp-hub\connection.json`: `{"version"
 | `desktop/win32.py` | Windows integration, each with a harmless fallback: the window style (title bar theme, rounded corners, acrylic accent), the single-instance mutex, the AppUserModelID shared with the installed shortcut (`set_app_id`), the Windows app theme, and screen capture. |
 | `desktop/prefs.py` | Load and save the remembered choices in `%APPDATA%\mcp-hub-status\desktop.json`: `theme`, `language`, `glass` (bool), `glass_style` (`frosted` or `clear`), `card_opacity` (0–100), `tint` (0–90), `compact` (bool), and `compact_pos` (two ints). One rule per key; unknown keys and invalid or out-of-range values are dropped. |
 | `desktop/screenshot.py` | The `--screenshot` review mode: sample snapshots and capture (the composed screen on Windows, `QWidget.grab` elsewhere). |
-| `desktop/app.py` | `StatusWindow(QWidget)`, the view only: layout, incremental rendering, button handlers. Also the command line, `application()`, and `main`. |
+| `desktop/app.py` | `StatusWindow(QWidget)`, the window: it assembles the mixins below, the layout, the Hub control buttons (`start_hub`, `restart_hub`, `stop_hub`), and the module helpers (`HUB`, `control_hub`, `autostart_state`, `set_autostart`) that tests patch. `application()` creates the `QApplication`. |
+| `desktop/appearance.py` | `AppearanceMixin`: theme, accent, language, and the flush of saved preferences. |
+| `desktop/actions.py` | `ActionsMixin`: the Settings and configuration actions (tracking, BitNet, child switches, the child's config file), each run off the Qt thread. |
+| `desktop/polling.py` | `PollingMixin`: the poll timer, the results queue, and the pace of polls. |
+| `desktop/live_feeds.py` | `LiveFeedsMixin`: starts and stops the usage and processing streams with the window. |
+| `desktop/render.py` | `RenderMixin`: the render pipeline. A section draws only when its data changed (`NOT_DRAWN` marks a section never drawn). |
+| `desktop/update_controller.py` | `UpdateMixin`: the update flow (check, download, install, retry, release notes). |
+| `desktop/stream.py` | `StreamController`: the one reconnect loop with backoff for the usage and processing streams, plus `parse_sse`. |
+| `desktop/constants.py` | Names shared with the installer and the build (`APP_NAME`, `EXE_NAME`, ...), and the view constants `NOT_DRAWN`, `CAPTURE_POSITION`, `START_TIMEOUT_KEY`, `STICKY_ERROR_KEYS`. |
+| `desktop/cli.py` | The command line: `parse_args`, `run_screenshots` (the `--screenshot` mode), `appearance_from`, and `main`. The package entry points (`python -m mcp_hub.desktop` and `packaging/desktop/entry.py`) start it. |
 | Hub side: `dashboard/settings_api.py` | `GET /dashboard/api/settings`, `POST …/settings/tracking`, `POST …/settings/servers/{id}` (body `{"enabled": bool}`; 400 for another body, 404 for an unknown child, 409 for a custom config), and `GET` or `POST …/settings/autostart` (the Hub's task only; 503 when `hubctl` fails). Bearer required; only booleans and child ids go in or out; file and `hubctl` work runs in `asyncio.to_thread`. |
 
 Data flow: every `POLL_INTERVAL_MS` (5 s), a `QTimer` starts a daemon thread that runs `fetch_snapshot`. That function never raises: each failure maps to a Hub state. The thread puts the result on a queue. A second `QTimer` drains the queue on the Qt thread every `QUEUE_CHECK_MS` (200 ms) and renders. The settings calls and sign-in switches also run on daemon threads (`StatusWindow.run_worker`) and report back through the same queue. So do Start, Restart, and Stop: the window shows the expected state at once, and a failed call (`control_failed`) drops it, shows `desktop.error.controlUnavailable`, and polls again. A start or restart that has not brought the Hub up within `START_GRACE_SECONDS` shows `desktop.error.startTimeout`. Both errors (`STICKY_ERROR_KEYS`) stay in the footer while the Hub is stopped, until it runs or another command is sent. When the Hub starts running while a settings tab is open, the tab loads its settings.
@@ -361,7 +370,7 @@ The command opens the window on top of other windows and renders fixed sample da
 - **Windows integration:** the mutex; the title bar, corner, and acrylic calls and their fallback; the app theme; a real screen capture (Windows only).
 - **`control`** (Hub side): the `launch_hubctl` and `run_hubctl` arguments, failures and timeouts as `OSError`, and the autostart JSON (the Hub's task only).
 
-`tests/test_desktop_window.py` covers the window on Qt's `offscreen` platform (`QT_QPA_PLATFORM=offscreen`), so no window opens and the tests run on every OS, CI included:
+`tests/test_desktop_window_status.py`, `test_desktop_settings_panel.py`, `test_desktop_update_window.py`, `test_desktop_screenshot.py`, and `test_desktop_cli.py` cover the window (their shared Qt setup is in `tests/helpers/window.py`) on Qt's `offscreen` platform (`QT_QPA_PLATFORM=offscreen`), so no window opens and the tests run on every OS, CI included:
 
 - rows and counts, tone properties, and the primary buttons;
 - starting/stopped transitions and footer errors;
@@ -381,7 +390,7 @@ The command opens the window on top of other windows and renders fixed sample da
 
 The tests skip with a reason only if Qt cannot load; the CI Linux job installs the system libraries Qt needs.
 
-`tests/test_desktop_usage.py` covers the SSE parser, the usage board (running and recent calls, merging, expiry, minute steps, snapshots, bad events), opening the stream with the bearer without showing it, and the worker's forwarding, backoff, and stop. `tests/test_desktop_window.py` also covers the usage lines and the client details: live updates without rebuilding rows, a hidden line giving its space back, the stream following the mode, stale messages dropped, and closing.
+`tests/test_desktop_usage.py` covers the SSE parser, the usage board (running and recent calls, merging, expiry, minute steps, snapshots, bad events), opening the stream with the bearer without showing it, and the worker's forwarding, backoff, and stop. `tests/test_desktop_window_status.py` also covers the usage lines and the client details: live updates without rebuilding rows, a hidden line giving its space back, the stream following the mode, stale messages dropped, and closing.
 
 `tests/test_desktop_processing.py` covers typed snapshot/event/resync parsing, malformed and unknown records, content-bearing field projection, stream/sequence deduplication, restart, stop, authenticated loopback opening, bounded reconnect, and quiet older-Hub behavior. Window tests cover placement, newest-three order and opacity, locale changes, compact mode, unchanged child rows, tracking independence, generation cancellation, disable/restart/close, and clearing a missing route without a footer error.
 

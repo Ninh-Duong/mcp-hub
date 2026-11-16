@@ -8,7 +8,7 @@ from collections.abc import Callable
 
 from mcp.server.streamable_http_manager import DEFAULT_SESSION_IDLE_TIMEOUT
 
-from ..server import request_client_name
+from ..clients import request_client_name
 
 
 @dataclass

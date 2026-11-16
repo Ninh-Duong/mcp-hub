@@ -375,5 +375,25 @@ class PresenceTest(unittest.TestCase):
             asyncio.run(exercise())
 
 
+
+class BridgeImportBoundaryTest(unittest.TestCase):
+    """The stdio bridge runs in the AI client's process: it must not load the Hub runtime (research.md R4/T029)."""
+
+    def test_importing_the_bridge_does_not_load_the_server_runtime(self) -> None:
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        src = Path(__file__).resolve().parents[1] / "src"
+        code = (
+            "import sys; import mcp_hub.bridge; "
+            "assert 'mcp_hub.server' not in sys.modules, 'bridge imported mcp_hub.server'"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code], cwd=str(src), capture_output=True, text=True, timeout=120, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

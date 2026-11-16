@@ -13,13 +13,13 @@ from mcp_hub.config import ServerSwitch
 from mcp_hub.dashboard.api import create_dashboard_routes
 from mcp_hub.dashboard.settings_api import SettingsHandlers, settings_payload
 from mcp_hub.http import create_http_app
-from tests.test_dashboard_api import FakeRuntime
+from tests.helpers.fakes import FakeRuntime
 
 TOKEN = "test-settings-bearer-token-value"
 HEADERS = {"Host": "127.0.0.1:8765", "Authorization": f"Bearer {TOKEN}"}
 
 
-class FakeStore:
+class SettingsApiFakeStore:
     """hub_settings stand-in: two children, one of them waiting for credentials."""
 
     def __init__(self) -> None:
@@ -63,7 +63,7 @@ class FakeStore:
 
 class SettingsApiTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.store = FakeStore()
+        self.store = SettingsApiFakeStore()
         self.autostart = {"hub": True}
         self.autostart_fails = False
         handlers = SettingsHandlers(store=self.store, read_autostart=self.read_autostart, write_autostart=self.write_autostart)

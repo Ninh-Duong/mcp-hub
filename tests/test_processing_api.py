@@ -107,7 +107,7 @@ class ProcessingApiTest(unittest.IsolatedAsyncioTestCase):
     async def test_active_install_wires_same_feed_to_runtime_and_jobs(self) -> None:
         runtime = SimpleNamespace(settings=Settings(), config=SimpleNamespace(routes=()))
         runner = SimpleNamespace()
-        with patch("mcp_hub.bitnet.setup._read_install", return_value=None):
+        with patch("mcp_hub.bitnet.setup.read_install", return_value=None):
             extension = install(runtime, runner, root=Path(self.tmp.name), audit=MagicMock())
         self.assertIs(runtime.processing_observer, runner.processing_observer)
         self.assertIs(runtime.processing_observer, extension.setup.processing_feed)

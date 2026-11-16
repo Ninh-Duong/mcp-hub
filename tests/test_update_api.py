@@ -15,7 +15,7 @@ from starlette.testclient import TestClient
 from mcp_hub.dashboard.api import create_dashboard_routes
 from mcp_hub.dashboard.update_api import UpdateHandlers
 from mcp_hub.http import create_http_app
-from tests.test_dashboard_api import FakeRuntime
+from tests.helpers.fakes import FakeRuntime
 
 TOKEN = "test-update-admin-token-value-000000000"
 HEADERS = {"Host": "127.0.0.1:8765", "Authorization": f"Bearer {TOKEN}"}

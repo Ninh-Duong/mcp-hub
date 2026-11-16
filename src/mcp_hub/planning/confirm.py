@@ -19,7 +19,6 @@ from .policy import PolicyRefused
 CONFIRM_ARG = "confirm_token"
 # The user chose a plan without a playbook: the servers and steps the agent declares.
 NONE_CHOICE = "none"
-MODES = ("always", "ambiguous", "off")
 
 _WORD = re.compile(r"[a-z0-9]{3,}")
 # Words that match every playbook's wording and so say nothing about the task.

@@ -7,13 +7,12 @@ Changes apply at the next Hub start.
 from __future__ import annotations
 
 import json
-import os
 import shutil
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .jsonio import read_json, write_json_atomic
 from . import config
 from .extensions import ACTIVITY_UI, BITNET, EXTENSIONS_KEY, KNOWN_EXTENSIONS, saved_extensions
 
@@ -103,7 +102,7 @@ def _editable_config(config_path: str | Path | None) -> dict[str, Any]:
     if not path.is_file():
         return json.loads(json.dumps(_EMPTY_CONFIG))
     try:
-        raw = json.loads(path.read_text(encoding="utf-8-sig"))  # the same reading as config._read_json
+        raw = read_json(path)
     except (OSError, ValueError) as exc:
         raise config.ConfigError(f"Could not read Hub config: {type(exc).__name__}") from exc
     if not isinstance(raw, dict):
@@ -113,13 +112,4 @@ def _editable_config(config_path: str | Path | None) -> dict[str, Any]:
 
 def _write(path: Path, raw: dict[str, Any]) -> None:
     """Replace the file in one step, so the Hub never reads half a file."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    handle, temporary = tempfile.mkstemp(prefix=".hub-", suffix=".json", dir=path.parent)
-    try:
-        with os.fdopen(handle, "w", encoding="utf-8") as file:
-            json.dump(raw, file, indent=2)
-            file.write("\n")
-        os.replace(temporary, path)
-    except BaseException:
-        Path(temporary).unlink(missing_ok=True)
-        raise
+    write_json_atomic(path, raw, indent=2, trailing_newline=True)

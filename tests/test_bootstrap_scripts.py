@@ -524,7 +524,7 @@ class DesktopPackagingTest(unittest.TestCase):
         self.assertIn("console=False", spec)
         self.assertNotRegex(spec, r"[A-Za-z]:\\\\")
         entry = (HUB_ROOT / "packaging" / "desktop" / "entry.py").read_text(encoding="utf-8")
-        self.assertIn("from mcp_hub.desktop.app import main", entry)
+        self.assertIn("from mcp_hub.desktop.cli import main", entry)
 
     def test_installer_is_per_user_and_cleans_up_its_sign_in_entry(self) -> None:
         iss = (HUB_ROOT / "packaging" / "desktop" / "installer.iss").read_text(encoding="utf-8")

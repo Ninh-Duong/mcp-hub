@@ -28,16 +28,16 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, NamedTuple
 
-from .plan_merge import parse_window
+from .merge import parse_window
 
 from mcp.types import Tool
 
 from .playbooks import Playbook
-from .projects import LogTarget, ProjectConfig, SqlTarget
-from .result_cache import cache_key
+from ..projects import LogTarget, ProjectConfig, SqlTarget
+from ..results.cache import cache_key
 # Re-exported: server.py and the tests use policy.PLAN_ID_ARG and policy.with_plan_id.
-from .schema_rewrite import PLAN_ID_ARG as PLAN_ID_ARG, with_plan_id as with_plan_id
-from .settings import PolicySettings
+from ..schema_rewrite import PLAN_ID_ARG as PLAN_ID_ARG, with_plan_id as with_plan_id
+from ..settings import PolicySettings
 
 PLAN_TOOL = "hub__plan"
 MAX_TEXT = 2000

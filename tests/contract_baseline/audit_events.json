@@ -1,0 +1,6 @@
+{
+  "TOOLS_LIST_CHANGED_PUBLISHED": "tools.list_changed.published",
+  "TOOL_ARGUMENTS_INVALID": "tool.arguments.invalid",
+  "TOOL_DEFINITION_CHANGED": "tool.definition.changed",
+  "TOOL_DESCRIPTION_SUSPICIOUS": "tool.description.suspicious"
+}

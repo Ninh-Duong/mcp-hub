@@ -13,6 +13,7 @@ from typing import Any
 from urllib.parse import quote
 
 from . import status
+from .constants import APP_NAME
 from .connection import load_connection
 
 CONTROL_COMMANDS = ("restart", "stop")
@@ -139,7 +140,7 @@ class HubClient:
         if not root:
             return None
         try:
-            value = json.loads((Path(root) / "mcp-hub-status" / "update.json").read_text(encoding="utf-8"))
+            value = json.loads((Path(root) / APP_NAME / "update.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return None
         try:

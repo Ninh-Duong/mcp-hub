@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import subprocess
 import time
@@ -9,17 +8,18 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
+from ..jsonio import read_json
 from ..audit import AuditLog
 from ..settings import BitnetSettings
 from .client import BitnetClient
 
 
-def _read_install(root: Path) -> tuple[Path, Path] | None:
+def read_install(root: Path) -> tuple[Path, Path] | None:
     path = root / "vendor" / "bitnet" / "install.json"
     if not path.is_file():
         return None
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = read_json(path)
         server = root / data["server"]
         model = root / data["model"]
         if server.is_file() and model.is_file():
@@ -98,7 +98,7 @@ class Sidecar:
             "-t",
             str(threads),
             "-c",
-            "4096",
+            str(self.settings.sidecar_context_tokens),
         ]
 
     async def _wait_healthy(self, timeout: float = 60.0) -> bool:
@@ -108,7 +108,7 @@ class Sidecar:
                 return False
             if self._process is not None and self._process.poll() is not None:
                 return False
-            if await self.client.healthy(timeout=0.5):
+            if await self.client.healthy(timeout=self.settings.sidecar_health_seconds):
                 return True
             await self._sleep(0.5)
         return False
@@ -153,7 +153,7 @@ class Sidecar:
                 break
             exited = self._process is None or self._process.poll() is not None
             if not exited:
-                healthy = await self.client.healthy(timeout=1.0)
+                healthy = await self.client.healthy(timeout=self.settings.sidecar_recheck_seconds)
                 consecutive_failures = 0 if healthy else (consecutive_failures + 1)
             if exited or consecutive_failures >= 3:
                 if self._restarts < self.settings.max_restarts:
@@ -171,7 +171,7 @@ class Sidecar:
                     break
 
     async def _run(self) -> None:
-        paths = await asyncio.to_thread(_read_install, self.root)
+        paths = await asyncio.to_thread(read_install, self.root)
         if paths is None:
             self._set_state("unavailable", error_type="NotInstalled")
             return

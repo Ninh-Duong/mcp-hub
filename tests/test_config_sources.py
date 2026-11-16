@@ -29,7 +29,7 @@ def text_result(payload: object, *, is_error: bool = False) -> CallToolResult:
     return CallToolResult(content=[TextContent(type="text", text=json.dumps(payload))], is_error=is_error)
 
 
-class FakeClient:
+class ConfigSourcesFakeClient:
     def __init__(self, result: object = None, *, delay: float = 0.0, error: Exception | None = None) -> None:
         self.result, self.delay, self.error = result, delay, error
         self.calls: list[tuple[str, dict]] = []
@@ -59,13 +59,13 @@ class AuditCase(unittest.IsolatedAsyncioTestCase):
 
 
 class ProbeTest(AuditCase):
-    async def probe(self, client: FakeClient, tools: object = (CONFIG_STATUS_TOOL,), timeout: float = 1.0) -> ConfigSources:
+    async def probe(self, client: ConfigSourcesFakeClient, tools: object = (CONFIG_STATUS_TOOL,), timeout: float = 1.0) -> ConfigSources:
         sources = ConfigSources(self.audit, timeout)
         await sources.probe("child", client, tools)
         return sources
 
     async def test_a_text_report_is_stored_and_audited_by_names_only(self) -> None:
-        client = FakeClient(text_result({"groups": {"mssql_login": "local"}}))
+        client = ConfigSourcesFakeClient(text_result({"groups": {"mssql_login": "local"}}))
         sources = await self.probe(client)
         self.assertEqual(client.calls, [(CONFIG_STATUS_TOOL, {})])
         self.assertEqual(sources.report("child"), {"mssql_login": "local"})
@@ -75,18 +75,18 @@ class ProbeTest(AuditCase):
     async def test_structured_content_wins_over_text(self) -> None:
         result = CallToolResult(content=[TextContent(type="text", text="not json")],
                                 structured_content={"groups": {"bitbucket": "env"}})
-        self.assertEqual((await self.probe(FakeClient(result))).reports(), {"child": {"bitbucket": "env"}})
+        self.assertEqual((await self.probe(ConfigSourcesFakeClient(result))).reports(), {"child": {"bitbucket": "env"}})
 
     async def test_a_child_without_the_tool_is_not_called(self) -> None:
-        client = FakeClient(text_result({"groups": {"a": "local"}}))
+        client = ConfigSourcesFakeClient(text_result({"groups": {"a": "local"}}))
         sources = await self.probe(client, tools=("other_tool",))
         self.assertEqual((client.calls, sources.reports(), self.events()), ([], {}, []))
 
     async def test_failures_keep_no_report_and_name_the_error_type(self) -> None:
         cases = {
-            "timeout": FakeClient(text_result({"groups": {}}), delay=0.5),
-            "RuntimeError": FakeClient(error=RuntimeError("boom secret")),
-            "invalid_result": FakeClient(text_result({"groups": {"a": "local"}}, is_error=True)),
+            "timeout": ConfigSourcesFakeClient(text_result({"groups": {}}), delay=0.5),
+            "RuntimeError": ConfigSourcesFakeClient(error=RuntimeError("boom secret")),
+            "invalid_result": ConfigSourcesFakeClient(text_result({"groups": {"a": "local"}}, is_error=True)),
         }
         for error_type, client in cases.items():
             sources = await self.probe(client, timeout=0.05)
@@ -96,17 +96,17 @@ class ProbeTest(AuditCase):
 
     async def test_bad_shapes_are_refused(self) -> None:
         for payload in ([], {"groups": []}, {"groups": {"a": "somewhere"}}, {"groups": {"Bad-Id": "local"}}):
-            self.assertEqual((await self.probe(FakeClient(text_result(payload)))).reports(), {}, payload)
+            self.assertEqual((await self.probe(ConfigSourcesFakeClient(text_result(payload)))).reports(), {}, payload)
         no_text = CallToolResult(content=[])
-        self.assertEqual((await self.probe(FakeClient(no_text))).reports(), {})
+        self.assertEqual((await self.probe(ConfigSourcesFakeClient(no_text))).reports(), {})
         broken = CallToolResult(content=[TextContent(type="text", text="{")])
-        self.assertEqual((await self.probe(FakeClient(broken))).reports(), {})
+        self.assertEqual((await self.probe(ConfigSourcesFakeClient(broken))).reports(), {})
 
     async def test_a_reconnect_replaces_the_previous_report(self) -> None:
-        sources = await self.probe(FakeClient(text_result({"groups": {"a": "local"}})))
-        await sources.probe("child", FakeClient(text_result({"groups": {"a": "unset"}})), (CONFIG_STATUS_TOOL,))
+        sources = await self.probe(ConfigSourcesFakeClient(text_result({"groups": {"a": "local"}})))
+        await sources.probe("child", ConfigSourcesFakeClient(text_result({"groups": {"a": "unset"}})), (CONFIG_STATUS_TOOL,))
         self.assertEqual(sources.report("child"), {"a": "unset"})
-        await sources.probe("child", FakeClient(), ())
+        await sources.probe("child", ConfigSourcesFakeClient(), ())
         self.assertEqual(sources.report("child"), {})
 
 
@@ -132,7 +132,7 @@ class RuntimeTest(AuditCase):
     async def test_a_connected_child_report_clears_its_gap(self) -> None:
         runtime = self.runtime()
         self.assertEqual(runtime.config_incomplete(), {"sql": list(LOGIN.keys)})
-        client = FakeClient(text_result({"groups": {"mssql_login": "local"}}))
+        client = ConfigSourcesFakeClient(text_result({"groups": {"mssql_login": "local"}}))
         runtime._starting = True  # only the probe matters here, not route registration
         runtime.child_connected("sql", client, {CONFIG_STATUS_TOOL: SimpleNamespace()})
         await asyncio.gather(*runtime._background)
@@ -141,7 +141,7 @@ class RuntimeTest(AuditCase):
 
     def test_without_an_event_loop_the_file_gaps_stay(self) -> None:
         runtime = self.runtime()
-        runtime._schedule_config_probe("sql", FakeClient(), {CONFIG_STATUS_TOOL: SimpleNamespace()})
+        runtime._schedule_config_probe("sql", ConfigSourcesFakeClient(), {CONFIG_STATUS_TOOL: SimpleNamespace()})
         self.assertEqual(runtime.config_incomplete(), {"sql": list(LOGIN.keys)})
 
 

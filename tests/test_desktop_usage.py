@@ -1,6 +1,7 @@
 """desktop/usage.py: the activity stream parser, the per-child usage board, and the stream worker (no Qt)."""
 from __future__ import annotations
 
+from tests.helpers.fakes import FakeResponse, FakeStop
 import json
 import tempfile
 import threading
@@ -10,6 +11,7 @@ from pathlib import Path
 from urllib.error import URLError
 
 from mcp_hub.desktop import status, theme, usage
+from mcp_hub.desktop.stream import parse_sse
 from mcp_hub.desktop.usage import ChildUsage, UsageBoard
 
 NOW = datetime(2026, 10, 31, 9, 30, tzinfo=UTC)
@@ -29,7 +31,7 @@ class ParseSseTest(unittest.TestCase):
             "event: activity\n", "data: [1, 2]\n", "\n",
             "data:{\"state\": \"started\"}\r\n", "\r\n",
         ]
-        self.assertEqual(list(usage.parse_sse(lines)), [
+        self.assertEqual(list(parse_sse(lines)), [
             ("snapshot", {"activity": {"children": {}}}),
             ("message", {"state": "started"}),
         ])
@@ -90,35 +92,8 @@ class UsageBoardTest(unittest.TestCase):
         self.assertIsNone(board.usage("logs", NOW))
 
 
-class FakeResponse:
-    def __init__(self, lines: list[bytes]) -> None:
-        self.lines = lines
-
-    def __enter__(self) -> FakeResponse:
-        return self
-
-    def __exit__(self, *_args: object) -> None:
-        return None
-
-    def __iter__(self):
-        return iter(self.lines)
 
 
-class FakeStop:
-    """A stop event that records each backoff wait and stops after `waits` of them."""
-
-    def __init__(self, waits: int) -> None:
-        self.delays: list[float] = []
-        self.waits = waits
-        self.stopped = False
-
-    def is_set(self) -> bool:
-        return self.stopped
-
-    def wait(self, delay: float) -> bool:
-        self.delays.append(delay)
-        self.stopped = len(self.delays) >= self.waits
-        return self.stopped
 
 
 class StreamTest(unittest.TestCase):

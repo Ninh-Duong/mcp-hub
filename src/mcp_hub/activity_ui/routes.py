@@ -10,10 +10,10 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.routing import Route
 
-from ..jobs.store import MAX_ACTIVITY_OFFSET
+from ..jobs.activity_store import MAX_ACTIVITY_OFFSET
+from ..settings import ActivitySettings
 from .tracker import ActivityTracker
 
-STREAM_KEEPALIVE_SECONDS = 15
 _SSE_HEADERS = {
     "Cache-Control": "no-cache, no-transform",
     "Connection": "keep-alive",
@@ -24,7 +24,11 @@ _SSE_HEADERS = {
 class ActivityRoutes:
     """`/dashboard/api/activity` (daily report) and `/dashboard/api/activity/stream` (live SSE)."""
 
-    def __init__(self, runtime: Any, tracker: ActivityTracker, store: Any | None) -> None:
+    def __init__(
+        self, runtime: Any, tracker: ActivityTracker, store: Any | None, *,
+        keepalive_seconds: float = ActivitySettings().stream_keepalive_seconds,
+    ) -> None:
+        self.keepalive_seconds = keepalive_seconds
         self.runtime = runtime
         self.tracker = tracker
         self.store = store
@@ -50,7 +54,7 @@ class ActivityRoutes:
             yield self._snapshot_message()
             while True:
                 try:
-                    event = await asyncio.wait_for(subscriber.get(), timeout=STREAM_KEEPALIVE_SECONDS)
+                    event = await asyncio.wait_for(subscriber.get(), timeout=self.keepalive_seconds)
                 except TimeoutError:
                     yield ": keep-alive\n\n"
                     continue

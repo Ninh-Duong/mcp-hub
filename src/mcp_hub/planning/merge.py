@@ -1,18 +1,11 @@
 """Merging and normalization helpers for plan arguments and time windows."""
 from __future__ import annotations
 
-import unicodedata
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
-from .extensions import PlanHints
-
-
-def fold(text: str) -> str:
-    """Casefold and strip diacritics (for example 'H\\u00f4m nay' -> 'hom nay')."""
-    text = text.replace("\u0111", "d").replace("\u0110", "D")
-    return "".join(c for c in unicodedata.normalize("NFD", text) if not unicodedata.combining(c)).casefold()
+from ..extensions import PlanHints
 
 
 def parse_window(since: Any, until: Any, max_hours: int) -> tuple[datetime, datetime] | None:
@@ -85,16 +78,3 @@ def merge_plan_arguments(arguments: Mapping[str, Any], hints: PlanHints | None) 
     return merged, used
 
 
-def roles_for_servers(servers: Iterable[str], routes: Mapping[str, Any]) -> list[str]:
-    """Return the specialist agent roles whose tools route to any of the named child servers."""
-    from .agents.specialists import ROLE_PREFIXES
-
-    server_set = set(servers)
-    matched: list[str] = []
-    for role, prefix in ROLE_PREFIXES.items():
-        for tool_name, route in routes.items():
-            if tool_name.startswith(prefix) and getattr(route, "server_id", None) in server_set:
-                if role not in matched:
-                    matched.append(role)
-                break
-    return matched

@@ -61,7 +61,7 @@ class _FakeProvider(ModelProvider):
     def __init__(self, turns: list[ModelTurn]) -> None:
         self.turns = list(turns)
 
-    async def complete(self, messages: list[dict], tools: list) -> ModelTurn:
+    async def complete(self, messages: list[dict], tools: list, *, max_output_tokens: int | None = None) -> ModelTurn:
         return self.turns.pop(0)
 
 

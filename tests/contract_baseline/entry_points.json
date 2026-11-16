@@ -1,0 +1,13 @@
+{
+  "console_scripts": {
+    "mcp-hub": "mcp_hub.server:main",
+    "mcp-hub-bridge": "mcp_hub.bridge:main",
+    "mcp-hub-service": "mcp_hub.service:main"
+  },
+  "modules": [
+    "mcp_hub.desktop",
+    "mcp_hub.preflight",
+    "mcp_hub.service",
+    "mcp_hub.update_runner"
+  ]
+}

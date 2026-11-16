@@ -3,7 +3,7 @@ from __future__ import annotations
 import random
 import unittest
 
-from mcp_hub.full_results import FullResultStore
+from mcp_hub.results.full_results import FullResultStore
 
 
 class FullResultsTest(unittest.TestCase):
