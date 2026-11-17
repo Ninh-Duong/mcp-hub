@@ -37,7 +37,7 @@ Following sections 2 and 3 of the file for this client in <MCP_HUB_PATH>/docs/cl
 refresh the mcp-hub always-on rule and the /mcp-hub command. Replace old copies if there are any.
 ```
 
-**D. Daily use:** `/mcp-hub <server-id> <task>`, e.g. `/mcp-hub mcp-server-logs show the prod logs for service orders-api` or `/mcp-hub mcp-jira-sync check connection`. For cross-system issue work use `/mcp-hub investigate <project-alias> <task>` (Codex: `$mcp-hub investigate …`). Without the command, type `mcp-hub:<server-id> <task>` or ask a plain-language investigation request. Each client's file lists its exact forms. The rules are in [client-rules.md](client-rules.md).
+**D. Daily use:** `/mcp-hub <server-id> <task>`, e.g. `/mcp-hub mcp-server-logs show the prod logs for service orders-api` or `/mcp-hub mcp-jira-sync check connection`. For cross-system issue work use `/mcp-hub investigate <project-alias> <task>` (Codex: `$mcp-hub investigate …`). Without the command, type `mcp-hub:<server-id> <task>` or ask a plain-language investigation request. Each client's file lists its exact forms. The rules are in [client-rules.md](client-rules.md), indexed from [agent-rules/](../agent-rules/README.md).
 
 ---
 
