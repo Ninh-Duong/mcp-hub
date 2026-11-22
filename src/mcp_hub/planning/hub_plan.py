@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import json
 from dataclasses import replace
 from typing import Any
 
@@ -75,6 +76,7 @@ class PlanningMixin:
                 PlanCatalog(
                     self._call_facts, self.playbooks, self.projects,
                     max_window_hours=self.settings.jobs.max_window_hours,
+                    policy_settings=self.settings.policy,
                 ),
             )
         except policy.NeedsRegistration as exc:
@@ -93,6 +95,8 @@ class PlanningMixin:
             assist=assist,
         )
         text = policy.plan_summary(plan, self.tools_by_server(), contracts)
+        if plan.workflow is not None:
+            text += "\nWorkflow: " + json.dumps(plan.workflow.status())
         return CallToolResult(content=[TextContent(type="text", text=text)])
 
     def _confirm_gate(self, arguments: dict[str, Any], fields: dict[str, Any]) -> CallToolResult | None:

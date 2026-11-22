@@ -82,8 +82,47 @@ Arguments are checked against the child's input schema in warn mode (`protocol.v
 ## What the Hub cannot check
 
 - **Whether the user asked for a write.** The Hub only makes the agent declare the write up front. The declaration is visible in `hub.plan.created` (`writes`).
-- **Whether the steps are a good plan.** `steps` documents the intent; the Hub does not compare later calls with it. With a playbook it enforces the tools, the limit, and the targets, not the order of the steps.
-- **Cache-first and sync-only-when-stale.** These depend on the content of results, which the Hub does not read.
+- **Whether the steps are a good plan.** Outside the pilot below, `steps` documents intent without enforcing order.
+- **Cache coverage and sync-only-when-stale.** These depend on evidence interpretation. The pilot records them as client-reported decisions, never verified facts.
+
+## Client workflow harness
+
+With policy `enforce`, `rcid-bug` uses the client-controlled workflow defined by its `workflow_<stage>` frontmatter tool lists. All five stages must exist, use distinct declared tools, and belong to the pilot without includes. Included playbooks, such as Jira's recipe, inherit prose and tools but not the pilot state machine. Other playbooks and `warn`/`off` modes retain their existing behavior. No Hub LLM loop, new dependency or job-store migration is involved.
+
+Pass `rcid`, `project`, and `env` to `hub__plan`. The project default may supply env. Supply both `since`/`until` or neither; absent timestamps fix the preceding hour at plan creation. Calls use exactly this UTC window as absolute `from`/`to`, the plan's targets and request ID, and explicit `limit` no larger than `policy.workflowMaxLimit`. Wider searches require user-authorized re-planning. Source calls explicitly pass the plan's project.
+
+```mermaid
+flowchart TD
+    Plan[Existing plan and scope policy] --> CacheList[Cache listing]
+    CacheList -->|client reports cache_hit| CacheRead[Cache reads]
+    CacheList -->|client reports cache_miss| Logs[Upstream logs]
+    CacheRead -->|client reports cache_insufficient| Logs
+    CacheRead --> Findings[Client-reported findings]
+    Logs --> Findings
+    Findings -->|needs_source true| Search[Source search]
+    Search -->|source_found| Read[Source read]
+    Read -->|source_read| Ready[Ready]
+    Findings -->|needs_source false| Ready
+    Ready --> Finish[Finish supported]
+```
+
+`hub__workflow` is a local state-changing MCP tool, not a child write approval. It requires `hub_plan_id` and `action`:
+
+| Action | Input and behavior |
+|---|---|
+| `status` | Returns stage, allowed_tools, busy, receipts, decisions, calls, failed calls, refusals, tool_ms, elapsed_ms and outcome. |
+| `report` | `decision` plus `refs` (receipt IDs from successful calls in the current stage). Decisions: `cache_hit`, `cache_miss`, `cache_insufficient`, `findings` (requires boolean `needs_source`), `source_found`, `source_read`. `access_blocked` instead requires a failed/cancelled receipt and prevents further execution. Every semantic decision is marked `client-reported`. |
+| `finish` | `outcome`: `supported`, `insufficient`, or `blocked`; optional `refs` must belong to this plan. Supported requires ready stage and successful evidence refs. Access-blocked workflows can only finish blocked. Supported describes the reported process outcome, not certified correctness. |
+
+Failed calls never complete stages. Existing retry limits apply. Report access/configuration failures as `access_blocked`, not cache misses; do not use another route to bypass them. The Hub does not infer access semantics from arbitrary child text. A report cannot invent references or use another plan's receipts.
+
+Each executed child call returns `_meta["mcp-hub/workflow"]` with `hub_plan_id`, `receipt_id`, `stage`, and `allowed_tools`. This preserves child output schemas, structured content, non-text blocks and existing metadata. Batch metadata maps string item indexes under `items` to these receipts. Condensation/packing retains metadata; `status` links receipts to full `result_id` references where available. Use `hub__get_full_result` for paging/searching retained evidence. Expiry does not replay a child; report the limitation or obtain authorization for a new plan.
+
+If the AI client does not expose result metadata to its model, call `hub__workflow` with `action: status` to read receipt IDs and progress as ordinary tool text before reporting a finding.
+
+The harness checks scope before stage. A batch is validated in full before executing; cross-stage batches and budgets exceeded by the batch are refused as a whole. Calls within one stage can run in parallel in a batch. One execution request owns the plan lock; another request or state transition is refused while calls are active. Cancellation records a cancelled receipt and releases the lock. Receipts contain metadata only, are capped by `policy.workflowMaxReceipts`, and live with the in-memory plan; restart/eviction requires a new plan. No durable resume or automatic replay is provided.
+
+Use `scripts/call_report.py` for aggregate workflow call/refusal/finish counts and tool time, and `status` for per-plan progress. Workflow refusals are process signals; cache/row correctness and the client's internal token usage are not measured by this report.
 
 ## Modes
 

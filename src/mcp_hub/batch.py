@@ -161,13 +161,16 @@ def batch_result(items: list[BatchItem], limit: int = MAX_BATCH_RESULT_CHARS) ->
             text = block.text if len(block.text) <= budget else block.text[:budget] + "\n[cut: batch result limit reached]"
             budget = max(0, budget - len(block.text))
             content.append(TextContent(type="text", text=text))
-    return CallToolResult(content=content, is_error=not any(item.ok for item in items))
+    metadata = {str(item.call.index): item.result.meta["mcp-hub/workflow"] for item in items
+                if item.result and item.result.meta and "mcp-hub/workflow" in item.result.meta}
+    return CallToolResult(content=content, is_error=not any(item.ok for item in items),
+                          **({"_meta": {"mcp-hub/workflow": {"items": metadata}}} if metadata else {}))
 
 
 class BatchMixin:
     """hub__batch on HubRuntime: packing, policy, and the call that runs a batch in parallel."""
 
-    async def _call_batch(self, arguments: dict[str, Any], request_id: str, client_name: str) -> CallToolResult:
+    async def _call_batch_core(self, arguments: dict[str, Any], request_id: str, client_name: str) -> CallToolResult:
         """Run independent read-only calls in parallel; each one is audited as `<request_id>.<i>`."""
         fields = {"request_id": request_id, "feature": "hub", "server": "mcp-hub", "tool": BATCH_TOOL}
         servers = {name: route.server_id for name, route in self.routes.items()}
@@ -193,13 +196,14 @@ class BatchMixin:
                 res = self._get_full_result(tool_arguments, item_id)
                 policy.record(plan, tool, tool_arguments, result_succeeded(res))
                 return res
-            res = await self.call_child_tool(tool, tool_arguments, request_id=item_id, client_name=client_name)
+            res = await self._workflow_child_call(plan, tool, tool_arguments, item_id, client_name)
             policy.record(plan, tool, tool_arguments, result_succeeded(res))
             return await self._maybe_condense(tool, res, plan.task if plan else None, item_id)
 
         items = await run_batch(calls, call_child, request_id, result_succeeded,
                                 timeout=self.settings.batch.timeout_seconds, per_child=self.settings.batch.max_per_child)
         items = self._pack_batch_items(items, plan.task if plan else None, request_id)
+        items = [replace(item, result=self._workflow_result(plan, item.result)) if item.result else item for item in items]
         result = batch_result(items)
         failed = sum(not item.ok for item in items)
         event, level = ("tool.call.failed", logging.ERROR) if result.is_error else ("tool.call.succeeded", logging.INFO)

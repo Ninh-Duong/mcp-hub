@@ -27,6 +27,8 @@ The canonical rule index is in [`agent-rules/`](../agent-rules/README.md). Each 
 
 ## Cache first, no repeats
 
+- For `rcid-bug` in enforce mode, pass `rcid` to `hub__plan` and follow the returned workflow. Read receipt IDs from result metadata, report cache coverage/findings via `hub__workflow`, and finish supported/insufficient/blocked. Never batch a cache lookup with an upstream search. Keep the plan's absolute time window; request scope expansion before re-planning. See [the workflow contract](usage-policy.md#client-workflow-harness).
+
 - **Read the local cache before upstream.** Jira: `jira__read_ticket`. Logs: `logs__list_ai_context_snapshots`, then `logs__read_ai_context`. PRs: `pr__list_synced_prs` or `pr__get_pr_sync_status`, then the file tools.
 - **Sync, refresh, or re-query upstream only when the cache is missing or stale, or the user asks.** That covers `jira__sync_ticket` (`force=true` only on request), `pr__sync_my_open_prs`, `pr__get_pr_context_pack` with `refresh=true`, and new log searches. Use absolute log time windows.
 - **Never repeat an identical call within a task.** Reuse the result you already have. The Hub briefly caches read-only results, so a repeat does not return fresher data.

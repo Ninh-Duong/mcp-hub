@@ -58,6 +58,7 @@ from .progress import ProgressSender, forwarded_meta, progress_sender, progress_
 from .tool_meta import is_read_only_tool
 from .instructions import repo_relative, server_instructions, child_contract
 from .planning.hub_plan import PlanningMixin
+from .planning.workflow_runtime import WorkflowRuntimeMixin, WORKFLOW_TOOL, workflow_tool
 from .call_observers import CallObserverMixin, ChildCallState
 from .bootstrap import load_start_inputs
 from .results.runtime import FULL_RESULT_TOOL, ResultsMixin, error_result, full_result_tool
@@ -89,7 +90,7 @@ def tool_pins_path() -> Path:
 _DEFAULT_SETTINGS = Settings()
 
 
-class HubRuntime(ChildLifecycleMixin, PinScreeningMixin, BatchMixin, PlanningMixin, ResultsMixin, CallObserverMixin):
+class HubRuntime(ChildLifecycleMixin, PinScreeningMixin, WorkflowRuntimeMixin, BatchMixin, PlanningMixin, ResultsMixin, CallObserverMixin):
     """Child connections, the allowlist, and routing.
 
     Extensions add observers with `add_observer`; with none installed a call is route -> audit -> child.
@@ -183,7 +184,7 @@ class HubRuntime(ChildLifecycleMixin, PinScreeningMixin, BatchMixin, PlanningMix
         routes: dict[str, ToolRoute] = {}
         batch = batch_tool(self.settings.batch.max_calls)
         batch = batch.model_copy(update={"input_schema": policy.with_plan_id(batch.input_schema)})
-        hub_tools = [_hub_status_tool(), policy.plan_tool(self.playbooks), batch]
+        hub_tools = [_hub_status_tool(), policy.plan_tool(self.playbooks), batch, workflow_tool()]
         child_tools: list[Tool] = []
         read_only: set[str] = set()
         facts: dict[str, CallFacts] = {}
@@ -316,12 +317,14 @@ class HubRuntime(ChildLifecycleMixin, PinScreeningMixin, BatchMixin, PlanningMix
             return self._get_full_result(arguments, request_id)
         if params.name == PLAN_TOOL:
             return await self._create_plan(arguments, request_id)
+        if params.name == WORKFLOW_TOOL:
+            return self._workflow_operation(arguments, request_id)
         if params.name == BATCH_TOOL:
             return await self._call_batch(arguments, request_id, client_name)
         return await self._call_planned(params.name, arguments, request_id, client_name, _child_options(ctx, params))
 
 
-    async def _call_planned(
+    async def _call_planned_core(
         self, name: str, arguments: dict[str, Any], request_id: str, client_name: str,
         options: ChildOptions | None = None,
     ) -> CallToolResult:
@@ -334,8 +337,8 @@ class HubRuntime(ChildLifecycleMixin, PinScreeningMixin, BatchMixin, PlanningMix
             violation = policy.check(plan, facts, arguments, self._health_tools, plan_id)
         if violation is not None and self.policy_mode == "enforce":
             return self._policy_denied(name, request_id, violation)
-        result = await self.call_child_tool(
-            name, arguments, request_id=request_id, client_name=client_name, options=options,
+        result = await self._workflow_child_call(
+            plan, name, arguments, request_id, client_name, options,
         )
         policy.record(plan, name, arguments, result_succeeded(result))
         result = await self._maybe_condense(name, result, plan.task if plan else None, request_id)

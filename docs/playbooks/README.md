@@ -2,6 +2,24 @@
 
 A playbook is a recipe for one kind of task: which mcp-hub tools to call, in which order, how narrow each call must be, and when to stop. An agent selects one with `hub__plan` (`playbook: "<id>"`). The Hub returns the steps, together with the project's log targets, and enforces the playbook's limits ([usage-policy.md](../usage-policy.md#playbooks)). The same files serve every client (Antigravity, Codex, Claude Code, …) and the investigation job specialists.
 
+## File layout
+
+Keep each playbook in its own file. This README is the shared catalog: summarize when to use each playbook and link to its definition. Edit the individual file to change its tools, steps, limits or answer format; do not duplicate those definitions here.
+
+```text
+docs/playbooks/
+  README.md            # Catalog of all playbooks
+  rcid-bug.md          # Investigate one request or correlation ID
+  jira-ticket-bug.md   # Start an investigation from a Jira ticket
+  service-errors.md    # Investigate errors for one service
+  pr-review.md         # Review a pull request
+  source-search.md     # Search a registered source repository
+```
+
+At startup, the Hub loads each Markdown definition in this directory and skips README.md. It builds the playbook choices for `hub__plan` from each file's `id` and `when`. The catalog is for navigation, not a second runtime configuration. Use `includes` to reuse another playbook's definition instead of copying it.
+
+## Catalog
+
 | Playbook | Use it when |
 |---|---|
 | [rcid-bug](rcid-bug.md) | The user gives an rcid, request ID, or correlation ID. |
