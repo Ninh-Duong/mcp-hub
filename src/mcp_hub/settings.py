@@ -122,6 +122,9 @@ class BatchSettings:
 
 @dataclass(frozen=True)
 class PolicySettings:
+    workflow_max_receipts: int = 128
+    workflow_initial_window_seconds: float = 3600.0
+    workflow_max_limit: int = 50
     # enforce: refuse calls that break the client's hub__plan; warn: run them with a warning; off: no plan needed.
     mode: str = "enforce"
     # Plans kept in memory; the least recently used is dropped, and a call naming it must plan again.

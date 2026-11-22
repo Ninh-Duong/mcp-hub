@@ -29,6 +29,7 @@ from datetime import datetime
 from typing import Any, NamedTuple
 
 from .merge import parse_window
+from .workflow import Workflow, WorkflowError, pilot_window
 
 from mcp.types import Tool
 
@@ -90,6 +91,7 @@ class PlanCatalog:
     playbooks: Mapping[str, Playbook] = field(default_factory=dict)
     projects: Mapping[str, ProjectConfig] = field(default_factory=dict)
     max_window_hours: int = 168
+    policy_settings: PolicySettings = field(default_factory=PolicySettings)
 
 
 @dataclass
@@ -114,6 +116,7 @@ class Plan:
     clock: Callable[[], float] = time.monotonic
     # Call key -> clock time of its latest success.
     succeeded_at: dict[str, float] = field(default_factory=dict)
+    workflow: Workflow | None = None
 
 
 _STRING_LIST = {"type": "array", "items": {"type": "string"}}
@@ -121,6 +124,7 @@ _PLAN_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "task": {"type": "string", "description": "The user's request, in one or two sentences."},
+        "rcid": {"type": "string", "description": "Required request/correlation ID for rcid-bug workflow."},
         "servers": {**_STRING_LIST, "minItems": 1, "description": "Child server IDs this task needs (see hub__status)."},
         "env": {"type": "string", "description": "The environment the user named (dev, stg, prod); keep it for the task."},
         "steps": {**_STRING_LIST, "minItems": 1, "maxItems": MAX_STEPS,
@@ -222,7 +226,29 @@ def parse_plan(arguments: Mapping[str, Any], catalog: PlanCatalog, plan_id: str)
         window = parse_window(arguments.get("since"), arguments.get("until"), catalog.max_window_hours)
     except ValueError as exc:
         raise PolicyRefused(str(exc)) from exc
-    return Plan(plan_id, frozenset(servers), env, frozenset(writes), checks, steps, playbook, project, target, task=task, window=window, sql_target=sql_target)
+    plan = Plan(plan_id, frozenset(servers), env, frozenset(writes), checks, steps, playbook, project, target, task=task, window=window, sql_target=sql_target)
+    _attach_workflow(plan, arguments, catalog)
+    return plan
+
+
+def _attach_workflow(plan: Plan, arguments: Mapping[str, Any], catalog: PlanCatalog) -> None:
+    if plan.playbook is None or not plan.playbook.workflow or catalog.policy_settings.mode != "enforce":
+        return
+    settings = catalog.policy_settings
+    try:
+        plan.window = pilot_window({**arguments, "env": plan.env}, settings.workflow_initial_window_seconds)
+    except WorkflowError as exc:
+        raise PolicyRefused(str(exc)) from None
+    if plan.target is None:
+        raise PolicyRefused("Workflow requires registered log targets.")
+    if (plan.window[1] - plan.window[0]).total_seconds() > catalog.max_window_hours * 3600:
+        raise PolicyRefused("Workflow default window exceeds maxWindowHours.")
+    plan.workflow = Workflow(
+        plan.playbook.workflow, _text(arguments["rcid"], "rcid"), plan.env,
+        {"project": plan.project, "organization": plan.target.organization,
+         "stream": plan.target.stream, "field": plan.target.rcid_field},
+        plan.window, settings.workflow_max_receipts, settings.workflow_max_limit,
+    )
 
 
 def _playbook(arguments: Mapping[str, Any], catalog: PlanCatalog) -> Playbook | None:

@@ -50,7 +50,7 @@ class ToolListOrderTest(unittest.IsolatedAsyncioTestCase):
     async def test_hub_tools_first_then_children_in_config_order_sorted_by_name(self) -> None:
         self.assertEqual(
             await self.listed(),
-            ["hub__status", "hub__plan", "hub__batch", "beta-server__beta", "alpha-server__alpha", "alpha-server__zeta"],
+            ["hub__status", "hub__plan", "hub__batch", "hub__workflow", "beta-server__beta", "alpha-server__alpha", "alpha-server__zeta"],
         )
 
     async def test_full_result_tool_stays_after_the_child_tools(self) -> None:
@@ -58,7 +58,7 @@ class ToolListOrderTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             await self.listed(),
             [
-                "hub__status", "hub__plan", "hub__batch",
+                "hub__status", "hub__plan", "hub__batch", "hub__workflow",
                 "beta-server__beta", "alpha-server__alpha", "alpha-server__zeta", "hub__get_full_result",
             ],
         )

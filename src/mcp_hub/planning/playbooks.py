@@ -21,7 +21,7 @@ the files are read once at start, never on the tool-call path.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..config import DOCS_ROOT, ConfigError
@@ -30,6 +30,7 @@ PLAYBOOK_DIR = DOCS_ROOT / "playbooks"
 NEEDS = frozenset({"logs", "source"})
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 _LIST_KEYS = ("servers", "tools", "needs", "includes")
+WORKFLOW_STAGES = ("cache_list", "cache_read", "logs", "source_search", "source_read")
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,7 @@ class Playbook:
     needs: tuple[str, ...]
     includes: tuple[str, ...]
     body: str
+    workflow: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 def load_playbooks(directory: Path = PLAYBOOK_DIR) -> dict[str, Playbook]:
@@ -71,7 +73,7 @@ def parse_playbook(text: str, file_id: str) -> Playbook:
         raise ConfigError(f"Playbook {file_id}: 'needs' may contain only: {', '.join(sorted(NEEDS))}")
     return Playbook(
         playbook_id, fields["when"], lists["servers"], lists["tools"], _parse_limit(fields.get("max_limit"), file_id),
-        lists["needs"], lists["includes"], body.strip(),
+        lists["needs"], lists["includes"], body.strip(), _workflow(fields, lists["tools"], file_id),
     )
 
 
@@ -92,6 +94,20 @@ def _split_frontmatter(text: str, file_id: str) -> tuple[dict[str, str], str]:
         key = key.strip()
         fields[key] = value.strip()
     return fields, "\n".join(lines[end + 1:])
+
+
+def _workflow(fields: dict[str, str], tools: tuple[str, ...], file_id: str) -> dict[str, tuple[str, ...]]:
+    keys = {key for key in fields if key.startswith("workflow_")}
+    if not keys:
+        return {}
+    expected = {f"workflow_{stage}" for stage in WORKFLOW_STAGES}
+    if file_id != "rcid-bug" or keys != expected or fields.get("includes", "[]") != "[]":
+        raise ConfigError(f"Playbook {file_id}: workflow requires all pilot stages and no includes")
+    stages = {stage: _parse_list(fields[f"workflow_{stage}"], file_id, stage) for stage in WORKFLOW_STAGES}
+    flattened = [tool for names in stages.values() for tool in names]
+    if any(not names for names in stages.values()) or set(flattened) - set(tools) or len(set(flattened)) != len(flattened):
+        raise ConfigError(f"Playbook {file_id}: workflow tools must be non-empty, unique and declared")
+    return stages
 
 
 def _parse_list(value: str, file_id: str, key: str) -> tuple[str, ...]:

@@ -117,8 +117,32 @@ def main(argv: list[str] | None = None) -> int:
     except OSError as exc:
         print(f"Could not read the audit log ({type(exc).__name__}).")
         return 1
-    print("\n".join(report(read_calls(lines), args.top)))
+    print("\n".join([*report(read_calls(lines), args.top), *workflow_report(lines)]))
     return 0
+
+
+def workflow_report(lines: list[str]) -> list[str]:
+    """Aggregate bounded workflow audit metadata; never render arguments, findings or evidence."""
+    counts: Counter[str] = Counter()
+    duration = 0
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(event, dict):
+            continue
+        if event.get("event") == "hub.workflow.call":
+            counts["calls"] += 1
+            duration += max(0, int(event.get("duration_ms", 0)))
+        elif event.get("event") == "hub.workflow.refused":
+            counts["refusals"] += 1
+        elif event.get("event") == "hub.workflow.updated" and event.get("action") == "finish":
+            counts["finished"] += 1
+    if not counts:
+        return []
+    return [f"Workflows: {counts['calls']} calls, {counts['refusals']} refusals, "
+            f"{counts['finished']} finished, {duration} ms tool time"]
 
 
 if __name__ == "__main__":

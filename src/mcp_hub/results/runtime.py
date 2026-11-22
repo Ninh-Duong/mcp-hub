@@ -105,7 +105,7 @@ class ResultsMixin:
         if getattr(condensed, "lossless", False):
             self._audit_condensed(condensed, request_id, server, name, duration_ms)
             note = "\n[Compacted losslessly by mcp-hub.]"
-            return CallToolResult(content=[TextContent(type="text", text=condensed.text + note)], is_error=False)
+            return original.model_copy(update={"content": [TextContent(type="text", text=condensed.text + note)]})
         rid = self.full_results.put(text)
         if rid is None:
             return original
@@ -114,7 +114,7 @@ class ResultsMixin:
             f"\n\n[Condensed by mcp-hub: kept {condensed.kept_lines} of {condensed.total_lines} lines. "
             f"Full result: {FULL_RESULT_TOOL} result_id=\"{rid}\" ({len(text)} chars).]"
         )
-        condensed_result = CallToolResult(content=[TextContent(type="text", text=condensed.text + footer)], is_error=False)
+        condensed_result = original.model_copy(update={"content": [TextContent(type="text", text=condensed.text + footer)]})
         return with_condensed_meta(condensed_result, rid, condensed.kept_lines, condensed.total_lines)
 
     def _audit_condensed(self, condensed: Any, request_id: str, server: str, name: str, duration_ms: int) -> None:
@@ -154,7 +154,7 @@ def _format_full_results(ids: list[str], pages: list[dict[str, Any] | None], fmt
     if len(ids) == 1:
         page = pages[0]
         if page is None:
-            return error_result("Result expired or unknown; repeat the original call.")
+            return error_result("Result expired or unknown; do not replay automatically. Report the limitation or re-plan with user-authorized scope.")
         text = json.dumps(page) if fmt == "json" else _format_raw_page(page)
         return CallToolResult(content=[TextContent(type="text", text=text)])
     if fmt == "json":

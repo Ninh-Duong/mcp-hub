@@ -168,6 +168,10 @@
           "description": "The project alias (see hub__list_projects); log playbooks need it.",
           "type": "string"
         },
+        "rcid": {
+          "description": "Required request/correlation ID for rcid-bug workflow.",
+          "type": "string"
+        },
         "servers": {
           "description": "Child server IDs this task needs (see hub__status).",
           "items": {
@@ -225,5 +229,61 @@
       "type": "object"
     },
     "name": "hub__status"
+  },
+  {
+    "annotations": {
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "Inspect rcid-bug workflow status, report client findings with receipt refs, or finish. After snapshot listing report cache_hit/cache_miss; after reading cache report findings (needs_source true/false) or cache_insufficient. After logs report findings; after source search report source_found; after source read report source_read. Failed access: access_blocked. Finish supported only at ready, otherwise insufficient/blocked. Never invent refs.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "status",
+            "report",
+            "finish"
+          ]
+        },
+        "decision": {
+          "enum": [
+            "cache_hit",
+            "cache_miss",
+            "cache_insufficient",
+            "findings",
+            "access_blocked",
+            "source_found",
+            "source_read"
+          ]
+        },
+        "hub_plan_id": {
+          "type": "string"
+        },
+        "needs_source": {
+          "type": "boolean"
+        },
+        "outcome": {
+          "enum": [
+            "supported",
+            "insufficient",
+            "blocked"
+          ]
+        },
+        "refs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "hub_plan_id",
+        "action"
+      ],
+      "type": "object"
+    },
+    "name": "hub__workflow"
   }
 ]

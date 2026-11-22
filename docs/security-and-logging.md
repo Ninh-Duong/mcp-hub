@@ -92,6 +92,9 @@ The BitNet [processing stream](bitnet.md#processing-stream) is transient metadat
 | `hub.plan.confirm_refused` | WARNING | A `confirm_token` was refused (unknown, used, expired, another task, or a choice that was not offered): `mode`. |
 | `hub.plan.needs_registration` | WARNING | A playbook that searches source was asked for a project that is not registered: `playbook`. Never the alias or path. |
 | `hub.plan.created` | INFO | A client declared a plan with `hub__plan`: `plan_id`, `servers`, `env_set`, `writes`, `steps` (count), `connection_checks`, `mode`, `playbook`, and `project_set`. Never the task text, the steps, the project alias, or its log targets. |
+| `hub.workflow.updated` | INFO | A client reported a workflow decision or finish: `request_id`, `action`, `stage`, `outcome`, `calls`, `refusals`, `tool_ms`, `elapsed_ms`. No semantic findings, references, targets or result content. |
+| `hub.workflow.refused` | INFO | Workflow scope/stage/budget/concurrency refusal: `request_id`, `stage`. No arguments or raw refusal message. |
+| `hub.workflow.call` | INFO | Workflow child execution: `request_id`, `stage`, `outcome` (succeeded/failed/cancelled), `duration_ms`, configured `tool`. No arguments, evidence or model output. |
 | `tool.call.cached` | INFO | A read-only call with a `cacheSeconds` TTL was answered from the Hub result cache (or joined an identical call in flight); the child was not called. Includes `duration_ms`. |
 | `tool.call.interrupted` | WARNING | The call was cancelled before the child answered. |
 | `tool.result.condensed` | INFO | A large read-only result was condensed: `request_id`, `server`, `tool`, `kept_lines`, `total_lines`, `source` (`rules` | `bitnet` | `fallback`), and `duration_ms`. Never the result content. |
