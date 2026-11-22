@@ -1,16 +1,16 @@
-"""Bounded, process-local execution facts and client-reported workflow decisions."""
+"""Bounded workflow execution facts, fill-once context and client-reported decisions."""
 from __future__ import annotations
 
 import asyncio
 import secrets
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 from time import monotonic
 from typing import Any
 
-
-class WorkflowError(ValueError):
-    """A safe workflow refusal; contains no child results."""
+from .workflow_definition import WorkflowDefinition
+from .workflow_scope import WorkflowError, absolute, check_scope, fill_context, missing_inputs
+from ..settings import JobSettings, PolicySettings
 
 
 @dataclass(frozen=True)
@@ -21,42 +21,23 @@ class Receipt:
     outcome: str
     duration_ms: int
     result_id: str | None = None
-
-
-def pilot_window(arguments: dict[str, Any], seconds: float) -> tuple[datetime, datetime]:
-    """Validate pilot inputs and fix a default absolute window once, at plan creation."""
-    for key in ("rcid", "project", "env"):
-        value = arguments.get(key)
-        if not isinstance(value, str) or not value.strip():
-            raise WorkflowError(f"rcid-bug requires a non-empty {key}.")
-    if arguments.get("since") is None and arguments.get("until") is None:
-        end = datetime.now(UTC)
-        return end - timedelta(seconds=seconds), end
-    return _absolute(arguments.get("since")), _absolute(arguments.get("until"))
-
-
-def _absolute(value: Any) -> datetime:
-    if not isinstance(value, str):
-        raise WorkflowError("Pass both absolute since/until or from/to timestamps with timezones.")
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        raise WorkflowError("Use absolute timestamps with timezones; relative windows are refused.") from None
-    if parsed.tzinfo is None:
-        raise WorkflowError("Timestamps must include a timezone.")
-    return parsed.astimezone(UTC)
+    complete: bool | None = None
+    paths: tuple[str, ...] = ()
+    revision: str | None = None
+    error_kind: str | None = None
+    file_id: str | None = None
+    assets: tuple[str, ...] = ()
 
 
 @dataclass
 class Workflow:
-    stages: dict[str, tuple[str, ...]]
-    rcid: str
-    env: str
-    targets: dict[str, str]
-    window: tuple[datetime, datetime]
+    definition: WorkflowDefinition
+    context: dict[str, Any]
     max_receipts: int
     max_limit: int
-    stage: str = "cache_list"
+    max_input_chars: int = PolicySettings().workflow_input_max_chars
+    max_window_hours: int = JobSettings().max_window_hours
+    stage: str = ""
     receipts: dict[str, Receipt] = field(default_factory=dict)
     decisions: list[dict[str, Any]] = field(default_factory=list)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -64,87 +45,117 @@ class Workflow:
     stopped: float | None = None
     outcome: str | None = None
     refusals: int = 0
+    revision: str | None = None
+
+    def __post_init__(self) -> None:
+        self.stage = self.stage or self.entry()
+
+    def entry(self) -> str:
+        return next((stage for key, stage in (self.definition.entry_choices or {}).items() if self.context.get(key)), self.definition.entry)
+
+    @property
+    def window(self) -> tuple[datetime, datetime] | None:
+        if "since" not in self.context:
+            return None
+        return absolute(self.context["since"]), absolute(self.context["until"])
+
+    def node(self) -> dict[str, Any]:
+        return self.definition.nodes.get(self.stage, {"tools": [], "reports": {}})
+
+    def missing(self) -> list[str]:
+        if self.stage in {"finished", "blocked", "superseded", "ready"}:
+            return []
+        return missing_inputs(self.context, [*self.definition.inputs, *self.node().get("requires", [])])
 
     def status(self) -> dict[str, Any]:
         return {
-            "stage": self.stage, "allowed_tools": self.allowed_tools(),
-            "busy": self.lock.locked(), "outcome": self.outcome,
+            "stage": "awaiting_input" if self.missing() else self.stage, "active_stage": self.stage,
+            "missing_inputs": self.missing(), "allowed_tools": self.allowed_tools(),
+            "report_options": [*self.node()["reports"], "access_blocked"], "busy": self.lock.locked(), "outcome": self.outcome,
+            "scope": {key: value for key, value in self.context.items() if key in {"project", "env", "rcid", "service", "issue_key", "pr_url", "query", "glob", "path", "since", "until"}},
+            "revision": self.revision,
             "receipts": [asdict(receipt) for receipt in self.receipts.values()],
             "decisions": list(self.decisions), "calls": len(self.receipts), "refusals": self.refusals,
             "failed": sum(r.outcome != "succeeded" for r in self.receipts.values()),
             "tool_ms": sum(r.duration_ms for r in self.receipts.values()),
             "elapsed_ms": round(((self.stopped or monotonic()) - self.started) * 1000),
+            "limitations": ["Source search examines at most 500 files; do not infer an exact repository-wide count."]
+            if any(r.tool == "source__search" for r in self.receipts.values()) else [],
         }
 
     def allowed_tools(self) -> list[str]:
-        tools = list(self.stages.get(self.stage, ()))
-        if self.stage == "logs" and not any(r.tool == "logs__find_openobserve_logs_by_rcid"
-                                             and r.outcome == "succeeded" for r in self.receipts.values()):
-            tools = [name for name in tools if name != "logs__get_openobserve_service_logs"]
-        return tools
+        return [] if self.missing() else list(self.node()["tools"])
+
+    def provide_input(self, inputs: Any) -> None:
+        self._idle()
+        if self.stage in {"blocked", "ready"}:
+            raise WorkflowError("This stage does not accept more context.")
+        updated = fill_context(self.context, inputs, self.max_input_chars, self.max_window_hours)
+        self.context = updated
+        if not self.receipts:
+            self.stage = self.entry()
 
     def check(self, tool: str, arguments: dict[str, Any]) -> None:
-        """Validate without reserving or changing state, so whole batches can be checked first."""
-        if self.stage == "finished" or tool not in self.allowed_tools():
-            raise WorkflowError(f"Stage {self.stage}: use hub__workflow status and its allowed_tools.")
+        if tool not in self.allowed_tools():
+            raise WorkflowError("Use hub__workflow status: provide missing context or use this stage's allowed tools.")
         if len(self.receipts) >= self.max_receipts:
             raise WorkflowError("Workflow call budget exhausted; finish with the available evidence.")
-        if self.stage.startswith("source_"):
-            if arguments.get("project") != self.targets["project"]:
-                raise WorkflowError("Pass exactly the plan's source project.")
-        if self.stage in {"cache_list", "logs"} and arguments.get("env") != self.env:
-            raise WorkflowError("Pass exactly the plan's environment.")
-        if self.stage == "logs":
-            self._check_logs(tool, arguments)
-        if self.stage == "cache_read":
-            if not isinstance(arguments.get("snapshot"), str) or not isinstance(arguments.get("file"), str):
-                raise WorkflowError("Cache reads require snapshot and file from the listed snapshots.")
+        paths = {path for ref in self.receipts.values() if ref.tool == "source__search" and ref.outcome == "succeeded" for path in ref.paths}
+        check_scope(tool, arguments, self.context, self.max_limit, paths)
+        for key, value in self.node().get("arguments", {}).get(tool, {}).items():
+            if arguments.get(key) != value:
+                raise WorkflowError(f"Pass this stage's required {key}.")
+        if tool == "jira__read_asset":
+            assets = {name for ref in self.receipts.values() if ref.tool == "jira__read_ticket" and ref.outcome == "succeeded" for name in ref.assets}
+            if str(arguments.get("filename", "")).removeprefix("assets/") not in assets:
+                raise WorkflowError("Read only an attachment listed by successful ticket evidence.")
+        predecessor = self.node().get("after", {}).get(tool)
+        if predecessor and not any(r.tool == predecessor and r.outcome == "succeeded"
+                                   and (tool != "pr__get_pr_file_context" or r.file_id == str(arguments.get("file_id")))
+                                   for r in self.receipts.values()):
+            raise WorkflowError("Read the prerequisite evidence first; dependent calls cannot share a batch.")
 
-    def _check_logs(self, tool: str, arguments: dict[str, Any]) -> None:
-        for key in ("organization", "stream"):
-            if arguments.get(key) != self.targets[key]:
-                raise WorkflowError(f"Pass the plan's {key}.")
-        if tool == "logs__find_openobserve_logs_by_rcid":
-            if arguments.get("rcid") != self.rcid or arguments.get("field") != self.targets["field"]:
-                raise WorkflowError("Pass the plan's rcid and request-ID field.")
-        elif not arguments.get("service") or arguments.get("level") != "Warning":
-            raise WorkflowError("Related service logs require a service from the request and level Warning.")
-        if (_absolute(arguments.get("from")), _absolute(arguments.get("to"))) != self.window:
-            raise WorkflowError("Use exactly the plan's absolute from/to window; re-plan to change scope.")
-        limit = arguments.get("limit")
-        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= self.max_limit:
-            raise WorkflowError(f"Pass an explicit limit between 1 and {self.max_limit}.")
-
-    def record(self, tool: str, outcome: str, duration_ms: int, result_id: str | None = None) -> Receipt:
-        receipt = Receipt(f"wf-{secrets.token_hex(12)}", tool, self.stage, outcome, duration_ms, result_id)
+    def record(self, tool: str, outcome: str, duration_ms: int, result_id: str | None = None,
+               observations: dict[str, Any] | None = None) -> Receipt:
+        data = observations or {}
+        receipt = Receipt(f"wf-{secrets.token_hex(12)}", tool, self.stage, outcome, duration_ms, result_id,
+                          **{key: data[key] for key in ("complete", "paths", "revision", "error_kind", "file_id", "assets") if key in data})
         self.receipts[receipt.receipt_id] = receipt
+        if receipt.error_kind == "access":
+            self.stage = "blocked"
+        if tool.startswith("pr__") and receipt.revision and outcome == "succeeded":
+            if self.revision is not None and self.revision != receipt.revision:
+                self.stage = "blocked"
+            else:
+                self.revision = receipt.revision
         return receipt
 
     def report(self, decision: Any, refs: Any, needs_source: Any = None) -> None:
         self._idle()
+        if self.missing():
+            raise WorkflowError("Provide missing context before reporting this stage.")
         receipts = self._references(refs)
         if not receipts or any(r.stage != self.stage for r in receipts):
             raise WorkflowError("Report references must be from the current stage.")
-        next_stage = self._next_stage(decision, receipts, needs_source)
+        target = self._next_stage(decision, receipts, needs_source)
         self.decisions.append({"decision": decision, "refs": list(refs), "trust": "client-reported"})
-        self.stage = next_stage
+        self.stage = target
 
     def _next_stage(self, decision: Any, receipts: list[Receipt], needs_source: Any) -> str:
-        if decision == "access_blocked" and any(r.outcome != "succeeded" for r in receipts):
+        failed = [r for r in receipts if r.outcome != "succeeded"]
+        if decision == "access_blocked" and failed:
             return "blocked"
-        if any(r.outcome != "succeeded" for r in receipts):
+        if failed and not (decision in {"cache_missing", "cache_stale"} and all(r.error_kind == "cache_missing" for r in failed)):
             raise WorkflowError("Failed calls do not complete a step; retry or report access_blocked.")
-        transitions = {
-            ("cache_list", "cache_hit"): "cache_read", ("cache_list", "cache_miss"): "logs",
-            ("cache_read", "cache_insufficient"): "logs",
-            ("source_search", "source_found"): "source_read",
-            ("source_read", "source_read"): "ready",
-        }
-        if (self.stage, decision) in transitions:
-            return transitions[self.stage, decision]
-        if self.stage in {"cache_read", "logs"} and decision == "findings" and isinstance(needs_source, bool):
-            return "source_search" if needs_source else "ready"
-        raise WorkflowError("Decision is invalid for this stage; findings requires needs_source true or false.")
+        event = decision
+        if decision == "findings":
+            if not isinstance(needs_source, bool):
+                raise WorkflowError("findings requires needs_source true or false.")
+            event = "need_source" if needs_source else "sufficient"
+        target = self.node()["reports"].get(event)
+        if target is None:
+            raise WorkflowError("Use a report_option for this stage.")
+        return target if isinstance(target, str) else target["present" if self.context.get(target["input"]) else "missing"]
 
     def finish(self, outcome: Any, refs: Any) -> None:
         self._idle()
@@ -152,8 +163,8 @@ class Workflow:
         if outcome not in {"supported", "insufficient", "blocked"}:
             raise WorkflowError("Finish outcome must be supported, insufficient or blocked.")
         if self.stage == "blocked" and outcome != "blocked":
-            raise WorkflowError("Access-blocked workflows must finish blocked.")
-        evidence = any(r.stage in {"cache_read", "logs", "source_read"} for r in receipts)
+            raise WorkflowError("Blocked workflows must finish blocked.")
+        evidence = any(r.tool not in {"logs__list_ai_context_snapshots", "pr__list_synced_prs"} for r in receipts)
         if outcome == "supported" and (self.stage != "ready" or not evidence or any(r.outcome != "succeeded" for r in receipts)):
             raise WorkflowError("Supported requires ready stage and successful evidence references.")
         self.outcome, self.stage, self.stopped = outcome, "finished", monotonic()
@@ -161,8 +172,8 @@ class Workflow:
     def _idle(self) -> None:
         if self.lock.locked():
             raise WorkflowError("Calls are active; wait before changing workflow state.")
-        if self.stage == "finished":
-            raise WorkflowError("Workflow is finished; create a new plan.")
+        if self.stage in {"finished", "superseded"}:
+            raise WorkflowError("Workflow is finished or superseded; use its successor or create a new plan.")
 
     def _references(self, refs: Any) -> list[Receipt]:
         if not isinstance(refs, list) or len(refs) > self.max_receipts:

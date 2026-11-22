@@ -9,26 +9,135 @@ needs: [logs]
 ---
 ## Goal
 
-Find the errors of one service in a narrow window, group them by cause, and explain the most frequent or most recent one in the code.
+Investigate the failing behavior of one service in one confirmed environment and time window.
 
-## Steps
+## Steps and tool inputs
 
-1. **Check for an export first.** Call `logs__list_ai_context_snapshots` with `env`. If an export covers the service and the window, read its `SUMMARY.lhub` with `logs__read_ai_context`, then the `services/<service>/error.lhub` line it points to. Skip to step 4.
-2. **If you are not sure of the service name,** call `logs__list_openobserve_services` once with the plan's `organization` and `stream`, and pick the matching name.
-3. **Search.** Call `logs__get_openobserve_service_logs` with `env`, `organization`, `stream`, `service`, `level: "Error"`, and `limit: 50`.
-   - If the user gave a time, set `from` and `to` to that time ±15 minutes, in ISO 8601 with a timezone.
-   - Otherwise set `from: "1h"`.
-   - If the search returns 0 rows, widen once to `24h`.
-4. **Group the rows** by exception type and message template. For the top group, take one row's rcid. Read that request's rows with `logs__find_openobserve_logs_by_rcid` (`limit: 50`, the same window), only if the error row alone does not explain it.
-5. **Find the code.** Call `source__search` with `project` and the exception or method name, then `source__read` only for the cited lines.
+1. Ask for project/env and absolute since/until before log reads. Never infer a one-hour window or widen to 24 hours automatically.
+2. `logs__list_ai_context_snapshots(env)` then `logs__read_ai_context(snapshot, file, offset, limit)` when covered. Start with SUMMARY.lhub and its referenced service/error pages. Report coverage using actual receipts.
+3. On a cache miss/insufficient cache when service is not yet known, `logs__list_openobserve_services(env, organization, stream)` lists only the plan targets. If the service name is ambiguous, ask the user; fill the selected service once and report service_selected.
+4. `logs__get_openobserve_service_logs(env, organization, stream, service, level, from, to, limit)` reads Error rows in the fixed window, limit at most 50. Group only returned rows. Zero rows: finish insufficient, never change scope automatically.
+5. Ask which group to investigate when several fit; identify the chosen group in the client-reported decision. If its error row is insufficient, report need_request, bind its rcid, and use `logs__find_openobserve_logs_by_rcid` in the same targets/window.
+6. Report findings with needs_source true/false. When needed, `source__search(project, query, limit)` then `source__read(project, path, start_line, max_lines)` checks the cited code. Report source_found and source_read between stages.
 
-## Answer
+## Answer and stop conditions
 
-- The error groups, with their counts and first and last time.
-- For the top group: the cause, the evidence rows, the source `file:line`, and your confidence.
-- **Next step:** a fix or the next check.
+Return groups/counts only within received data, chosen cause/hypothesis, evidence and next check. Report truncation and missing evidence. Stop after answering. Access errors block; widening time, another service or another environment requires user authorization and a new scoped plan.
 
-## Never
+## Workflow definition
 
-- Query `Information` or `Debug` levels before you have looked at the errors.
-- Use a window wider than `24h` without the user asking, or a `limit` above 50 on the first call.
+```workflow
+{
+  "entry": "cache_list",
+  "inputs": [
+    "project",
+    "env"
+  ],
+  "nodes": {
+    "cache_list": {
+      "tools": [
+        "logs__list_ai_context_snapshots"
+      ],
+      "requires": [
+        "window",
+        "log_target"
+      ],
+      "reports": {
+        "cache_hit": "cache_read",
+        "cache_miss": {
+          "input": "service",
+          "present": "logs",
+          "missing": "select_service"
+        }
+      }
+    },
+    "cache_read": {
+      "tools": [
+        "logs__read_ai_context"
+      ],
+      "requires": [
+        "window",
+        "log_target"
+      ],
+      "reports": {
+        "cache_insufficient": {
+          "input": "service",
+          "present": "logs",
+          "missing": "select_service"
+        },
+        "need_source": "source_search",
+        "sufficient": "ready"
+      }
+    },
+    "select_service": {
+      "tools": [
+        "logs__list_openobserve_services"
+      ],
+      "requires": [
+        "window",
+        "log_target"
+      ],
+      "reports": {
+        "service_selected": "logs"
+      }
+    },
+    "logs": {
+      "tools": [
+        "logs__get_openobserve_service_logs"
+      ],
+      "requires": [
+        "service",
+        "window",
+        "log_target"
+      ],
+      "reports": {
+        "need_request": "request_logs",
+        "need_source": "source_search",
+        "sufficient": "ready"
+      },
+      "arguments": {
+        "logs__get_openobserve_service_logs": {
+          "level": "Error"
+        }
+      }
+    },
+    "request_logs": {
+      "tools": [
+        "logs__find_openobserve_logs_by_rcid"
+      ],
+      "requires": [
+        "rcid",
+        "window",
+        "log_target"
+      ],
+      "reports": {
+        "need_source": "source_search",
+        "sufficient": "ready"
+      }
+    },
+    "source_search": {
+      "tools": [
+        "source__search"
+      ],
+      "requires": [
+        "project"
+      ],
+      "reports": {
+        "source_found": "source_read",
+        "answered": "ready"
+      }
+    },
+    "source_read": {
+      "tools": [
+        "source__read"
+      ],
+      "requires": [
+        "project"
+      ],
+      "reports": {
+        "source_read": "ready"
+      }
+    }
+  }
+}
+```

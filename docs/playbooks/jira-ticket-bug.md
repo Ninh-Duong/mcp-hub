@@ -8,26 +8,81 @@ includes: [rcid-bug, service-errors]
 ---
 ## Goal
 
-Turn the ticket into the facts a log search needs (an rcid, a service, a time, an environment), then follow the matching playbook below.
+Investigate the cause of a Jira bug, not a general ticket-summary task.
 
-## Steps
+## Steps and tool inputs
 
-1. **Read the cached ticket** with `jira__read_ticket` (`issue_key`).
-   - Call `jira__sync_ticket` only when the ticket is not cached, or the user asks for fresh data. It is a write, so the plan must list it in `writes`.
-   - Never pass `force: true` unless the user asks.
-2. **From the description and the history, extract:**
-   - the rcid, request ID, or correlation ID;
-   - the service or endpoint;
-   - the time the problem happened;
-   - the environment.
+1. Ask for project/env/issue_key. `jira__read_ticket(issue_key)` reads ticket and history from encrypted cache. It must precede any sync or asset read.
+2. If missing/stale, report cache_missing/cache_stale with the receipt, ask the user for permission, and continue the plan with writes containing jira__sync_ticket. Never refresh a denied/unreadable cache as a workaround.
+3. `jira__sync_ticket(issue_key, force=false)` runs only with permission. Report refreshed, then `jira__read_ticket` reads the refreshed evidence. This intentional post-refresh read is allowed; continuation itself does not replay anything. force=true requires a separate explicit request and plan.
+4. `jira__read_asset(issue_key, filename)` reads only an attachment listed by ticket evidence, if text is insufficient.
+5. Extract rcid/service/time/environment. Fill only missing context through provide_input. Confirm a proposed log time with the user before logs; a different environment/project requires an authorized new plan.
+6. Report has_rcid or has_service to enter the explicitly referenced workflow. Ask for missing facts instead of searching blindly. Log targets are required only when a logs stage starts.
 
-   Read an attached screenshot with `jira__read_asset` only when the text does not give these facts.
-3. **If the ticket names a different environment than the plan,** stop and call `hub__plan` again with that environment. Never switch on your own.
-4. **Continue with the matching playbook below:**
-   - **The ticket has an rcid** → the steps of `rcid-bug`.
-   - **It has only a service and a time** → the steps of `service-errors`.
-   - **It has neither** → tell the user what is missing; do not search the logs blindly.
+## Answer and stop conditions
 
-## Answer
+Return the issue key, ticket facts used, cause/hypothesis and log/source evidence. No rcid/service or no useful evidence: finish insufficient. Access/configuration errors: blocked. Use only offered tools; investigation job specialists follow the prose/tool order without calling unavailable Hub workflow operations.
 
-The answer of the playbook you followed, plus the issue key and the ticket facts you used.
+## Workflow definition
+
+```workflow
+{
+  "entry": "ticket",
+  "inputs": [
+    "project",
+    "env",
+    "issue_key"
+  ],
+  "subflows": [
+    "rcid-bug",
+    "service-errors"
+  ],
+  "nodes": {
+    "ticket": {
+      "tools": [
+        "jira__read_ticket",
+        "jira__read_asset"
+      ],
+      "requires": [
+        "issue_key"
+      ],
+      "reports": {
+        "cache_missing": "refresh",
+        "cache_stale": "refresh",
+        "has_rcid": "@rcid-bug",
+        "has_service": "@service-errors"
+      },
+      "after": {
+        "jira__read_asset": "jira__read_ticket"
+      }
+    },
+    "refresh": {
+      "tools": [
+        "jira__sync_ticket"
+      ],
+      "requires": [
+        "issue_key"
+      ],
+      "reports": {
+        "refreshed": "fresh_ticket"
+      }
+    },
+    "fresh_ticket": {
+      "tools": [
+        "jira__read_ticket",
+        "jira__read_asset"
+      ],
+      "requires": [
+        "issue_key"
+      ],
+      "reports": {
+        "has_rcid": "@rcid-bug",
+        "has_service": "@service-errors"
+      },
+      "after": {
+        "jira__read_asset": "jira__read_ticket"
+      }
+    }
+  }
+}
+```

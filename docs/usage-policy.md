@@ -40,7 +40,7 @@ With `policy.confirmPlaybook` set to `always` (the default), `hub__plan` without
 A plan can name a playbook (`docs/playbooks/<id>.md`, [list](playbooks/README.md)): a recipe for one kind of input, such as an rcid, a Jira key, a service, or a PR. The `hub__plan` description lists each playbook with its `when` line, so every client can choose one.
 
 ```json
-{"task": "Why did request 0HN7ABC fail?", "playbook": "rcid-bug", "project": "orders", "env": "stg"}
+{"task": "Why did request 0HN7ABC fail?", "playbook": "rcid-bug", "project": "orders", "env": "stg", "rcid": "0HN7ABC"}
 ```
 
 A plan with a playbook:
@@ -82,47 +82,49 @@ Arguments are checked against the child's input schema in warn mode (`protocol.v
 ## What the Hub cannot check
 
 - **Whether the user asked for a write.** The Hub only makes the agent declare the write up front. The declaration is visible in `hub.plan.created` (`writes`).
-- **Whether the steps are a good plan.** Outside the pilot below, `steps` documents intent without enforcing order.
-- **Cache coverage and sync-only-when-stale.** These depend on evidence interpretation. The pilot records them as client-reported decisions, never verified facts.
+- **Whether the steps are a good plan.** Outside the workflows below, `steps` documents intent without enforcing order.
+- **Cache coverage and sync-only-when-stale.** These depend on evidence interpretation. Workflows record them as client-reported decisions, never verified facts.
 
 ## Client workflow harness
 
-With policy `enforce`, `rcid-bug` uses the client-controlled workflow defined by its `workflow_<stage>` frontmatter tool lists. All five stages must exist, use distinct declared tools, and belong to the pilot without includes. Included playbooks, such as Jira's recipe, inherit prose and tools but not the pilot state machine. Other playbooks and `warn`/`off` modes retain their existing behavior. No Hub LLM loop, new dependency or job-store migration is involved.
+All five shipped playbooks have a client-controlled workflow in policy enforce mode. The client chooses actions; the Hub checks scope, dependencies, permissions and progress. No Hub model loop is added. Each playbook owns a validated JSON graph in a fenced `workflow` block; see [writing a playbook](playbooks/README.md#writing-a-playbook). `includes` merges tools/prose only; Jira explicitly references the rcid and service subflows. Graph tools, inputs, targets, references and cycles are checked at startup. Arbitrary scripts/conditions are not executed.
 
-Pass `rcid`, `project`, and `env` to `hub__plan`. The project default may supply env. Supply both `since`/`until` or neither; absent timestamps fix the preceding hour at plan creation. Calls use exactly this UTC window as absolute `from`/`to`, the plan's targets and request ID, and explicit `limit` no larger than `policy.workflowMaxLimit`. Wider searches require user-authorized re-planning. Source calls explicitly pass the plan's project.
+### Context and missing inputs
 
-```mermaid
-flowchart TD
-    Plan[Existing plan and scope policy] --> CacheList[Cache listing]
-    CacheList -->|client reports cache_hit| CacheRead[Cache reads]
-    CacheList -->|client reports cache_miss| Logs[Upstream logs]
-    CacheRead -->|client reports cache_insufficient| Logs
-    CacheRead --> Findings[Client-reported findings]
-    Logs --> Findings
-    Findings -->|needs_source true| Search[Source search]
-    Search -->|source_found| Read[Source read]
-    Read -->|source_read| Ready[Ready]
-    Findings -->|needs_source false| Ready
-    Ready --> Finish[Finish supported]
-```
+`hub__plan` accepts project/env plus rcid, issue_key, service, pr_url, query, glob or path as appropriate. `since` and `until` are absolute timezone-qualified timestamps. No time window is inferred. Missing context returns stage `awaiting_input`, `active_stage`, `missing_inputs` and the available next operations. Ask the user for missing log times before reading logs. The project's existing default environment remains visible in the plan when used.
 
-`hub__workflow` is a local state-changing MCP tool, not a child write approval. It requires `hub_plan_id` and `action`:
+Use `hub__workflow` action `provide_input` with `inputs` to fill missing context. Values are bounded strings and may only be filled once; provide since/until together. Targets are resolved only from registered project configuration, never from caller-supplied organization/stream values. Jira may read its ticket before log targets exist; logs stay blocked until targets and times are available. Unknown projects/access errors cannot be bypassed. An environment or other locked value cannot change through provide_input or continue_from.
+
+### Workflow operations
+
+`hub__workflow` requires hub_plan_id and action:
 
 | Action | Input and behavior |
 |---|---|
-| `status` | Returns stage, allowed_tools, busy, receipts, decisions, calls, failed calls, refusals, tool_ms, elapsed_ms and outcome. |
-| `report` | `decision` plus `refs` (receipt IDs from successful calls in the current stage). Decisions: `cache_hit`, `cache_miss`, `cache_insufficient`, `findings` (requires boolean `needs_source`), `source_found`, `source_read`. `access_blocked` instead requires a failed/cancelled receipt and prevents further execution. Every semantic decision is marked `client-reported`. |
-| `finish` | `outcome`: `supported`, `insufficient`, or `blocked`; optional `refs` must belong to this plan. Supported requires ready stage and successful evidence refs. Access-blocked workflows can only finish blocked. Supported describes the reported process outcome, not certified correctness. |
+| `status` | Returns stage/active_stage, missing_inputs, allowed_tools, required_writes, report_options, scope, busy, receipts, decisions, revision, counters, timings and limitations. |
+| `provide_input` | `inputs` object with project, env, rcid, issue_key, service, pr_url, query, glob, path, since or until. Ask the user or identify evidence provenance before supplying a missing value. Existing values stay locked. |
+| `report` | `decision` from report_options and `refs` from this stage's actual receipts. `findings` plus needs_source true/false is shorthand for need_source/sufficient. Decisions are explicitly client-reported, not verified conclusions. |
+| `finish` | outcome supported/insufficient/blocked and optional same-plan refs. Supported requires ready stage and successful relevant evidence. A blocked workflow can finish only blocked. |
 
-Failed calls never complete stages. Existing retry limits apply. Report access/configuration failures as `access_blocked`, not cache misses; do not use another route to bypass them. The Hub does not infer access semantics from arbitrary child text. A report cannot invent references or use another plan's receipts.
+A recognized access/configuration failure immediately blocks the workflow; finish blocked. A failed call does not complete a stage. Only a recognized missing-cache error allows the Jira cache_missing/cache_stale transition; an access/configuration error never does. For an unclassified failure, retry within policy limits or report access_blocked with a failed receipt and stop. Semantic grouping, snapshot coverage, reported freshness and root cause remain client assertions, not automatic truth inferred from arbitrary text.
 
-Each executed child call returns `_meta["mcp-hub/workflow"]` with `hub_plan_id`, `receipt_id`, `stage`, and `allowed_tools`. This preserves child output schemas, structured content, non-text blocks and existing metadata. Batch metadata maps string item indexes under `items` to these receipts. Condensation/packing retains metadata; `status` links receipts to full `result_id` references where available. Use `hub__get_full_result` for paging/searching retained evidence. Expiry does not replay a child; report the limitation or obtain authorization for a new plan.
+### Refresh permissions and continuation
 
-If the AI client does not expose result metadata to its model, call `hub__workflow` with `action: status` to read receipt IDs and progress as ordinary tool text before reporting a finding.
+Jira sync and many PR readers are annotated readOnlyHint=false because they can refresh encrypted local storage. In particular, pr__get_pr_sync_status is not a read-only freshness probe. Ask permission at the first required write-capable operation; declare each permitted tool in writes. required_writes lists current stage tools that still need permission. No bulk PR sync is part of review.
 
-The harness checks scope before stage. A batch is validated in full before executing; cross-stage batches and budgets exceeded by the batch are refused as a whole. Calls within one stage can run in parallel in a batch. One execution request owns the plan lock; another request or state transition is refused while calls are active. Cancellation records a cancelled receipt and releases the lock. Receipts contain metadata only, are capped by `policy.workflowMaxReceipts`, and live with the in-memory plan; restart/eviction requires a new plan. No durable resume or automatic replay is provided.
+After the user agrees, call hub__plan with continue_from, the same task/playbook and all scope values from status, and writes containing the existing permissions plus the exact added refresh tools. Playbook confirmation still applies. A continuation requires an idle unfinished non-blocked workflow, identical scope and a nonempty addition of allowed cache-refresh writes. It copies receipts, progress, counters and call history without executing tools, then supersedes the predecessor. Invalid/busy continuation leaves the predecessor unchanged. An explicitly permitted Jira sync allows one intentional read of the new ticket revision; copying a plan never replays completed calls.
 
-Use `scripts/call_report.py` for aggregate workflow call/refusal/finish counts and tool time, and `status` for per-plan progress. Workflow refusals are process signals; cache/row correctness and the client's internal token usage are not measured by this report.
+The Hub enforces declarations and scope but cannot independently authenticate whether a chat user really granted permission. Clients must wait for the user's answer. Forced refresh (force=true or refresh=true) requires an explicit separate request and a custom scoped plan; the normal workflows do not infer that permission.
+
+### Execution and evidence
+
+Each child call carries workflow metadata at `_meta["mcp-hub/workflow"]` with plan/receipt IDs, stage and allowed tools. Batch metadata maps item indexes under items to their receipts. A client that hides metadata can call status to obtain receipt IDs as ordinary text. Child schemas, structured content, non-text blocks and existing metadata are preserved. Condensed/packed receipts link to full result_id references; hub__get_full_result pages/searches them. Expiry never automatically replays an upstream call.
+
+Scope is checked before execution. A batch is validated as a whole; it cannot cross stages or include a dependent call before its prerequisite evidence. Write-capable tools cannot be batched. One request owns the plan lock; concurrent requests/transitions are refused until it finishes. Cancellation records a cancelled receipt and releases the lock. Receipt count and input size are bounded by policy settings; state lives only with the bounded in-memory plan. Restart/eviction requires a new plan, not replay.
+
+Source reads use searched paths or a relative path explicitly supplied by the user. Search is substring matching across at most 500 files, so counts cannot be claimed as complete repository-wide totals. Result truncation and unknown completeness remain visible. PR context reads follow diff evidence for the same file. When the child reports a source commit/revision, a changed revision blocks further calls rather than mixing revisions; no revision means unknown, not a guaranteed stable view.
+
+Use scripts/call_report.py for aggregate workflow calls/refusals/finishes and tool time, and status for per-plan evidence and progress. Workflow audit events store bounded metadata, not task text, arguments or result content. These metrics do not measure the client's internal token usage or certify its answer.
 
 ## Modes
 

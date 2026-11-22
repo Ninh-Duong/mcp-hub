@@ -25,7 +25,7 @@ At startup, the Hub loads each Markdown definition in this directory and skips R
 | [rcid-bug](rcid-bug.md) | The user gives an rcid, request ID, or correlation ID. |
 | [jira-ticket-bug](jira-ticket-bug.md) | The user gives a Jira issue for a bug. |
 | [service-errors](service-errors.md) | The user names a service, without an rcid. |
-| [pr-review](pr-review.md) | The user gives a pull request. |
+| [pr-review](pr-review.md) | The user wants a correctness review of a pull request. |
 | [source-search](source-search.md) | The user asks to search or count code in a registered repository. |
 
 ## Writing a playbook
@@ -39,7 +39,7 @@ Create `docs/playbooks/<id>.md`. The `id` must match the file name and use lower
 | `servers` | yes | `[a, b]`: the child server IDs the playbook uses. A plan may name only these. |
 | `tools` | yes | `[a, b]`: the only Hub tools the plan may call. `hub__batch` is allowed when every call inside it is listed here. |
 | `max_limit` | no | The largest `limit` argument any call may pass. |
-| `needs` | no | `[logs]`: the plan must name a project and an environment with log targets in `config/private/projects.json`. `[source]`: the plan must name a project registered for source search. |
+| `needs` | no | `[logs]`: log stages require a registered project/environment and targets. Workflow plans may wait for missing inputs; Jira can read its ticket before log targets exist. `[source]`: source access requires a registered project. |
 | `includes` | no | `[a, b]`: other playbooks whose servers, tools, and steps are added. Included playbooks cannot include others. |
 
 A list value may continue on indented lines.
@@ -54,3 +54,19 @@ After the frontmatter, write for the agent in this order:
 Name only tools that are in `config/hub.example.json`. `tests/test_playbooks.py` checks this, and checks that every playbook loads.
 
 A playbook change takes effect at the next Hub start (`hubctl restart`).
+
+## Workflow definitions
+
+Each shipped playbook includes one fenced `workflow` block containing JSON with entry, inputs, nodes and optional entry_choices/subflows. Each node declares tools, requires and reports (event to target stage). A report target may be a fixed stage or a data-only input/present/missing branch; this only tests whether a bound input exists, never executes expressions. Optional arguments declares literal per-tool argument constraints, such as Error before related Warning logs. Optional after maps a tool to a prerequisite tool; diff context must follow the same file's diff. Terminal targets are ready or blocked. Invalid tools, targets, references and graph cycles fail startup. There is no script/condition evaluation.
+
+Use explicit subflows to reference another definition: Jira declares rcid-bug and service-errors and reports to @rcid-bug or @service-errors. One level is supported; recursive/nested subflows are rejected. includes still combines tools/prose, not graphs. Keep graph and prose tool names and branches in agreement.
+
+Every step must document its tool, input provenance, required permission, expected evidence, next decision and stop condition. Generic report/finish actions, waiting context, refresh continuation and receipt semantics are defined once in [usage policy](../usage-policy.md#client-workflow-harness).
+
+| Playbook | Branches to maintain and test |
+|---|---|
+| rcid-bug | Cache hit/miss/insufficient; request error/no error; optional service/source; missing time; access failure. |
+| jira-ticket-bug | Cached/missing/stale ticket; refresh granted/declined; optional listed attachment; rcid/service branch; missing facts; conflicting env. |
+| service-errors | Cache hit/miss; service selection; no errors; selected error group; request/source follow-up; truncated data. |
+| pr-review | Missing URL; permission before write-capable readers; context/files/diffs; optional same-file context/threads; revision change; limited/no findings. |
+| source-search | Search or direct user path; locations/explanation/observed count; no matches; truncated/bounded search; unknown project. |

@@ -96,7 +96,7 @@ class PlanningMixin:
         )
         text = policy.plan_summary(plan, self.tools_by_server(), contracts)
         if plan.workflow is not None:
-            text += "\nWorkflow: " + json.dumps(plan.workflow.status())
+            text += "\nWorkflow: " + json.dumps(self._workflow_status(plan))
         return CallToolResult(content=[TextContent(type="text", text=text)])
 
     def _confirm_gate(self, arguments: dict[str, Any], fields: dict[str, Any]) -> CallToolResult | None:

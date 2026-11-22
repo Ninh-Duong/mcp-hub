@@ -1,86 +1,102 @@
 # mcp-hub
 
-One MCP server for your AI client that gives it your team's tools through a single, safe connection: Jira tickets,
-Bitbucket pull requests, logs (OpenObserve or Seq), and your project source code. The Hub starts each tool (a "child
-MCP"), keeps it connected, shows the AI only the allowed tools, and logs every call without its data.
+Use your AI client to investigate bugs, review pull requests and find code through one MCP connection. mcp-hub connects the client to your Jira, logs, Bitbucket and registered source repositories.
 
-**Agents: read [AGENTS.md](AGENTS.md) first.** Its rules are mandatory.
+**Agents: read [AGENTS.md](AGENTS.md) before working in this repository.**
 
-## Install (Windows)
+## Get started
 
-1. **Get mcp-hub.** Copy the address from GitHub's green **Code** button, then in a folder of your choice run:
+1. Clone this repository, then double-click **Setup.cmd** on Windows. Setup installs the Hub, its default child tools and the **mcp-hub Status** app. It copies a connection prompt for your AI client.
+2. Configure your accounts yourself in the child repositories listed by Setup. Register your source project aliases and, for log investigations, their environments and log targets. See [configuration after setup](docs/parent-child-architecture.md#post-setup-credential-configuration) and [project setup](docs/operations/shared-agent-hub.md#2-configure-projects-and-agents). Do not paste credentials into chat.
+3. Paste the copied connection prompt into your AI client and follow its instructions. For another client, follow [connect an AI client](docs/connecting-a-client.md).
+4. Open **mcp-hub Status** from the Start Menu. Start the Hub if stopped. Reload the MCP connection in your client after a Hub restart.
 
-   ```powershell
-   git clone <address you copied>
-   ```
+For macOS, Linux or manual setup, see [manual setup](docs/manual-setup.md).
 
-2. **Double-click `Setup.cmd`** in the `mcp-hub` folder. It asks nothing. It downloads the default tools that are missing
-   next to `mcp-hub`, installs everything they need and the **mcp-hub Status** app, checks each tool in turn and then
-   the Hub itself, looks for the AI clients on your PC, and copies a message for them. A tool that fails does not stop
-   the others; the summary at the end names it. Setup installs the Status app from the latest stable Release and
-   checks its SHA-256. Running Setup again refreshes that app when a newer stable version is available.
-3. **Fill in each tool's account yourself**, in that tool's own folder (the end of Setup lists where). Setup never asks
-   for, reads, or stores accounts, and you should never type them into an AI chat. Until then that tool shows `WARN`,
-   which is normal.
-4. **Paste the copied message (Ctrl+V) into each AI client** (Claude Code, Codex, Antigravity, Cursor, VS Code,
-   Gemini CLI) and restart the client when it asks.
+## Use it in your AI client
 
-The Hub then starts by itself every time you sign in to Windows. macOS, Linux, or a manual install:
-[docs/manual-setup.md](docs/manual-setup.md).
+Write **Use mcp-hub** followed by your request. With the default settings, the AI asks which playbook to use before starting each new task. Choose one, provide any missing details, and let it follow the steps.
 
-## Daily use
+| You want to | Choose | What to provide |
+|---|---|---|
+| Explain a failed request | `rcid-bug` | Project alias, environment, rcid/request ID and time window |
+| Investigate a Jira bug | `jira-ticket-bug` | Project alias, environment and issue key or URL; confirm the log time when needed |
+| Investigate a service's errors | `service-errors` | Project alias, environment, service and time window |
+| Review a Bitbucket PR | `pr-review` | PR URL, or choose a PR from the local list |
+| Find or understand code | `source-search` | Registered project alias and search text, or a relative file path |
 
-Ask your AI client, naming the tool:
+Use your configured project aliases in the examples below. Specify a timezone for log times. If you omit the time window, the AI asks rather than guessing.
+
+### Investigate one request
 
 ```text
-/mcp-hub mcp-jira-sync read ticket ABC-123
-/mcp-hub mcp-server-logs show yesterday's errors for orders-api in prod
-/mcp-hub mcp-pr-companion summarize my open pull requests
-/mcp-hub mcp-read-source where is the payment retry implemented in orders-api
+Use mcp-hub to explain why request <REQUEST_ID> failed.
+Project: <PROJECT_ALIAS>. Environment: stg.
+Time: 2026-11-22 14:00 to 14:30, UTC+07:00.
 ```
 
-- Without the `/mcp-hub` command, write `mcp-hub:<tool> <task>` the same way.
-- The AI only reads, unless you ask it to change something (for example to sync a ticket).
-- **mcp-hub Status** (Start Menu) shows whether the Hub and each tool are working. It starts, restarts, or stops the
-  Hub, turns tools on or off and shows each tool's missing settings (⚙ Settings, Config tab), and checks for updates. Press **Update** there to update enabled child MCPs,
-  the Hub, and the desktop app when a new release exists ([versions and upgrades](docs/versioning.md)).
-- To repair the install or download a missing tool, run `Setup.cmd` again. It also refreshes the Status app when a newer
-  stable Release is available. Use **Update** in the app to update the Hub and enabled child MCPs; accounts are changed
-  in each tool's own folder.
+### Investigate a Jira bug
 
-## If something does not work
+```text
+Use mcp-hub to investigate bug EX-123.
+Project: <PROJECT_ALIAS>. Environment: stg.
+Read the ticket first, then help me identify the cause.
+```
 
-| You see | Do this |
+### Investigate a service
+
+```text
+Use mcp-hub to investigate errors in <SERVICE>.
+Project: <PROJECT_ALIAS>. Environment: stg.
+Time: 2026-11-22 14:00 to 15:00, UTC+07:00.
+```
+
+### Review a pull request
+
+```text
+Use mcp-hub to review <PR_URL>.
+Focus on bugs and regressions. Cite the changed files and lines.
+```
+
+### Find code
+
+```text
+Use mcp-hub to find "retry" in project <PROJECT_ALIAS>, limited to *.py.
+Show the relevant locations and explain the implementation.
+```
+
+You can also use `/mcp-hub <server-id> <request>` when your client has the command installed. Jira/PR summaries and other narrow reads can use a custom plan; the five playbooks above follow their specific workflows.
+
+## Why the AI asks again
+
+- **Choose a playbook:** each new task starts with your choice.
+- **Provide missing details:** for example, a log time, service name or PR URL. Supply only what is missing.
+- **Allow a cache refresh:** Jira sync and many PR readers can update the encrypted local cache. The AI asks before calling a write-capable tool. Declining means it must stop or explain the limitation.
+- **Change the search scope:** a different environment, time window, project or request needs your confirmation and a new scoped plan.
+
+The answer should include evidence and any missing information. A limited search is not an exact count of the whole repository. A PR review with no findings is not proof that the PR is safe. Access failures must be reported; the AI must not use another route to bypass them.
+
+## When something does not work
+
+| What you see | What to do |
 |---|---|
-| A tool marked **WARN** or "needs credentials" | Fill in that tool's account in its own folder ([where](docs/parent-child-architecture.md#post-setup-credential-configuration)), then run `.\scripts\hubctl.ps1 restart`. |
-| A tool marked **FAIL** | Run `Setup.cmd` again; if it stays, see [docs/security-and-logging.md](docs/security-and-logging.md) → diagnosing failures. |
-| The AI client has no mcp-hub tools | Restart or reload the AI client; if it still has none, paste the Setup message again. |
-| The Status app says the Hub is stopped | Click **Start Hub** in the app. |
-| Anything else | Run `.\scripts\hubctl.ps1 status` and see [docs/security-and-logging.md](docs/security-and-logging.md) → diagnosing failures. |
+| Hub stopped | Click **Start Hub** in mcp-hub Status. |
+| No tools in the AI client | Reload its MCP connection. If still missing, follow [client connection](docs/connecting-a-client.md). |
+| Missing account or project settings | Complete the settings in the owning child repository, then restart the Hub. |
+| Upstream connection, access or timeout error | Ask the AI for the request ID and failing tool. Check the account/network/access for that system; use [diagnostics](docs/security-and-logging.md). |
+| Workflow asks for input or denies a step | Provide the missing detail or follow the allowed next step. Ask for a new plan if your scope changed. |
+| Installation files or a default child are missing | Run **Setup.cmd** again. |
 
-## Docs
+Use **Check updates**, **Update** and **Retry** in mcp-hub Status for upgrades. See [updates and versions](docs/versioning.md).
 
-| Need | Read |
-|---|---|
-| Architecture and default child MCPs | [docs/parent-child-architecture.md](docs/parent-child-architecture.md) |
-| Manual or macOS/Linux setup, what each part does | [docs/manual-setup.md](docs/manual-setup.md) |
-| Connect or reconfigure an AI client | [docs/connecting-a-client.md](docs/connecting-a-client.md), [docs/clients/](docs/clients/) |
-| What each tool does | [docs/mcps/](docs/mcps/) |
-| Faster multi-step reads (`hub__batch`) | [docs/batch.md](docs/batch.md) |
-| Local BitNet AI (planner, result condenser, offline draft) | [docs/bitnet.md](docs/bitnet.md) |
-| Plan-first usage policy (`hub__plan`) | [docs/usage-policy.md](docs/usage-policy.md) |
-| Client-controlled workflow harness (`hub__workflow`, rcid-bug pilot) | [docs/usage-policy.md](docs/usage-policy.md#client-workflow-harness) |
-| AI Agent rules entry point | [agent-rules/](agent-rules/README.md) |
-| Task playbooks (rcid, Jira bug, service errors, PR review) | [docs/playbooks/README.md](docs/playbooks/README.md) |
-| The Status app | [docs/desktop-app.md](docs/desktop-app.md) |
-| Running the shared Windows service | [docs/operations/shared-agent-hub.md](docs/operations/shared-agent-hub.md) |
-| Settings, environment variables, routes | [docs/settings.md](docs/settings.md), [docs/reference.md](docs/reference.md) |
-| Security, logs, diagnosing failures | [docs/security-and-logging.md](docs/security-and-logging.md) |
-| Add your own child MCP | [docs/adding-a-child-mcp.md](docs/adding-a-child-mcp.md), [docs/child-mcp-compatibility.md](docs/child-mcp-compatibility.md) |
-| Code layout, QC, and releases (contributors) | [docs/architecture.md](docs/architecture.md), [docs/packaging-and-qc.md](docs/packaging-and-qc.md) |
+## More information
+
+- [Playbooks and their steps](docs/playbooks/README.md)
+- [Workflow rules and permissions](docs/usage-policy.md)
+- [Child tools and contracts](docs/mcps/README.md)
+- [Architecture](docs/architecture.md) and [settings](docs/settings.md)
+- [Development and quality checks](docs/packaging-and-qc.md)
 
 ## License
 
-The Hub and its code are MIT; see [LICENSE](LICENSE).
-
-The desktop status app (`src/mcp_hub/desktop`, `packaging/desktop`) and its installer are GPL-3.0-only, because they use PySide6-Fluent-Widgets (GPL-3.0); see [src/mcp_hub/desktop/LICENSE](src/mcp_hub/desktop/LICENSE). The other libraries and their licenses are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+The Hub core is MIT; see [LICENSE](LICENSE). The desktop app and installer are GPL-3.0-only; see [desktop license](src/mcp_hub/desktop/LICENSE). Dependency licenses are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

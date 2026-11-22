@@ -12,6 +12,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from . import policy
 from .workflow import WorkflowError
+from .workflow_scope import result_observations, error_kind
 from ..batch import parse_calls, BatchRefused
 from ..results.runtime import FULL_RESULT_TOOL, error_result
 from ..results.shape import result_succeeded
@@ -22,9 +23,9 @@ _SCHEMA = {
     "type": "object", "additionalProperties": False,
     "properties": {
         "hub_plan_id": {"type": "string"},
-        "action": {"enum": ["status", "report", "finish"]},
-        "decision": {"enum": ["cache_hit", "cache_miss", "cache_insufficient", "findings",
-                              "access_blocked", "source_found", "source_read"]},
+        "action": {"enum": ["status", "report", "finish", "provide_input"]},
+        "decision": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"},
+        "inputs": {"type": "object", "additionalProperties": {"type": "string"}},
         "refs": {"type": "array", "items": {"type": "string"}, "uniqueItems": True},
         "needs_source": {"type": "boolean"},
         "outcome": {"enum": ["supported", "insufficient", "blocked"]},
@@ -36,10 +37,10 @@ _SCHEMA = {
 def workflow_tool() -> Tool:
     return Tool(
         name=WORKFLOW_TOOL, description=(
-            "Inspect rcid-bug workflow status, report client findings with receipt refs, or finish. "
-            "After snapshot listing report cache_hit/cache_miss; after reading cache report findings "
-            "(needs_source true/false) or cache_insufficient. After logs report findings; after source "
-            "search report source_found; after source read report source_read. Failed access: access_blocked. "
+            "Inspect a playbook workflow, provide missing user context, report findings with receipt refs, or finish. "
+            "Follow status missing_inputs, required_writes, allowed_tools and report_options. Ask the user before "
+            "log time selection or write-capable cache reads/refresh. Fill locked context once; use continue_from "
+            "in hub__plan after permission for additional refresh writes. Findings are client-reported. "
             "Finish supported only at ready, otherwise insufficient/blocked. Never invent refs."
         ), input_schema=_SCHEMA, annotations={"readOnlyHint": False, "openWorldHint": False},
     )
@@ -55,7 +56,7 @@ class WorkflowRuntimeMixin:
             return error_result("Policy: invalid hub__workflow arguments.")
         plan = self.plans.get(arguments["hub_plan_id"])
         if plan is None or plan.workflow is None:
-            return error_result("Policy: workflow unknown; create a new rcid-bug plan.")
+            return error_result("Policy: workflow unknown; create a new playbook plan.")
         workflow = plan.workflow
         try:
             action = arguments["action"]
@@ -63,14 +64,27 @@ class WorkflowRuntimeMixin:
                 workflow.report(arguments.get("decision"), arguments.get("refs", []), arguments.get("needs_source"))
             elif action == "finish":
                 workflow.finish(arguments.get("outcome"), arguments.get("refs", []))
-        except WorkflowError as exc:
+            elif action == "provide_input":
+                policy.provide_workflow_input(plan, arguments.get("inputs", {}), self._workflow_catalog())
+        except (WorkflowError, policy.PolicyRefused) as exc:
             return self._workflow_refusal(workflow, str(exc), request_id)
         if action != "status":
             metrics = workflow.status()
             self.audit.write("hub.workflow.updated", request_id=request_id, action=action, stage=workflow.stage,
                              outcome=workflow.outcome, calls=len(workflow.receipts), refusals=workflow.refusals,
                              tool_ms=metrics["tool_ms"], elapsed_ms=metrics["elapsed_ms"])
-        return CallToolResult(content=[TextContent(type="text", text=json.dumps(workflow.status()))])
+        return CallToolResult(content=[TextContent(type="text", text=json.dumps(self._workflow_status(plan)))])
+
+    def _workflow_catalog(self) -> policy.PlanCatalog:
+        return policy.PlanCatalog(self._call_facts, self.playbooks, self.projects,
+                                  max_window_hours=self.settings.jobs.max_window_hours,
+                                  policy_settings=self.settings.policy)
+
+    def _workflow_status(self, plan: Any) -> dict[str, Any]:
+        status = plan.workflow.status()
+        status["required_writes"] = [name for name in status["allowed_tools"] if name in self._call_facts
+                                     and not self._call_facts[name].read_only and name not in plan.writes]
+        return status
 
     async def _call_planned(self, name: str, arguments: dict[str, Any], request_id: str,
                             client_name: str, options: Any = None) -> CallToolResult:
@@ -141,13 +155,28 @@ class WorkflowRuntimeMixin:
             raise
         finally:
             if workflow is not None:
-                receipt = workflow.record(name, outcome, round((perf_counter() - started) * 1000))
+                observed = result_observations(result, workflow.max_receipts, workflow.max_input_chars) if result else {}
+                if result is not None and outcome == "failed":
+                    observed["error_kind"] = error_kind(result)
+                if name.startswith("pr__") and "file_id" in arguments:
+                    observed["file_id"] = str(arguments["file_id"])[:workflow.max_input_chars]
+                receipt = workflow.record(name, outcome, round((perf_counter() - started) * 1000), observations=observed)
                 self.audit.write("hub.workflow.call", request_id=request_id, stage=receipt.stage,
                                  outcome=outcome, duration_ms=receipt.duration_ms, tool=name)
         if workflow is None:
             return result
+        if name == "jira__sync_ticket" and outcome == "succeeded":
+            self._allow_refreshed_ticket(plan)
         return attach_workflow(result, {"hub_plan_id": plan.plan_id, "receipt_id": receipt.receipt_id,
-                                        "stage": workflow.stage, "allowed_tools": workflow.status()["allowed_tools"]})
+                                        "stage": workflow.stage, "allowed_tools": workflow.allowed_tools()})
+
+    def _allow_refreshed_ticket(self, plan: Any) -> None:
+        """An explicitly permitted refresh allows one intentional read of the new ticket revision."""
+        from ..results.cache import cache_key
+
+        key = cache_key("jira__read_ticket", {"issue_key": plan.workflow.context["issue_key"]})
+        plan.seen.pop(key, None)
+        plan.succeeded_at.pop(key, None)
 
     def _workflow_result(self, plan: Any, result: CallToolResult) -> CallToolResult:
         """Link the retained receipt to a full-result reference after condensation/packing."""

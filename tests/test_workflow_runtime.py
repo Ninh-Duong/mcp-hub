@@ -149,7 +149,8 @@ class WorkflowRuntimeTest(unittest.IsolatedAsyncioTestCase):
     async def test_invalid_pilot_and_non_enforcing_modes(self):
         invalid = await call(self.runtime, "hub__plan", {"task": "request", "playbook": "rcid-bug",
                                                         "project": "orders", "env": "dev"})
-        self.assertTrue(invalid.is_error)
+        self.assertFalse(invalid.is_error)
+        self.assertIn('"stage": "awaiting_input"', invalid.content[0].text)
         for mode in ("warn", "off"):
             runtime, client = runtime_fixture(Path(self.tmp.name), mode)
             pid = await create_plan(runtime)
