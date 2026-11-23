@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import PurePosixPath
 from typing import Any
 
-from .workflow_definition import INPUTS
+from .workflow_definition import INPUTS, SOURCE_ROLES
 
 
 class WorkflowError(ValueError):
@@ -32,6 +32,11 @@ def fill_context(context: dict[str, Any], inputs: Any, max_chars: int, max_hours
         if not isinstance(value, str) or not value.strip() or len(value) > max_chars:
             raise WorkflowError(f"Input {key} must be a bounded, non-empty string.")
         clean = absolute(value).isoformat() if key in {"since", "until"} else value.strip()
+        if key == "related_issue_keys":
+            keys = [key.strip().upper() for key in clean.split(",")]
+            if not all(re.fullmatch(r"[A-Z][A-Z0-9_]*-\d+", key) for key in keys):
+                raise WorkflowError("Provide selected related ticket keys separated by commas.")
+            clean = ",".join(dict.fromkeys(keys))
         if key == "path" and not safe_path(clean):
             raise WorkflowError("Source path must be relative and stay in the registered project.")
         if key in updated and updated[key] != clean:
@@ -54,7 +59,10 @@ def safe_path(value: str) -> bool:
 def missing_inputs(context: dict[str, Any], required: list[str] | tuple[str, ...]) -> list[str]:
     missing = []
     for key in dict.fromkeys(required):
-        if key == "window":
+        if key == "source_selection":
+            if not source_projects(context):
+                missing.append("source_selection")
+        elif key == "window":
             missing.extend(name for name in ("since", "until") if name not in context)
         elif key == "log_target":
             if not all(context.get(name) for name in ("organization", "stream", "field")):
@@ -64,19 +72,34 @@ def missing_inputs(context: dict[str, Any], required: list[str] | tuple[str, ...
     return list(dict.fromkeys(missing))
 
 
+def source_projects(context: dict[str, Any]) -> set[str]:
+    return {context[key] for key in SOURCE_ROLES if context.get(key)}
+
+
+def related_issues(context: dict[str, Any]) -> set[str]:
+    return set(context.get("related_issue_keys", "").split(",")) - {""}
+
+
 def check_scope(tool: str, arguments: dict[str, Any], context: dict[str, Any], max_limit: int,
-                paths: set[str]) -> None:
+                paths: set[str], projects: set[str] | None = None, issues: set[str] | None = None) -> None:
     for key in ("project", "env", "rcid", "issue_key", "pr_url", "organization", "stream", "field", "service"):
+        if key == "project" and tool.startswith("source__") and projects is not None:
+            continue
+        if key == "issue_key" and tool.startswith("jira__") and issues is not None:
+            continue
         if key in arguments and key in context and arguments[key] != context[key]:
             raise WorkflowError(f"Pass exactly the plan's {key}.")
     if arguments.get("force", False) is not False or arguments.get("refresh", False) is not False:
         raise WorkflowError("Forced refresh requires a separate explicit request and custom scoped plan.")
     if tool.startswith("source__"):
-        check_source(tool, arguments, context, paths)
+        check_source(tool, arguments, context, paths, projects)
     if tool.startswith("pr__") and tool != "pr__list_synced_prs":
         require_bound(arguments, context, ("pr_url",))
     if tool.startswith("jira__"):
-        require_bound(arguments, context, ("issue_key",))
+        if issues is None:
+            require_bound(arguments, context, ("issue_key",))
+        elif arguments.get("issue_key") not in issues:
+            raise WorkflowError("Read only the explicitly confirmed related tickets.")
     if tool == "logs__list_ai_context_snapshots":
         require_bound(arguments, context, ("env",))
     if tool in {"logs__find_openobserve_logs_by_rcid", "logs__get_openobserve_service_logs"}:
@@ -93,18 +116,23 @@ def require_bound(arguments: dict[str, Any], context: dict[str, Any], keys: tupl
             raise WorkflowError(f"Supply the bound {key}; ask for missing context first.")
 
 
-def check_source(tool: str, arguments: dict[str, Any], context: dict[str, Any], paths: set[str]) -> None:
-    require_bound(arguments, context, ("project",))
+def check_source(tool: str, arguments: dict[str, Any], context: dict[str, Any], paths: set[str],
+                 projects: set[str] | None = None) -> None:
+    if projects is None:
+        require_bound(arguments, context, ("project",))
+    elif arguments.get("project") not in projects:
+        raise WorkflowError("Use only a confirmed source project alias.")
     if tool == "source__search":
         if not isinstance(arguments.get("query"), str) or not arguments["query"].strip():
             raise WorkflowError("Provide a bounded source search query.")
-        if "query" in context:
+        if "query" in context and projects is None:
             require_bound(arguments, context, ("query",))
         if "glob" in context:
             require_bound(arguments, context, ("glob",))
     if tool == "source__read":
         path = arguments.get("path")
-        if not isinstance(path, str) or not safe_path(path) or path not in paths | {context.get("path")}:
+        user_paths = {context.get("path")} if projects is None else set()
+        if not isinstance(path, str) or not safe_path(path) or path not in paths | user_paths:
             raise WorkflowError("Read only a searched path or the user's bound source path.")
 
 

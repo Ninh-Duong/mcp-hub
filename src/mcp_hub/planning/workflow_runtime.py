@@ -41,6 +41,8 @@ def workflow_tool() -> Tool:
             "Follow status missing_inputs, required_writes, allowed_tools and report_options. Ask the user before "
             "log time selection or write-capable cache reads/refresh. Fill locked context once; use continue_from "
             "in hub__plan after permission for additional refresh writes. Findings are client-reported. "
+            "For ticket-review, select registered be_project/db_project/optional fe_project and optional related_issue_keys, "
+            "wait for user confirmation, then report sources_confirmed before additional ticket or source reads. "
             "Finish supported only at ready, otherwise insufficient/blocked. Never invent refs."
         ), input_schema=_SCHEMA, annotations={"readOnlyHint": False, "openWorldHint": False},
     )
@@ -84,6 +86,9 @@ class WorkflowRuntimeMixin:
         status = plan.workflow.status()
         status["required_writes"] = [name for name in status["allowed_tools"] if name in self._call_facts
                                      and not self._call_facts[name].read_only and name not in plan.writes]
+        if plan.workflow.definition.multi_source:
+            status["source_choices"] = sorted(self.projects)
+            status["source_roles"] = ["be_project", "db_project", "fe_project"]
         return status
 
     async def _call_planned(self, name: str, arguments: dict[str, Any], request_id: str,
@@ -160,21 +165,25 @@ class WorkflowRuntimeMixin:
                     observed["error_kind"] = error_kind(result)
                 if name.startswith("pr__") and "file_id" in arguments:
                     observed["file_id"] = str(arguments["file_id"])[:workflow.max_input_chars]
+                if name.startswith("source__") and isinstance(arguments.get("project"), str):
+                    observed["project"] = arguments["project"][:workflow.max_input_chars]
+                if name.startswith("jira__") and isinstance(arguments.get("issue_key"), str):
+                    observed["issue_key"] = arguments["issue_key"][:workflow.max_input_chars]
                 receipt = workflow.record(name, outcome, round((perf_counter() - started) * 1000), observations=observed)
                 self.audit.write("hub.workflow.call", request_id=request_id, stage=receipt.stage,
                                  outcome=outcome, duration_ms=receipt.duration_ms, tool=name)
         if workflow is None:
             return result
         if name == "jira__sync_ticket" and outcome == "succeeded":
-            self._allow_refreshed_ticket(plan)
+            self._allow_refreshed_ticket(plan, arguments["issue_key"])
         return attach_workflow(result, {"hub_plan_id": plan.plan_id, "receipt_id": receipt.receipt_id,
                                         "stage": workflow.stage, "allowed_tools": workflow.allowed_tools()})
 
-    def _allow_refreshed_ticket(self, plan: Any) -> None:
+    def _allow_refreshed_ticket(self, plan: Any, issue_key: str) -> None:
         """An explicitly permitted refresh allows one intentional read of the new ticket revision."""
         from ..results.cache import cache_key
 
-        key = cache_key("jira__read_ticket", {"issue_key": plan.workflow.context["issue_key"]})
+        key = cache_key("jira__read_ticket", {"issue_key": issue_key})
         plan.seen.pop(key, None)
         plan.succeeded_at.pop(key, None)
 

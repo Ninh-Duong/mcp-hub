@@ -11,6 +11,7 @@ docs/playbooks/
   README.md            # Catalog of all playbooks
   rcid-bug.md          # Investigate one request or correlation ID
   jira-ticket-bug.md   # Start an investigation from a Jira ticket
+  ticket-review.md     # Review requirements and compare confirmed source repositories
   service-errors.md    # Investigate errors for one service
   pr-review.md         # Review a pull request
   source-search.md     # Search a registered source repository
@@ -24,6 +25,7 @@ At startup, the Hub loads each Markdown definition in this directory and skips R
 |---|---|
 | [rcid-bug](rcid-bug.md) | The user gives an rcid, request ID, or correlation ID. |
 | [jira-ticket-bug](jira-ticket-bug.md) | The user gives a Jira issue for a bug. |
+| [ticket-review](ticket-review.md) | Review ticket clarity, API/SP changes and confirmations for product, BE, FE and QC against selected sources. |
 | [service-errors](service-errors.md) | The user names a service, without an rcid. |
 | [pr-review](pr-review.md) | The user wants a correctness review of a pull request. |
 | [source-search](source-search.md) | The user asks to search or count code in a registered repository. |
@@ -70,3 +72,6 @@ Every step must document its tool, input provenance, required permission, expect
 | service-errors | Cache hit/miss; service selection; no errors; selected error group; request/source follow-up; truncated data. |
 | pr-review | Missing URL; permission before write-capable readers; context/files/diffs; optional same-file context/threads; revision change; limited/no findings. |
 | source-search | Search or direct user path; locations/explanation/observed count; no matches; truncated/bounded search; unknown project. |
+| ticket-review | Ticket gaps; cache permissions; source/related-ticket confirmation; BE/DB/optional FE comparison; grouped questions and related-feature impact. |
+
+Ticket-review explicitly opts into multi_source. Its interaction-only confirmation node has no tools and requires successful ticket evidence. Select registered be_project/db_project/fe_project aliases and optional related_issue_keys, then report sources_confirmed after the user agrees. Selection may be corrected before confirmation; additions/changes afterwards require a new scoped task. source_coverage requires source-read evidence from every selected alias before review_complete. Other playbooks retain their original project and ticket restrictions.

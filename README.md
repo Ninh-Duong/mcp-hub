@@ -1,6 +1,6 @@
 # mcp-hub
 
-Use your AI client to investigate bugs, review pull requests and find code through one MCP connection. mcp-hub connects the client to your Jira, logs, Bitbucket and registered source repositories.
+Use your AI client to review tickets, investigate bugs, review pull requests and find code through one MCP connection. mcp-hub connects the client to your Jira, logs, Bitbucket and registered source repositories.
 
 **Agents: read [AGENTS.md](AGENTS.md) before working in this repository.**
 
@@ -21,6 +21,7 @@ Write **Use mcp-hub** followed by your request. With the default settings, the A
 |---|---|---|
 | Explain a failed request | `rcid-bug` | Project alias, environment, rcid/request ID and time window |
 | Investigate a Jira bug | `jira-ticket-bug` | Project alias, environment and issue key or URL; confirm the log time when needed |
+| Review a ticket before implementation | `ticket-review` | Issue key; confirm BE/database/optional FE source aliases and any related tickets before comparison |
 | Investigate a service's errors | `service-errors` | Project alias, environment, service and time window |
 | Review a Bitbucket PR | `pr-review` | PR URL, or choose a PR from the local list |
 | Find or understand code | `source-search` | Registered project alias and search text, or a relative file path |
@@ -51,6 +52,16 @@ Project: <PROJECT_ALIAS>. Environment: stg.
 Time: 2026-11-22 14:00 to 15:00, UTC+07:00.
 ```
 
+### Review a ticket before implementation
+
+```text
+Use mcp-hub to review ticket EX-123 for missing or unclear requirements.
+Ask me which BE, database and optional FE sources and related tickets to compare before reading them.
+Separate confirmations for product, BE, FE and QC, and identify API/SP changes and related feature impact.
+```
+
+Source selection uses registered project aliases. If you name folders, confirm their registered aliases first. The DB source repository supplies SP/schema files; this review does not query a live database or change the ticket/code.
+
 ### Review a pull request
 
 ```text
@@ -65,7 +76,7 @@ Use mcp-hub to find "retry" in project <PROJECT_ALIAS>, limited to *.py.
 Show the relevant locations and explain the implementation.
 ```
 
-You can also use `/mcp-hub <server-id> <request>` when your client has the command installed. Jira/PR summaries and other narrow reads can use a custom plan; the five playbooks above follow their specific workflows.
+You can also use `/mcp-hub <server-id> <request>` when your client has the command installed. Jira/PR summaries and other narrow reads can use a custom plan; the playbooks above follow their specific workflows.
 
 ## Why the AI asks again
 

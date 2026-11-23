@@ -87,11 +87,11 @@ Arguments are checked against the child's input schema in warn mode (`protocol.v
 
 ## Client workflow harness
 
-All five shipped playbooks have a client-controlled workflow in policy enforce mode. The client chooses actions; the Hub checks scope, dependencies, permissions and progress. No Hub model loop is added. Each playbook owns a validated JSON graph in a fenced `workflow` block; see [writing a playbook](playbooks/README.md#writing-a-playbook). `includes` merges tools/prose only; Jira explicitly references the rcid and service subflows. Graph tools, inputs, targets, references and cycles are checked at startup. Arbitrary scripts/conditions are not executed.
+All shipped playbooks have a client-controlled workflow in policy enforce mode. The client chooses actions; the Hub checks scope, dependencies, permissions and progress. No Hub model loop is added. Each playbook owns a validated JSON graph in a fenced `workflow` block; see [writing a playbook](playbooks/README.md#writing-a-playbook). `includes` merges tools/prose only; Jira explicitly references the rcid and service subflows. Graph tools, inputs, targets, references and cycles are checked at startup. Arbitrary scripts/conditions are not executed.
 
 ### Context and missing inputs
 
-`hub__plan` accepts project/env plus rcid, issue_key, service, pr_url, query, glob or path as appropriate. `since` and `until` are absolute timezone-qualified timestamps. No time window is inferred. Missing context returns stage `awaiting_input`, `active_stage`, `missing_inputs` and the available next operations. Ask the user for missing log times before reading logs. The project's existing default environment remains visible in the plan when used.
+`hub__plan` accepts project/env plus rcid, issue_key, service, pr_url, query, glob or path as appropriate. Ticket-review additionally accepts be_project/db_project/fe_project and selected related_issue_keys. `since` and `until` are absolute timezone-qualified timestamps. No time window is inferred. Missing context returns stage `awaiting_input`, `active_stage`, `missing_inputs` and the available next operations. Ask the user for missing log times before reading logs. The project's existing default environment remains visible in the plan when used.
 
 Use `hub__workflow` action `provide_input` with `inputs` to fill missing context. Values are bounded strings and may only be filled once; provide since/until together. Targets are resolved only from registered project configuration, never from caller-supplied organization/stream values. Jira may read its ticket before log targets exist; logs stay blocked until targets and times are available. Unknown projects/access errors cannot be bypassed. An environment or other locked value cannot change through provide_input or continue_from.
 
@@ -137,3 +137,15 @@ Use scripts/call_report.py for aggregate workflow calls/refusals/finishes and to
 | `off` | No plan needed. `hub_plan_id` is still accepted and removed. |
 
 Investigation jobs are not affected. Their specialists call children through the job runner, which applies its own limits and approval policy ([shared-agent-hub.md](operations/shared-agent-hub.md)).
+
+## Ticket requirements review
+
+Select ticket-review to review requirements and implementation impact rather than investigate a runtime bug. Read the primary Jira ticket first, summarize gaps, then ask the user to confirm BE/database/optional FE registered aliases and any related ticket keys. No source or related-ticket call is allowed before the interaction-only sources_confirmed decision. At least one source is required for comparison; declining can still return useful ticket questions with an insufficient outcome.
+
+Role aliases must exist in Hub project configuration and in the source child's registration. status lists aliases without roots. A folder mentioned by the user is not authority to read the filesystem or register it silently. Selections may be corrected/cleared before confirmation. After confirmation, adding/replacing a role or related key requires a new scoped task; refresh continuation must preserve the complete selection.
+
+The definition opts into multi_source/multi_ticket; existing playbooks keep their original restrictions. Source calls use only selected aliases. Search receipts carry project, so a path found in BE cannot unlock the same path in DB/FE. Related Jira calls use only selected keys and receipts carry issue_key; attachments and refresh prerequisites must belong to that issue. The primary ticket key stays locked. No transitive issue discovery is implicit.
+
+Read each selected related ticket, refreshing its missing/stale cache only after permission and an actual read attempt. If a related cache remains missing, record it as a limitation and continue useful source analysis; a supported finish requires successful referenced reads for every selected related ticket and source. Empty/bounded source searches never prove an implementation is absent. A recognized access failure blocks instead of triggering another route.
+
+DB repository files are the primary SP/schema evidence. Live DB reads require a separate explicit request and scoped environment/database. The default review does not execute SQL, modify code, comment on Jira or implement proposed API/SP changes. The report separates common/product, BE/DB, FE and QC confirmations, candidate changes, impact evidence/hypotheses and acceptance/regression cases. FE source omitted means FE implementation claims are unverified. Review completion is distinct from implementation readiness.
