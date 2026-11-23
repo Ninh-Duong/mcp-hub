@@ -137,7 +137,7 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Required before any child tool. Pick the playbook that matches the user's input and pass it with the project and env; or declare the child server IDs and planned steps yourself. Returns a hub_plan_id to pass with every later call, the steps to follow, the log targets, and each child's rules. The Hub then refuses calls outside the plan: other children or tools, another environment, organization, or stream, a larger limit, undeclared writes, connection checks before a failure, and identical repeats.\nPlaybooks:\n- jira-ticket-bug: The user gives a Jira issue key or URL for a bug and wants its cause.\n- pr-review: The user gives a Bitbucket pull request URL and wants a review, a summary, or an answer about its changes.\n- rcid-bug: The user gives an rcid, request ID, or correlation ID and wants to know why that request failed.\n- service-errors: The user names a service (and maybe a time) and wants to know what is failing in it, without an rcid.\n- source-search: The user asks to search or count code in a registered source repository, such as functions, text, or patterns.",
+    "description": "Required before any child tool. Pick the playbook that matches the user's input and pass it with the project and env; or declare the child server IDs and planned steps yourself. Returns a hub_plan_id to pass with every later call, the steps to follow, the log targets, and each child's rules. The Hub then refuses calls outside the plan: other children or tools, another environment, organization, or stream, a larger limit, undeclared writes, connection checks before a failure, and identical repeats.\nPlaybooks:\n- jira-ticket-bug: The user gives a Jira issue key or URL for a bug and wants its cause.\n- pr-review: The user gives a Bitbucket pull request URL and wants a correctness review of its changes.\n- rcid-bug: The user gives an rcid, request ID, or correlation ID and wants to know why that request failed.\n- service-errors: The user names a service (and maybe a time) and wants to know what is failing in it, without an rcid.\n- source-search: The user asks to search or count code in a registered source repository, such as functions, text, or patterns.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -149,8 +149,21 @@
           "description": "True only when the user asked to check connections.",
           "type": "boolean"
         },
+        "continue_from": {
+          "description": "Same-scope predecessor after the user permits exact additional cache-refresh writes.",
+          "type": "string"
+        },
         "env": {
           "description": "The environment the user named (dev, stg, prod); keep it for the task.",
+          "type": "string"
+        },
+        "glob": {
+          "type": "string"
+        },
+        "issue_key": {
+          "type": "string"
+        },
+        "path": {
           "type": "string"
         },
         "playbook": {
@@ -164,8 +177,14 @@
           ],
           "type": "string"
         },
+        "pr_url": {
+          "type": "string"
+        },
         "project": {
           "description": "The project alias (see hub__list_projects); log playbooks need it.",
+          "type": "string"
+        },
+        "query": {
           "type": "string"
         },
         "rcid": {
@@ -179,6 +198,9 @@
           },
           "minItems": 1,
           "type": "array"
+        },
+        "service": {
+          "type": "string"
         },
         "since": {
           "description": "UTC window for log/SQL time filters.",
@@ -235,7 +257,7 @@
       "openWorldHint": false,
       "readOnlyHint": false
     },
-    "description": "Inspect rcid-bug workflow status, report client findings with receipt refs, or finish. After snapshot listing report cache_hit/cache_miss; after reading cache report findings (needs_source true/false) or cache_insufficient. After logs report findings; after source search report source_found; after source read report source_read. Failed access: access_blocked. Finish supported only at ready, otherwise insufficient/blocked. Never invent refs.",
+    "description": "Inspect a playbook workflow, provide missing user context, report findings with receipt refs, or finish. Follow status missing_inputs, required_writes, allowed_tools and report_options. Ask the user before log time selection or write-capable cache reads/refresh. Fill locked context once; use continue_from in hub__plan after permission for additional refresh writes. Findings are client-reported. Finish supported only at ready, otherwise insufficient/blocked. Never invent refs.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -243,22 +265,22 @@
           "enum": [
             "status",
             "report",
-            "finish"
+            "finish",
+            "provide_input"
           ]
         },
         "decision": {
-          "enum": [
-            "cache_hit",
-            "cache_miss",
-            "cache_insufficient",
-            "findings",
-            "access_blocked",
-            "source_found",
-            "source_read"
-          ]
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "type": "string"
         },
         "hub_plan_id": {
           "type": "string"
+        },
+        "inputs": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
         },
         "needs_source": {
           "type": "boolean"

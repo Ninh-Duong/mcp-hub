@@ -21,16 +21,16 @@ the files are read once at start, never on the tool-call path.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from ..config import DOCS_ROOT, ConfigError
+from .workflow_definition import WorkflowDefinition, parse_definition, compile_definition
 
 PLAYBOOK_DIR = DOCS_ROOT / "playbooks"
 NEEDS = frozenset({"logs", "source"})
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 _LIST_KEYS = ("servers", "tools", "needs", "includes")
-WORKFLOW_STAGES = ("cache_list", "cache_read", "logs", "source_search", "source_read")
 
 
 @dataclass(frozen=True)
@@ -43,7 +43,7 @@ class Playbook:
     needs: tuple[str, ...]
     includes: tuple[str, ...]
     body: str
-    workflow: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    workflow: WorkflowDefinition | None = None
 
 
 def load_playbooks(directory: Path = PLAYBOOK_DIR) -> dict[str, Playbook]:
@@ -56,7 +56,10 @@ def load_playbooks(directory: Path = PLAYBOOK_DIR) -> dict[str, Playbook]:
             continue
         playbook = parse_playbook(path.read_text(encoding="utf-8"), path.stem)
         raw[playbook.id] = playbook
-    return {playbook_id: _merged(raw[playbook_id], raw) for playbook_id in raw}
+    merged = {playbook_id: _merged(raw[playbook_id], raw) for playbook_id in raw}
+    definitions = {name: playbook.workflow for name, playbook in raw.items()}
+    return {name: replace(playbook, workflow=compile_definition(name, definitions, set(playbook.tools)))
+            if playbook.workflow else playbook for name, playbook in merged.items()}
 
 
 def parse_playbook(text: str, file_id: str) -> Playbook:
@@ -73,7 +76,7 @@ def parse_playbook(text: str, file_id: str) -> Playbook:
         raise ConfigError(f"Playbook {file_id}: 'needs' may contain only: {', '.join(sorted(NEEDS))}")
     return Playbook(
         playbook_id, fields["when"], lists["servers"], lists["tools"], _parse_limit(fields.get("max_limit"), file_id),
-        lists["needs"], lists["includes"], body.strip(), _workflow(fields, lists["tools"], file_id),
+        lists["needs"], lists["includes"], body.strip(), parse_definition(body, file_id),
     )
 
 
@@ -94,20 +97,6 @@ def _split_frontmatter(text: str, file_id: str) -> tuple[dict[str, str], str]:
         key = key.strip()
         fields[key] = value.strip()
     return fields, "\n".join(lines[end + 1:])
-
-
-def _workflow(fields: dict[str, str], tools: tuple[str, ...], file_id: str) -> dict[str, tuple[str, ...]]:
-    keys = {key for key in fields if key.startswith("workflow_")}
-    if not keys:
-        return {}
-    expected = {f"workflow_{stage}" for stage in WORKFLOW_STAGES}
-    if file_id != "rcid-bug" or keys != expected or fields.get("includes", "[]") != "[]":
-        raise ConfigError(f"Playbook {file_id}: workflow requires all pilot stages and no includes")
-    stages = {stage: _parse_list(fields[f"workflow_{stage}"], file_id, stage) for stage in WORKFLOW_STAGES}
-    flattened = [tool for names in stages.values() for tool in names]
-    if any(not names for names in stages.values()) or set(flattened) - set(tools) or len(set(flattened)) != len(flattened):
-        raise ConfigError(f"Playbook {file_id}: workflow tools must be non-empty, unique and declared")
-    return stages
 
 
 def _parse_list(value: str, file_id: str, key: str) -> tuple[str, ...]:
@@ -138,7 +127,7 @@ def _merged(playbook: Playbook, all_playbooks: dict[str, Playbook]) -> Playbook:
     limits = [p.max_limit for p in group if p.max_limit is not None]
     body = "\n\n".join([playbook.body, *(f"# Included: {p.id}\n\n{p.body}" for p in included)])
     return Playbook(playbook.id, playbook.when, _union(group, "servers"), _union(group, "tools"),
-                    min(limits) if limits else None, _union(group, "needs"), playbook.includes, body)
+                    min(limits) if limits else None, _union(group, "needs"), playbook.includes, body, playbook.workflow)
 
 
 def _union(group: tuple[Playbook, ...], attr: str) -> tuple[str, ...]:

@@ -122,6 +122,7 @@ class BatchSettings:
 
 @dataclass(frozen=True)
 class PolicySettings:
+    workflow_input_max_chars: int = 2000
     workflow_max_receipts: int = 128
     workflow_initial_window_seconds: float = 3600.0
     workflow_max_limit: int = 50

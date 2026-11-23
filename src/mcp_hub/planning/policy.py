@@ -21,6 +21,8 @@ removes it before a call reaches the child. Pure logic: the Hub runtime does the
 from __future__ import annotations
 
 import secrets
+import asyncio
+import copy
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping
@@ -29,7 +31,8 @@ from datetime import datetime
 from typing import Any, NamedTuple
 
 from .merge import parse_window
-from .workflow import Workflow, WorkflowError, pilot_window
+from .workflow import Workflow, WorkflowError
+from .workflow_scope import fill_context
 
 from mcp.types import Tool
 
@@ -125,6 +128,8 @@ _PLAN_SCHEMA: dict[str, Any] = {
     "properties": {
         "task": {"type": "string", "description": "The user's request, in one or two sentences."},
         "rcid": {"type": "string", "description": "Required request/correlation ID for rcid-bug workflow."},
+        **{name: {"type": "string"} for name in ("issue_key", "pr_url", "service", "query", "glob", "path")},
+        "continue_from": {"type": "string", "description": "Same-scope predecessor after the user permits exact additional cache-refresh writes."},
         "servers": {**_STRING_LIST, "minItems": 1, "description": "Child server IDs this task needs (see hub__status)."},
         "env": {"type": "string", "description": "The environment the user named (dev, stg, prod); keep it for the task."},
         "steps": {**_STRING_LIST, "minItems": 1, "maxItems": MAX_STEPS,
@@ -197,12 +202,40 @@ class PlanBook:
 
     def create(self, arguments: Mapping[str, Any], catalog: PlanCatalog) -> Plan:
         plan = parse_plan(arguments, catalog, f"plan-{secrets.token_hex(16)}")
+        if arguments.get("continue_from") is not None:
+            self._continue(plan, arguments["continue_from"])
         plan.clock = self.clock
         plan.repeat_after = self.repeat_after_seconds
         self._plans[plan.plan_id] = plan
         while len(self._plans) > self.max_plans:
             self._plans.popitem(last=False)
         return plan
+
+    def _continue(self, plan: Plan, previous_id: Any) -> None:
+        previous = self.get(previous_id)
+        if previous is None or previous.workflow is None or plan.workflow is None:
+            raise PolicyRefused("Continuation needs a known workflow plan; restart or eviction cannot be resumed.")
+        old = previous.workflow
+        if old.lock.locked() or old.stage in {"finished", "superseded", "blocked"}:
+            raise PolicyRefused("Cannot continue an active, blocked, finished or superseded workflow.")
+        if previous.task != plan.task or previous.playbook.id != plan.playbook.id:
+            raise PolicyRefused("Continuation must keep the same task and playbook.")
+        if old.context != plan.workflow.context or previous.servers != plan.servers or previous.connection_checks != plan.connection_checks:
+            raise PolicyRefused("Continuation must keep exactly the predecessor's scope/context.")
+        if not previous.writes <= plan.writes:
+            raise PolicyRefused("Continuation may only add cache-refresh write permissions.")
+        added = plan.writes - previous.writes
+        allowed = {"jira__sync_ticket", "pr__get_pr_context_pack", "pr__search_pr_files", "pr__get_pr_file_changes",
+                   "pr__get_pr_file_context", "pr__get_pr_comments", "pr__get_pr_comment", "pr__get_pr_sync_status"}
+        if not added or added - allowed:
+            raise PolicyRefused("Continuation must add only explicitly permitted cache-refresh tools.")
+        plan.workflow = copy.copy(old)
+        plan.workflow.lock = asyncio.Lock()
+        plan.workflow.context = dict(old.context)
+        plan.workflow.receipts = dict(old.receipts)
+        plan.workflow.decisions = copy.deepcopy(old.decisions)
+        plan.seen, plan.succeeded_at, plan.had_failure = dict(previous.seen), dict(previous.succeeded_at), previous.had_failure
+        old.stage = "superseded"
 
 
 def parse_plan(arguments: Mapping[str, Any], catalog: PlanCatalog, plan_id: str) -> Plan:
@@ -236,19 +269,49 @@ def _attach_workflow(plan: Plan, arguments: Mapping[str, Any], catalog: PlanCata
         return
     settings = catalog.policy_settings
     try:
-        plan.window = pilot_window({**arguments, "env": plan.env}, settings.workflow_initial_window_seconds)
+        inputs = {key: value for key, value in arguments.items()
+                  if key in {"rcid", "issue_key", "pr_url", "service", "query", "glob", "path", "since", "until"}}
+        if plan.project is not None:
+            inputs["project"] = plan.project
+        if plan.env is not None:
+            inputs["env"] = plan.env
+        context = fill_context({}, inputs, settings.workflow_input_max_chars, catalog.max_window_hours)
     except WorkflowError as exc:
         raise PolicyRefused(str(exc)) from None
-    if plan.target is None:
-        raise PolicyRefused("Workflow requires registered log targets.")
-    if (plan.window[1] - plan.window[0]).total_seconds() > catalog.max_window_hours * 3600:
-        raise PolicyRefused("Workflow default window exceeds maxWindowHours.")
     plan.workflow = Workflow(
-        plan.playbook.workflow, _text(arguments["rcid"], "rcid"), plan.env,
-        {"project": plan.project, "organization": plan.target.organization,
-         "stream": plan.target.stream, "field": plan.target.rcid_field},
-        plan.window, settings.workflow_max_receipts, settings.workflow_max_limit,
+        plan.playbook.workflow, context, settings.workflow_max_receipts, settings.workflow_max_limit,
+        settings.workflow_input_max_chars, catalog.max_window_hours,
     )
+    provide_workflow_input(plan, {}, catalog)
+
+
+def provide_workflow_input(plan: Plan, inputs: dict[str, Any], catalog: PlanCatalog) -> None:
+    """Validate a candidate completely before committing any fill-once context or plan scope."""
+    from dataclasses import replace
+
+    workflow = plan.workflow
+    try:
+        context = fill_context(workflow.context, inputs, workflow.max_input_chars, workflow.max_window_hours)
+        project = catalog.projects.get(context.get("project"))
+        if context.get("project") and project is None:
+            raise WorkflowError("Project is not registered; do not bypass it with filesystem tools.")
+        if project is not None:
+            env = context.get("env") or project.default_env
+            if env is not None and env not in project.allowed_envs:
+                raise WorkflowError("Environment is not allowed for this project.")
+            if env is not None:
+                context["env"] = env
+            target = project.logs.get(env)
+            if target is not None:
+                context.update(organization=target.organization, stream=target.stream, field=target.rcid_field)
+        candidate = replace(workflow, context=context)
+        candidate.provide_input({})
+    except WorkflowError as exc:
+        raise PolicyRefused(str(exc)) from None
+    workflow.context, workflow.stage = candidate.context, candidate.stage
+    plan.project, plan.env, plan.window = context.get("project"), context.get("env"), workflow.window
+    plan.target = project.logs.get(plan.env) if project else None
+    plan.sql_target = project.sql.get(plan.env) if project else None
 
 
 def _playbook(arguments: Mapping[str, Any], catalog: PlanCatalog) -> Playbook | None:
@@ -291,6 +354,8 @@ def _scope(
     needs_logs = playbook is not None and "logs" in playbook.needs
     needs_source = playbook is not None and "source" in playbook.needs
     if alias is None:
+        if playbook is not None and playbook.workflow:
+            return None, env, None, None
         if needs_logs or needs_source:
             raise PolicyRefused(f"Playbook {playbook.id} needs 'project': one of {', '.join(catalog.projects) or 'none'}.")
         return None, env, None, None
@@ -300,6 +365,10 @@ def _scope(
     if project is None:
         raise PolicyRefused(f"'project' must be one of: {', '.join(catalog.projects) or 'none (none registered)'}.")
     env = env or project.default_env
+    if playbook is not None and playbook.workflow:
+        if env is not None and env not in project.allowed_envs:
+            raise PolicyRefused("Environment is not allowed for this project.")
+        return project.alias, env, project.logs.get(env), project.sql.get(env)
     if env is None or env not in project.allowed_envs:
         raise PolicyRefused(f"'env' must be one of {', '.join(project.allowed_envs)} for project {project.alias}.")
     target = project.logs.get(env)

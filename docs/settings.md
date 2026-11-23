@@ -73,9 +73,10 @@ The values an operator may want to change live in one optional `settings` object
 | `policy` | `maxPlans` | `256` | Plans kept in memory; the least recently used one is dropped, and a call naming it must plan again. |
 | `policy` | `confirmPlaybook` | `"always"` | Whether `hub__plan` asks the user to choose a playbook first: `always` offers the playbooks before every plan, `ambiguous` offers only when no single playbook matches the task, `off` never asks. See [usage-policy.md](usage-policy.md#playbook-confirmation). |
 | `policy` | `confirmTokenSeconds` | `600` | Seconds a playbook offer's `confirm_token` stays valid; a token is single use. |
-| `policy` | `workflowMaxReceipts` | `128` | Maximum child-call receipts in an rcid-bug workflow; finish once exhausted. |
-| `policy` | `workflowInitialWindowSeconds` | `3600` | Absolute lookback fixed at pilot plan creation when since/until are omitted. |
-| `policy` | `workflowMaxLimit` | `50` | Maximum explicit row limit for pilot upstream log calls, also bounded by the playbook. |
+| `policy` | `workflowInputMaxChars` | `2000` | Maximum characters per workflow context value and retained evidence anchor. |
+| `policy` | `workflowMaxReceipts` | `128` | Maximum child-call receipts in a playbook workflow; inherited plans share the same budget. |
+| `policy` | `workflowInitialWindowSeconds` | `3600` | Deprecated compatibility key; retained when loading old config but ignored. Ask the user for log times. |
+| `policy` | `workflowMaxLimit` | `50` | Maximum explicit row limit for workflow upstream log calls, also bounded by the playbook. |
 | `policy` | `repeatAfterSeconds` | `0` | An identical call that already succeeded is refused unless this many seconds have passed; `0` refuses every repeat, as before. |
 | `policy` | `healthCheckTools` | `jira__check_connection`, `pr__check_bitbucket_connection`, `source__check_connection`, `sql__check_connection` | Tool names treated as connection checks: allowed only after a failed call of the plan, or with `connection_checks: true`. A list of strings. |
 | `bitnet` | `port` | `8766` | llama-server port on `127.0.0.1` (`1024` to `65535`). |
