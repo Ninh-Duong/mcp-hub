@@ -32,7 +32,8 @@ from typing import Any, NamedTuple
 
 from .merge import parse_window
 from .workflow import Workflow, WorkflowError
-from .workflow_scope import fill_context
+from .workflow_scope import fill_context, source_projects, related_issues
+from .workflow_definition import REVIEW_SELECTION
 
 from mcp.types import Tool
 
@@ -128,7 +129,7 @@ _PLAN_SCHEMA: dict[str, Any] = {
     "properties": {
         "task": {"type": "string", "description": "The user's request, in one or two sentences."},
         "rcid": {"type": "string", "description": "Required request/correlation ID for rcid-bug workflow."},
-        **{name: {"type": "string"} for name in ("issue_key", "pr_url", "service", "query", "glob", "path")},
+        **{name: {"type": "string"} for name in ("issue_key", "pr_url", "service", "query", "glob", "path", "be_project", "db_project", "fe_project", "related_issue_keys")},
         "continue_from": {"type": "string", "description": "Same-scope predecessor after the user permits exact additional cache-refresh writes."},
         "servers": {**_STRING_LIST, "minItems": 1, "description": "Child server IDs this task needs (see hub__status)."},
         "env": {"type": "string", "description": "The environment the user named (dev, stg, prod); keep it for the task."},
@@ -270,7 +271,7 @@ def _attach_workflow(plan: Plan, arguments: Mapping[str, Any], catalog: PlanCata
     settings = catalog.policy_settings
     try:
         inputs = {key: value for key, value in arguments.items()
-                  if key in {"rcid", "issue_key", "pr_url", "service", "query", "glob", "path", "since", "until"}}
+                  if key in {"rcid", "issue_key", "pr_url", "service", "query", "glob", "path", "since", "until"} | REVIEW_SELECTION}
         if plan.project is not None:
             inputs["project"] = plan.project
         if plan.env is not None:
@@ -291,7 +292,8 @@ def provide_workflow_input(plan: Plan, inputs: dict[str, Any], catalog: PlanCata
 
     workflow = plan.workflow
     try:
-        context = fill_context(workflow.context, inputs, workflow.max_input_chars, workflow.max_window_hours)
+        context = workflow.input_context(inputs)
+        validate_source_roles(workflow, context, catalog)
         project = catalog.projects.get(context.get("project"))
         if context.get("project") and project is None:
             raise WorkflowError("Project is not registered; do not bypass it with filesystem tools.")
@@ -312,6 +314,18 @@ def provide_workflow_input(plan: Plan, inputs: dict[str, Any], catalog: PlanCata
     plan.project, plan.env, plan.window = context.get("project"), context.get("env"), workflow.window
     plan.target = project.logs.get(plan.env) if project else None
     plan.sql_target = project.sql.get(plan.env) if project else None
+
+
+def validate_source_roles(workflow: Workflow, context: dict[str, Any], catalog: PlanCatalog) -> None:
+    if source_projects(context) and not workflow.definition.multi_source:
+        raise WorkflowError("Role-based sources require an explicitly multi-source workflow.")
+    if source_projects(context) - set(catalog.projects):
+        raise WorkflowError("A selected source alias is not registered; confirm registered aliases without reading raw folders.")
+    if context.get("related_issue_keys") and not workflow.definition.multi_ticket:
+        raise WorkflowError("Related ticket selection requires an explicitly multi-ticket workflow.")
+    primary = str(context.get("issue_key", "")).rstrip("/").split("/")[-1].split("?")[0].split("#")[0].upper()
+    if primary in related_issues(context):
+        raise WorkflowError("The primary ticket must not be repeated in related_issue_keys.")
 
 
 def _playbook(arguments: Mapping[str, Any], catalog: PlanCatalog) -> Playbook | None:
@@ -469,7 +483,10 @@ def _check_target(plan: Plan, facts: CallFacts, arguments: Mapping[str, Any]) ->
     expected = {}
     if plan.target is not None:
         expected = {arg: getattr(plan.target, attr) for arg, attr in _TARGET_ARGS}
-    if plan.project is not None:
+    if facts.name.startswith("source__") and plan.workflow is not None and plan.workflow.definition.multi_source:
+        if arguments.get("project") not in source_projects(plan.workflow.context):
+            return Violation("target", "Use only the selected source aliases of this review.")
+    elif plan.project is not None:
         expected["project"] = plan.project
     for arg, value in expected.items():
         if arg in arguments and arguments[arg] != value:

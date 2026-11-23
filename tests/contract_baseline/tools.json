@@ -137,10 +137,13 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Required before any child tool. Pick the playbook that matches the user's input and pass it with the project and env; or declare the child server IDs and planned steps yourself. Returns a hub_plan_id to pass with every later call, the steps to follow, the log targets, and each child's rules. The Hub then refuses calls outside the plan: other children or tools, another environment, organization, or stream, a larger limit, undeclared writes, connection checks before a failure, and identical repeats.\nPlaybooks:\n- jira-ticket-bug: The user gives a Jira issue key or URL for a bug and wants its cause.\n- pr-review: The user gives a Bitbucket pull request URL and wants a correctness review of its changes.\n- rcid-bug: The user gives an rcid, request ID, or correlation ID and wants to know why that request failed.\n- service-errors: The user names a service (and maybe a time) and wants to know what is failing in it, without an rcid.\n- source-search: The user asks to search or count code in a registered source repository, such as functions, text, or patterns.",
+    "description": "Required before any child tool. Pick the playbook that matches the user's input and pass it with the project and env; or declare the child server IDs and planned steps yourself. Returns a hub_plan_id to pass with every later call, the steps to follow, the log targets, and each child's rules. The Hub then refuses calls outside the plan: other children or tools, another environment, organization, or stream, a larger limit, undeclared writes, connection checks before a failure, and identical repeats.\nPlaybooks:\n- jira-ticket-bug: The user gives a Jira issue key or URL for a bug and wants its cause.\n- pr-review: The user gives a Bitbucket pull request URL and wants a correctness review of its changes.\n- rcid-bug: The user gives an rcid, request ID, or correlation ID and wants to know why that request failed.\n- service-errors: The user names a service (and maybe a time) and wants to know what is failing in it, without an rcid.\n- source-search: The user asks to search or count code in a registered source repository, such as functions, text, or patterns.\n- ticket-review: The user wants to review a Jira ticket for missing requirements, confirmations, API or stored-procedure changes, and related feature impact against confirmed BE/database/optional FE sources.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "be_project": {
+          "type": "string"
+        },
         "confirm_token": {
           "description": "The token from the offer of playbooks, sent with the playbook the user chose.",
           "type": "string"
@@ -153,8 +156,14 @@
           "description": "Same-scope predecessor after the user permits exact additional cache-refresh writes.",
           "type": "string"
         },
+        "db_project": {
+          "type": "string"
+        },
         "env": {
           "description": "The environment the user named (dev, stg, prod); keep it for the task.",
+          "type": "string"
+        },
+        "fe_project": {
           "type": "string"
         },
         "glob": {
@@ -173,7 +182,8 @@
             "pr-review",
             "rcid-bug",
             "service-errors",
-            "source-search"
+            "source-search",
+            "ticket-review"
           ],
           "type": "string"
         },
@@ -189,6 +199,9 @@
         },
         "rcid": {
           "description": "Required request/correlation ID for rcid-bug workflow.",
+          "type": "string"
+        },
+        "related_issue_keys": {
           "type": "string"
         },
         "servers": {
@@ -257,7 +270,7 @@
       "openWorldHint": false,
       "readOnlyHint": false
     },
-    "description": "Inspect a playbook workflow, provide missing user context, report findings with receipt refs, or finish. Follow status missing_inputs, required_writes, allowed_tools and report_options. Ask the user before log time selection or write-capable cache reads/refresh. Fill locked context once; use continue_from in hub__plan after permission for additional refresh writes. Findings are client-reported. Finish supported only at ready, otherwise insufficient/blocked. Never invent refs.",
+    "description": "Inspect a playbook workflow, provide missing user context, report findings with receipt refs, or finish. Follow status missing_inputs, required_writes, allowed_tools and report_options. Ask the user before log time selection or write-capable cache reads/refresh. Fill locked context once; use continue_from in hub__plan after permission for additional refresh writes. Findings are client-reported. For ticket-review, select registered be_project/db_project/optional fe_project and optional related_issue_keys, wait for user confirmation, then report sources_confirmed before additional ticket or source reads. Finish supported only at ready, otherwise insufficient/blocked. Never invent refs.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

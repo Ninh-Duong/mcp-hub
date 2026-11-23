@@ -17,7 +17,10 @@ _TARGET = {"oneOf": [{"type": "string"}, {"type": "object", "additionalPropertie
            "required": ["input", "present", "missing"]}]}
 _NODE = {
     "type": "object", "additionalProperties": False,
-    "properties": {"tools": _LIST, "requires": _LIST,
+    "properties": {"tools": _LIST, "requires": _LIST, "interaction": {"type": "boolean"}, "evidence": _LIST,
+                   "source_coverage": {"type": "boolean"},
+                   "ticket_scope": {"enum": ["primary", "related"]}, "ticket_coverage": {"type": "boolean"},
+                   "allow_missing_cache": {"type": "boolean"},
                    "after": {"type": "object", "additionalProperties": {"type": "string"}},
                    "arguments": {"type": "object", "additionalProperties": {"type": "object", "additionalProperties": {"type": ["string", "integer", "boolean"]}}},
                    "reports": {"type": "object", "additionalProperties": _TARGET}},
@@ -25,14 +28,16 @@ _NODE = {
 }
 _SCHEMA = {
     "type": "object", "additionalProperties": False,
-    "properties": {"entry": _NAME, "inputs": _LIST, "subflows": _LIST,
+    "properties": {"entry": _NAME, "inputs": _LIST, "subflows": _LIST, "multi_source": {"type": "boolean"}, "multi_ticket": {"type": "boolean"},
                    "entry_choices": {"type": "object", "propertyNames": _NAME, "additionalProperties": _NAME},
                    "nodes": {"type": "object", "minProperties": 1, "propertyNames": _NAME,
                              "additionalProperties": _NODE}},
     "required": ["entry", "inputs", "nodes"],
 }
-INPUTS = frozenset({"project", "env", "rcid", "service", "issue_key", "pr_url", "query", "glob", "path", "since", "until"})
-REQUIREMENTS = INPUTS | {"window", "log_target"}
+SOURCE_ROLES = frozenset({"be_project", "db_project", "fe_project"})
+REVIEW_SELECTION = SOURCE_ROLES | {"related_issue_keys"}
+INPUTS = frozenset({"project", "env", "rcid", "service", "issue_key", "pr_url", "query", "glob", "path", "since", "until", "related_issue_keys"}) | SOURCE_ROLES
+REQUIREMENTS = INPUTS | {"window", "log_target", "source_selection"}
 TERMINALS = frozenset({"ready", "blocked", "finished", "superseded"})
 
 
@@ -43,6 +48,8 @@ class WorkflowDefinition:
     nodes: dict[str, dict[str, Any]]
     subflows: tuple[str, ...] = ()
     entry_choices: dict[str, str] | None = None
+    multi_source: bool = False
+    multi_ticket: bool = False
 
 
 def parse_definition(body: str, file_id: str) -> WorkflowDefinition | None:
@@ -55,7 +62,7 @@ def parse_definition(body: str, file_id: str) -> WorkflowDefinition | None:
         data = json.loads(blocks[0])
         if not Draft202012Validator(_SCHEMA).is_valid(data):
             raise ValueError
-        definition = WorkflowDefinition(data["entry"], tuple(data["inputs"]), data["nodes"], tuple(data.get("subflows", [])), data.get("entry_choices", {}))
+        definition = WorkflowDefinition(data["entry"], tuple(data["inputs"]), data["nodes"], tuple(data.get("subflows", [])), data.get("entry_choices", {}), data.get("multi_source", False), data.get("multi_ticket", False))
         _validate_local(definition)
         return definition
     except (ValueError, TypeError, KeyError):
@@ -72,7 +79,13 @@ def _validate_local(definition: WorkflowDefinition) -> None:
     for node in definition.nodes.values():
         if set(node.get("requires", [])) - REQUIREMENTS:
             raise ValueError
-        if not node["tools"] or not node["reports"]:
+        if not node["reports"] or (not node["tools"] and not node.get("interaction")):
+            raise ValueError
+        if node.get("interaction") and (node["tools"] or not node.get("evidence")):
+            raise ValueError
+        if node.get("source_coverage") and not definition.multi_source:
+            raise ValueError
+        if (node.get("ticket_scope") == "related" or node.get("ticket_coverage")) and not definition.multi_ticket:
             raise ValueError
         if any(not re.fullmatch(r"[a-z][a-z0-9_]*", event) for event in node["reports"]):
             raise ValueError
@@ -101,6 +114,8 @@ def compile_definition(name: str, definitions: dict[str, WorkflowDefinition | No
         child = definitions.get(reference)
         if reference == name or child is None or child.subflows:
             raise ConfigError(f"Playbook {name}: unknown, cyclic or nested workflow reference")
+        if child.multi_source != own.multi_source or child.multi_ticket != own.multi_ticket:
+            raise ConfigError(f"Playbook {name}: subflows must use the same source-scope mode")
         for key, node in child.nodes.items():
             nodes[f"{reference}.{key}"] = {
                 **node, "requires": list(dict.fromkeys([*child.inputs, *node.get("requires", [])])),
@@ -111,7 +126,7 @@ def compile_definition(name: str, definitions: dict[str, WorkflowDefinition | No
             node["reports"] = {event: map_target(target, lambda t, ref=reference, entry=child.entry: f"{ref}.{entry}" if t == f"@{ref}" else t)
                                for event, target in node["reports"].items()}
     _validate_graph(name, nodes, tools)
-    return WorkflowDefinition(own.entry, own.inputs, nodes, entry_choices=own.entry_choices)
+    return WorkflowDefinition(own.entry, own.inputs, nodes, entry_choices=own.entry_choices, multi_source=own.multi_source, multi_ticket=own.multi_ticket)
 
 
 def _validate_graph(name: str, nodes: dict[str, dict[str, Any]], tools: set[str]) -> None:
@@ -122,6 +137,8 @@ def _validate_graph(name: str, nodes: dict[str, dict[str, Any]], tools: set[str]
             raise ConfigError(f"Playbook {name}: undeclared workflow prerequisite tool")
         if set(node.get("arguments", {})) - set(node["tools"]):
             raise ConfigError(f"Playbook {name}: argument constraint must name a tool in its stage")
+        if set(node.get("evidence", [])) - tools:
+            raise ConfigError(f"Playbook {name}: interaction evidence must name declared tools")
     visited, visiting = set(), set()
 
     def visit(stage: str) -> None:
