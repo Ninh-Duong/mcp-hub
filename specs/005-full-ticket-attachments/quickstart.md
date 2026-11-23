@@ -1,0 +1,5 @@
+# Validation
+
+Run the child offline suite and environment check with the Hub interpreter; run the suite on Python 3.10 and MCP 1.x. Run Hub package QC and smoke after updating its contract. A synthetic ticket with PNG, PDF, spreadsheet and text attachments must cache every file encrypted; a repeated unchanged sync avoids downloads, and removing a file or legacy schema marker triggers repair. Verify original filename, type and status through ticket reads, then retrieve an image and a binary document through the mounted tools. No real ticket content belongs in test fixtures or tracked files.
+
+Recorded result: 50 child tests passed across Python/MCP compatibility checks; Hub package QC passed (1,277 tests, three skips, 92% coverage). Smoke Jira/PR/source/Hub passed; logs and SQL have external failures detailed in tasks.md. The user requested publication and merge of both repositories after those limitations were disclosed. After loading the updated child with a Hub restart/client reload, an ordinary authorized sync backfills old image-only caches. This does not automatically resync on read or extract PDF/Office text.

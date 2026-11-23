@@ -24,6 +24,8 @@ Understand what a ticket asks for, identify ambiguity, compare it with explicitl
 
 ## Database and related-ticket scope
 
+Attachment review: inventory every listed file with original filename, type and cached/unavailable status. Read relevant files through jira__read_asset; images are viewable, other files are embedded resources whose interpretation depends on client support. Map each relevant file to cases/AC using filename clues, actual content and ticket references. Report file -> purpose -> case/AC -> evidence -> confidence/questions. A name alone is not proof; unreadable files remain limitations. Sync includes all file types within the configured size limit. Never execute attachments or bypass tools with upstream links.
+
 The selected DB repository supplies SQL/SP/schema source evidence. This does not prove what is deployed in a live database. Live database access requires a separate explicit request, allowed environment/database and scoped plan. No sql__run_select, DB write, source write or Jira-comment tool is offered here. The primary issue_key stays locked; related reads use only the separately confirmed keys. Adding further issues or sources after confirmation requires a new scoped task.
 
 ## Required review report
