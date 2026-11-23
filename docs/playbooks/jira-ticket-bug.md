@@ -15,7 +15,7 @@ Investigate the cause of a Jira bug, not a general ticket-summary task.
 1. Ask for project/env/issue_key. `jira__read_ticket(issue_key)` reads ticket and history from encrypted cache. It must precede any sync or asset read.
 2. If missing/stale, report cache_missing/cache_stale with the receipt, ask the user for permission, and continue the plan with writes containing jira__sync_ticket. Never refresh a denied/unreadable cache as a workaround.
 3. `jira__sync_ticket(issue_key, force=false)` runs only with permission. Report refreshed, then `jira__read_ticket` reads the refreshed evidence. This intentional post-refresh read is allowed; continuation itself does not replay anything. force=true requires a separate explicit request and plan.
-4. `jira__read_asset(issue_key, filename)` reads only an attachment listed by ticket evidence, if text is insufficient.
+4. `jira__read_asset(issue_key, filename)` reads relevant cached attachments listed by ticket evidence. Sync includes images and documents; report unavailable files. Use original filenames, content and ticket references to identify the case each file supports, and label uncertain or unsupported interpretations.
 5. Extract rcid/service/time/environment. Fill only missing context through provide_input. Confirm a proposed log time with the user before logs; a different environment/project requires an authorized new plan.
 6. Report has_rcid or has_service to enter the explicitly referenced workflow. Ask for missing facts instead of searching blindly. Log targets are required only when a logs stage starts.
 

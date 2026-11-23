@@ -80,6 +80,8 @@ You can also use `/mcp-hub <server-id> <request>` when your client has the comma
 
 ## Why the AI asks again
 
+Jira sync includes images and other attachments in its encrypted cache by default, within the configured per-file size limit. File names and availability are reported; interpreting PDF/Office content depends on the client's document support.
+
 - **Choose a playbook:** each new task starts with your choice.
 - **Provide missing details:** for example, a log time, service name or PR URL. Supply only what is missing.
 - **Allow a cache refresh:** Jira sync and many PR readers can update the encrypted local cache. The AI asks before calling a write-capable tool. Declining means it must stop or explain the limitation.
