@@ -33,10 +33,15 @@ def fill_context(context: dict[str, Any], inputs: Any, max_chars: int, max_hours
             raise WorkflowError(f"Input {key} must be a bounded, non-empty string.")
         clean = absolute(value).isoformat() if key in {"since", "until"} else value.strip()
         if key == "related_issue_keys":
-            keys = [key.strip().upper() for key in clean.split(",")]
-            if not all(re.fullmatch(r"[A-Z][A-Z0-9_]*-\d+", key) for key in keys):
+            keys = [item.strip().upper() for item in clean.split(",")]
+            if not all(re.fullmatch(r"[A-Z][A-Z0-9_]*-\d+", item) for item in keys):
                 raise WorkflowError("Provide selected related ticket keys separated by commas.")
             clean = ",".join(dict.fromkeys(keys))
+        if key == "changed_paths":
+            raw_items = [item.strip().replace("\\", "/") for item in clean.split(",") if item.strip()]
+            if not raw_items or not all(safe_path(item) for item in raw_items):
+                raise WorkflowError("Provide safe relative changed file paths separated by commas.")
+            clean = ",".join(dict.fromkeys(PurePosixPath(item).as_posix() for item in raw_items))
         if key == "path" and not safe_path(clean):
             raise WorkflowError("Source path must be relative and stay in the registered project.")
         if key in updated and updated[key] != clean:
@@ -53,7 +58,7 @@ def fill_context(context: dict[str, Any], inputs: Any, max_chars: int, max_hours
 
 def safe_path(value: str) -> bool:
     path = PurePosixPath(value.replace("\\", "/"))
-    return bool(value) and not path.is_absolute() and ".." not in path.parts and ":" not in value
+    return bool(value) and not path.is_absolute() and ".." not in path.parts and ":" not in value and path.parts not in {(), (".",)}
 
 
 def missing_inputs(context: dict[str, Any], required: list[str] | tuple[str, ...]) -> list[str]:
@@ -78,6 +83,10 @@ def source_projects(context: dict[str, Any]) -> set[str]:
 
 def related_issues(context: dict[str, Any]) -> set[str]:
     return set(context.get("related_issue_keys", "").split(",")) - {""}
+
+
+def changed_paths(context: dict[str, Any]) -> set[str]:
+    return set(context.get("changed_paths", "").split(",")) - {""}
 
 
 def check_scope(tool: str, arguments: dict[str, Any], context: dict[str, Any], max_limit: int,
@@ -129,11 +138,11 @@ def check_source(tool: str, arguments: dict[str, Any], context: dict[str, Any], 
             require_bound(arguments, context, ("query",))
         if "glob" in context:
             require_bound(arguments, context, ("glob",))
-    if tool == "source__read":
+    if tool in {"source__read", "source__outline"}:
         path = arguments.get("path")
-        user_paths = {context.get("path")} if projects is None else set()
+        user_paths = ({context.get("path")} if projects is None else set()) | changed_paths(context)
         if not isinstance(path, str) or not safe_path(path) or path not in paths | user_paths:
-            raise WorkflowError("Read only a searched path or the user's bound source path.")
+            raise WorkflowError("Read only a searched, caller-discovered, or bound source path.")
 
 
 def check_logs(tool: str, arguments: dict[str, Any], context: dict[str, Any], max_limit: int) -> None:
@@ -153,6 +162,19 @@ def check_logs(tool: str, arguments: dict[str, Any], context: dict[str, Any], ma
         raise WorkflowError(f"Pass an explicit log limit between 1 and {max_limit}.")
 
 
+def _extract_paths(data: dict[str, Any], max_items: int, max_chars: int) -> tuple[str, ...]:
+    raw: list[Any] = []
+    for key in ("matches", "callers"):
+        items = data.get(key)
+        if isinstance(items, list):
+            raw.extend(item.get("path") for item in items if isinstance(item, dict))
+    target = data.get("target")
+    if isinstance(target, dict):
+        raw.append(target.get("path"))
+    raw.append(data.get("path"))
+    return tuple(dict.fromkeys(p for p in raw if isinstance(p, str) and len(p) <= max_chars and safe_path(p)))[:max_items]
+
+
 def result_observations(result: Any, max_items: int, max_chars: int) -> dict[str, Any]:
     """Keep only bounded scope anchors and completeness flags, never arbitrary result text."""
     data = getattr(result, "structured_content", None)
@@ -168,12 +190,11 @@ def result_observations(result: Any, max_items: int, max_chars: int) -> dict[str
     assets = asset_names(result, max_items, max_chars)
     if not isinstance(data, dict):
         return {"complete": None, "paths": (), "revision": None, "assets": assets}
-    matches = data.get("matches")
-    paths = [item.get("path") for item in matches if isinstance(item, dict)] if isinstance(matches, list) else []
-    paths = tuple(dict.fromkeys(p for p in paths if isinstance(p, str) and len(p) <= max_chars and safe_path(p)))[:max_items]
+    paths = _extract_paths(data, max_items, max_chars)
     revision = data.get("source_commit") or data.get("revision")
     revision = str(revision) if isinstance(revision, (str, int)) else None
     revision = revision if revision and len(revision) <= max_chars else None
+    matches = data.get("matches")
     total = data.get("total")
     cut = isinstance(matches, list) and isinstance(total, int) and total > len(matches)
     incomplete = bool(data.get("truncated") or data.get("next_offset") is not None or data.get("warning") or data.get("warnings") or cut)

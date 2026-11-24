@@ -15,7 +15,8 @@ The user's input after the command is normally `<server-id> <task>`. For a cross
      - an rcid or request ID → `rcid-bug`;
      - a Jira key → `jira-ticket-bug`;
      - a service without an rcid → `service-errors`;
-     - a PR URL → `pr-review`.
+     - a PR URL → `pr-review`;
+     - workspace git changes or a newly coded feature to review → `change-review`.
 
      Pass `playbook`, `project` (from `hub__list_projects` or the user), and `env`. Then follow the playbook's Steps exactly, with the log targets it returns. Never list organizations or streams yourself.
    - **Without a matching playbook,** pass `task`, `servers` (the server ID), `env` if the user named one, and the planned `steps`. List in `writes` only the write tools the user asked for. It returns a `hub_plan_id` and the child's rules: follow them, and pass `hub_plan_id` with every later call, including `hub__batch`. A result starting with `Policy:` means the Hub refused the call; do what it says, and never widen the plan beyond the user's request.

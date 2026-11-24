@@ -131,7 +131,7 @@ _PLAN_SCHEMA: dict[str, Any] = {
     "properties": {
         "task": {"type": "string", "description": "The user's request, in one or two sentences."},
         "rcid": {"type": "string", "description": "Required request/correlation ID for rcid-bug workflow."},
-        **{name: {"type": "string"} for name in ("issue_key", "pr_url", "service", "query", "glob", "path", "be_project", "db_project", "fe_project", "related_issue_keys")},
+        **{name: {"type": "string"} for name in ("issue_key", "pr_url", "service", "query", "glob", "path", "be_project", "db_project", "fe_project", "related_issue_keys", "changed_paths")},
         "continue_from": {"type": "string", "description": "Same-scope predecessor after the user permits exact additional cache-refresh writes."},
         "servers": {**_STRING_LIST, "minItems": 1, "description": "Child server IDs this task needs (see hub__status)."},
         "env": {"type": "string", "description": "The environment the user named (dev, stg, prod); keep it for the task."},
@@ -340,6 +340,8 @@ def validate_source_roles(workflow: Workflow, context: dict[str, Any], catalog: 
         raise WorkflowError("A selected source alias is not registered; confirm registered aliases without reading raw folders.")
     if context.get("related_issue_keys") and not workflow.definition.multi_ticket:
         raise WorkflowError("Related ticket selection requires an explicitly multi-ticket workflow.")
+    if context.get("changed_paths") and not any("changed_paths" in node.get("requires", ()) for node in workflow.definition.nodes.values()):
+        raise WorkflowError("Changed-path selection requires a change-review workflow.")
     primary = str(context.get("issue_key", "")).rstrip("/").split("/")[-1].split("?")[0].split("#")[0].upper()
     if primary in related_issues(context):
         raise WorkflowError("The primary ticket must not be repeated in related_issue_keys.")

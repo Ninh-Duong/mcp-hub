@@ -234,6 +234,36 @@
         },
         {
           "server": "mcp-read-source",
+          "name": "source__index",
+          "exposeAs": "source__index"
+        },
+        {
+          "server": "mcp-read-source",
+          "name": "source__find_entry",
+          "exposeAs": "source__find_entry"
+        },
+        {
+          "server": "mcp-read-source",
+          "name": "source__trace",
+          "exposeAs": "source__trace"
+        },
+        {
+          "server": "mcp-read-source",
+          "name": "source__callers",
+          "exposeAs": "source__callers"
+        },
+        {
+          "server": "mcp-read-source",
+          "name": "source__outline",
+          "exposeAs": "source__outline"
+        },
+        {
+          "server": "mcp-read-source",
+          "name": "source__read_symbol",
+          "exposeAs": "source__read_symbol"
+        },
+        {
+          "server": "mcp-read-source",
           "name": "source__search",
           "exposeAs": "source__search"
         },

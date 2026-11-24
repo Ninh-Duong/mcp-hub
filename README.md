@@ -25,6 +25,7 @@ Write **Use mcp-hub** followed by your request. With the default settings, the A
 | Investigate a service's errors | `service-errors` | Project alias, environment, service and time window |
 | Review a Bitbucket PR | `pr-review` | PR URL, or choose a PR from the local list |
 | Find or understand code | `source-search` | Registered project alias and search text, or a relative file path |
+| Review local git changes / new feature | `change-review` | Registered BE/DB/optional FE source aliases, relative `changed_paths`, and optional Jira `issue_key` |
 
 Use your configured project aliases in the examples below. Specify a timezone for log times. If you omit the time window, the AI asks rather than guessing.
 

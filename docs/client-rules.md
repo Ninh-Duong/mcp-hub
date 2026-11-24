@@ -1,6 +1,6 @@
 # Rules for agents using mcp-hub
 
-Version: 2026-11-24. A copy with an older version, or without this line, is stale; refresh it (connecting-a-client.md, prompt C).
+Version: 2026-11-25. A copy with an older version, or without this line, is stale; refresh it (connecting-a-client.md, prompt C).
 
 These rules apply in any workspace where the `mcp-hub` MCP server is connected. The Hub also sends them as its server instructions. Step 7 of `docs/connecting-a-client.md` in the mcp-hub repo installs them as an always-on client rule. The file has no machine-specific paths; its relative links are for readers in this repository.
 
@@ -16,6 +16,7 @@ The canonical rule index is in [`agent-rules/`](../agent-rules/README.md). Each 
   | a Jira issue key or URL for a bug | `jira-ticket-bug` |
   | a service name (and maybe a time), no rcid | `service-errors` |
   | a pull request URL | `pr-review` |
+  | workspace git changes or a newly coded feature to review | `change-review` |
 
   `hub__plan` lists every playbook with when to use it. The playbook returns the steps to follow and the project's log targets (organization, stream, request-ID field). Use exactly those targets; never list organizations or streams to find them. If the plan is refused because a project has no log targets, ask the user to add them. Do not search without them.
 - **Without a matching playbook, call `hub__plan` with your own plan before any child tool.** Give `task`, the child `servers` the task needs, the `env` the user named, and the planned `steps`. List in `writes` only the write tools the user asked for. Set `connection_checks: true` only when the user asked to check connections.

@@ -8,7 +8,7 @@ from datetime import datetime
 from time import monotonic
 from typing import Any
 
-from .workflow_definition import WorkflowDefinition, SOURCE_ROLES, REVIEW_SELECTION, node_tier
+from .workflow_definition import WorkflowDefinition, SOURCE_ROLES, REVIEW_SELECTION, SOURCE_EVIDENCE_TOOLS, node_tier
 from .workflow_scope import WorkflowError, absolute, check_scope, fill_context, missing_inputs, source_projects, related_issues
 from ..settings import JobSettings, PolicySettings
 
@@ -120,12 +120,22 @@ class Workflow:
                 raise WorkflowError("This workflow does not support role-based source selection.")
             if "related_issue_keys" in inputs and not self.definition.multi_ticket:
                 raise WorkflowError("This workflow does not support related-ticket selection.")
-            confirmed = any(d["decision"] == "sources_confirmed" for d in self.decisions)
-            if confirmed and (set(inputs) & REVIEW_SELECTION) - set(base):
+            if "changed_paths" in inputs and not any("changed_paths" in n.get("requires", ()) for n in self.definition.nodes.values()):
+                raise WorkflowError("This workflow does not support changed-path selection.")
+            confirmed = (
+                any(d["decision"] in {"sources_confirmed", "impact_analyzed", "risks_confirmed"} for d in self.decisions)
+                or any(r.tool.startswith("source__") for r in self.receipts.values())
+            )
+            tickets_locked = (
+                confirmed or any(d["decision"] == "related_reviewed" for d in self.decisions)
+                or (self.stage != "confirm_sources" and any(d["decision"] == "ticket_reviewed" for d in self.decisions))
+            )
+            editable = (set() if confirmed else (SOURCE_ROLES | {"changed_paths"})) | (set() if tickets_locked else {"related_issue_keys"})
+            locked_keys = (set(inputs) & REVIEW_SELECTION) - editable
+            if locked_keys - set(base):
                 raise WorkflowError("Review scope is confirmed; start a new scoped plan to add selections.")
-            if not confirmed:
-                base = {key: value for key, value in base.items() if key not in set(inputs) & REVIEW_SELECTION}
-                inputs = {key: value for key, value in inputs.items() if key not in REVIEW_SELECTION or value != ""}
+            base = {key: value for key, value in base.items() if key not in set(inputs) & editable}
+            inputs = {key: value for key, value in inputs.items() if key not in editable or value != ""}
         return fill_context(base, inputs, self.max_input_chars, self.max_window_hours)
 
     def check(self, tool: str, arguments: dict[str, Any]) -> None:
@@ -133,7 +143,7 @@ class Workflow:
             raise WorkflowError("Use hub__workflow status: provide missing context or use this stage's allowed tools.")
         if len(self.receipts) >= self.max_receipts:
             raise WorkflowError("Workflow call budget exhausted; finish with the available evidence.")
-        paths = {path for ref in self.receipts.values() if ref.tool == "source__search" and ref.outcome == "succeeded"
+        paths = {path for ref in self.receipts.values() if ref.tool.startswith("source__") and ref.outcome == "succeeded"
                  and ref.project == arguments.get("project") for path in ref.paths}
         projects = source_projects(self.context) if self.definition.multi_source else None
         issues = related_issues(self.context) if self.definition.multi_ticket and self.node().get("ticket_scope") == "related" else None
@@ -187,12 +197,16 @@ class Workflow:
                 raise WorkflowError("Selected review scopes exceed the remaining call budget; reduce the selection.")
         receipts = self._references(refs)
         if self.node().get("interaction"):
-            if not all(any(r.tool == tool and r.outcome == "succeeded" for r in self.receipts.values()) for tool in self.node().get("evidence", [])):
+            req_all = self.node().get("evidence", [])
+            req_any = self.node().get("evidence_any", [])
+            ok_all = all(any(r.tool == tool and r.outcome == "succeeded" for r in self.receipts.values()) for tool in req_all)
+            ok_any = not req_any or any(r.tool in req_any and r.outcome == "succeeded" for r in self.receipts.values())
+            if not (ok_all and ok_any):
                 raise WorkflowError("Read the required evidence before confirming this stage.")
         elif not receipts or any(r.stage != self.stage for r in receipts):
             raise WorkflowError("Report references must be from the current stage.")
         if self.node().get("source_coverage") and decision != "access_blocked":
-            read = {r.project for r in self.receipts.values() if r.tool == "source__read" and r.outcome == "succeeded"}
+            read = {r.project for r in self.receipts.values() if r.tool in SOURCE_EVIDENCE_TOOLS and r.outcome == "succeeded"}
             if source_projects(self.context) - read:
                 raise WorkflowError("Read evidence from every confirmed source or finish insufficient with limitations.")
         if self.node().get("ticket_coverage") and decision != "access_blocked":
@@ -231,7 +245,7 @@ class Workflow:
         if outcome == "supported" and (self.stage != "ready" or not evidence or any(r.outcome != "succeeded" for r in receipts)):
             raise WorkflowError("Supported requires ready stage and successful evidence references.")
         if outcome == "supported" and self.definition.multi_source:
-            if source_projects(self.context) - {r.project for r in receipts if r.tool == "source__read"}:
+            if source_projects(self.context) - {r.project for r in receipts if r.tool in SOURCE_EVIDENCE_TOOLS}:
                 raise WorkflowError("Supported source review must reference reads from every confirmed source.")
         if outcome == "supported" and self.definition.multi_ticket:
             read = {r.issue_key for r in receipts if r.tool == "jira__read_ticket" and r.outcome == "succeeded"}

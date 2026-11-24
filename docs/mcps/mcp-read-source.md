@@ -13,7 +13,13 @@ All tools are read-only (`readOnlyHint=true`) except `source__register_project`,
 | Tool | Inputs | Output / bounds |
 |---|---|---|
 | `source__check_connection` | none | `{configured_projects:[alias,…]}` |
-| `source__search` | `project`, `query`, optional `glob`, `limit` (1–100, default 50) | `{matches:[{path,line,text}],total}`; examines at most 500 safe files, returns at most `limit` matches and 1,000 characters per matching line |
+| `source__index` | `project`, optional `force` | `{branch,commit,ai_context,files_seen,parsed,unchanged_content,removed,seeded_from_other_branch,elapsed_ms,indexed,entries}`; checks or incrementally refreshes the encrypted `ai-context/` graph. `force=true` is blocked inside playbook workflows. |
+| `source__find_entry` | `project`, `query`, optional `kind` (`http`, `grpc`, `mediatr`), `limit` (1–100, default 20) | `{matches:[{id,kind,name,handler,path,line,end_line,score}],total}` |
+| `source__trace` | `project`, `entry`, optional `max_depth`, `include_external` | Plain-text call tree (`file:start-end`, DI/gRPC/MediatR/override resolution, capped at 3,000 lines) |
+| `source__callers` | `project`, `symbol`, optional `limit` (1–100, default 50) | `{target,callers:[{caller,kind,path,start_line,end_line,call_lines,via,confidence,ambiguous,stale}],total,truncated}`; reverse lookup of indexed callers (direct, DI, gRPC, MediatR, and untyped `possible` matches) |
+| `source__outline` | `project`, relative `path` | Plain-text file outline listing types, methods, signatures, and line ranges |
+| `source__read_symbol` | `project`, `symbol`, optional `start_line` | `{symbol,kind,path,start_line,end_line,signature,content,read_from,read_to,stale,next_start_line?}`; reads at most 200 lines per call |
+| `source__search` | `project`, `query`, optional `glob`, `limit` (1–100, default 50), `mode` (`auto`, `symbol`, `text`) | `{source,matches:[{path,line,text}],total,truncated}`; symbol lookup in `ai-context` or bounded case-insensitive text scan |
 | `source__read` | `project`, relative `path`, optional `start_line` (default 1), `max_lines` (1–200, default 200) | `{project,path,start_line,end_line,total_lines,content}` |
 | `source__register_project` | `alias` (letters, digits, `-`, `_`), `path` (an existing folder) | `alias`, `registered: true`. Writes only the alias; the folder is never returned. Refused for a drive root, the home folder, a system folder, `..`, a non-folder, or an alias that points elsewhere. |
 

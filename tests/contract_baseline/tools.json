@@ -137,11 +137,14 @@
       "openWorldHint": false,
       "readOnlyHint": true
     },
-    "description": "Required before any child tool. Pick the playbook that matches the user's input and pass it with the project and env; or declare the child server IDs and planned steps yourself. Returns a hub_plan_id to pass with every later call, the steps to follow, the log targets, and each child's rules. The Hub then refuses calls outside the plan: other children or tools, another environment, organization, or stream, a larger limit, undeclared writes, connection checks before a failure, and identical repeats.\nPlaybooks:\n- jira-ticket-bug: The user gives a Jira issue key or URL for a bug and wants its cause.\n- pr-review: The user gives a Bitbucket pull request URL and wants a correctness review of its changes.\n- rcid-bug: The user gives an rcid, request ID, or correlation ID and wants to know why that request failed.\n- service-errors: The user names a service (and maybe a time) and wants to know what is failing in it, without an rcid.\n- source-search: The user asks to search or count code in a registered source repository, such as functions, text, or patterns.\n- ticket-review: The user wants to review a Jira ticket for missing requirements, confirmations, API or stored-procedure changes, and related feature impact against confirmed BE/database/optional FE sources.",
+    "description": "Required before any child tool. Pick the playbook that matches the user's input and pass it with the project and env; or declare the child server IDs and planned steps yourself. Returns a hub_plan_id to pass with every later call, the steps to follow, the log targets, and each child's rules. The Hub then refuses calls outside the plan: other children or tools, another environment, organization, or stream, a larger limit, undeclared writes, connection checks before a failure, and identical repeats.\nPlaybooks:\n- change-review: The user wants to review current workspace git changes or a newly coded feature for shared-caller impact, duplicate new functions, potential bugs requiring requester confirmation, a /ponytail simplification scan, and an end-to-end Mermaid workflow diagram.\n- jira-ticket-bug: The user gives a Jira issue key or URL for a bug and wants its cause.\n- pr-review: The user gives a Bitbucket pull request URL and wants a correctness review of its changes.\n- rcid-bug: The user gives an rcid, request ID, or correlation ID and wants to know why that request failed.\n- service-errors: The user names a service (and maybe a time) and wants to know what is failing in it, without an rcid.\n- source-search: The user asks to search or count code in a registered source repository, such as functions, text, or patterns.\n- ticket-review: The user wants to review a Jira ticket for missing requirements, confirmations, API or stored-procedure changes, and related feature impact against confirmed BE/database/optional FE sources.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "be_project": {
+          "type": "string"
+        },
+        "changed_paths": {
           "type": "string"
         },
         "client": {
@@ -194,6 +197,7 @@
         "playbook": {
           "description": "The playbook that matches the user's input (listed above).",
           "enum": [
+            "change-review",
             "jira-ticket-bug",
             "pr-review",
             "rcid-bug",

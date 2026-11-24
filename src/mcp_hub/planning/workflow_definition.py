@@ -18,6 +18,7 @@ _TARGET = {"oneOf": [{"type": "string"}, {"type": "object", "additionalPropertie
 _NODE = {
     "type": "object", "additionalProperties": False,
     "properties": {"tools": _LIST, "requires": _LIST, "interaction": {"type": "boolean"}, "evidence": _LIST,
+                   "evidence_any": _LIST,
                    "tier": {"enum": ["orchestrate", "execute"]},
                    "source_coverage": {"type": "boolean"},
                    "ticket_scope": {"enum": ["primary", "related"]}, "ticket_coverage": {"type": "boolean"},
@@ -36,10 +37,11 @@ _SCHEMA = {
     "required": ["entry", "inputs", "nodes"],
 }
 SOURCE_ROLES = frozenset({"be_project", "db_project", "fe_project"})
-REVIEW_SELECTION = SOURCE_ROLES | {"related_issue_keys"}
-INPUTS = frozenset({"project", "env", "rcid", "service", "issue_key", "pr_url", "query", "glob", "path", "since", "until", "related_issue_keys"}) | SOURCE_ROLES
+REVIEW_SELECTION = SOURCE_ROLES | {"related_issue_keys", "changed_paths"}
+INPUTS = frozenset({"project", "env", "rcid", "service", "issue_key", "pr_url", "query", "glob", "path", "since", "until", "related_issue_keys", "changed_paths"}) | SOURCE_ROLES
 REQUIREMENTS = INPUTS | {"window", "log_target", "source_selection"}
 TERMINALS = frozenset({"ready", "blocked", "finished", "superseded"})
+SOURCE_EVIDENCE_TOOLS = frozenset({"source__read", "source__read_symbol", "source__outline", "source__callers", "source__trace"})
 
 
 @dataclass(frozen=True)
@@ -82,7 +84,7 @@ def _validate_local(definition: WorkflowDefinition) -> None:
             raise ValueError
         if not node["reports"] or (not node["tools"] and not node.get("interaction")):
             raise ValueError
-        if node.get("interaction") and (node["tools"] or not node.get("evidence")):
+        if node.get("interaction") and (node["tools"] or not (node.get("evidence") or node.get("evidence_any"))):
             raise ValueError
         if node.get("source_coverage") and not definition.multi_source:
             raise ValueError
@@ -146,7 +148,7 @@ def _validate_graph(name: str, nodes: dict[str, dict[str, Any]], tools: set[str]
             raise ConfigError(f"Playbook {name}: undeclared workflow prerequisite tool")
         if set(node.get("arguments", {})) - set(node["tools"]):
             raise ConfigError(f"Playbook {name}: argument constraint must name a tool in its stage")
-        if set(node.get("evidence", [])) - tools:
+        if set(node.get("evidence", [])) - tools or set(node.get("evidence_any", [])) - tools:
             raise ConfigError(f"Playbook {name}: interaction evidence must name declared tools")
     visited, visiting = set(), set()
 

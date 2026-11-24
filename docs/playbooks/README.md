@@ -15,6 +15,7 @@ docs/playbooks/
   service-errors.md    # Investigate errors for one service
   pr-review.md         # Review a pull request
   source-search.md     # Search a registered source repository
+  change-review.md     # Review local git changes, caller impact, duplicates, and /ponytail
 ```
 
 At startup, the Hub loads each Markdown definition in this directory and skips README.md. It builds the playbook choices for `hub__plan` from each file's `id` and `when`. The catalog is for navigation, not a second runtime configuration. Use `includes` to reuse another playbook's definition instead of copying it.
@@ -29,6 +30,7 @@ At startup, the Hub loads each Markdown definition in this directory and skips R
 | [service-errors](service-errors.md) | The user names a service, without an rcid. |
 | [pr-review](pr-review.md) | The user wants a correctness review of a pull request. |
 | [source-search](source-search.md) | The user asks to search or count code in a registered repository. |
+| [change-review](change-review.md) | The user wants to review workspace git changes or a newly coded feature for caller impact, duplicate helpers, bug confirmations, `/ponytail` suggestions, and a Mermaid workflow diagram. |
 
 ## Writing a playbook
 
@@ -73,5 +75,6 @@ Every step must document its tool, input provenance, required permission, expect
 | pr-review | Missing URL; permission before write-capable readers; context/files/diffs; optional same-file context/threads; revision change; limited/no findings. |
 | source-search | Search or direct user path; locations/explanation/observed count; no matches; truncated/bounded search; unknown project. |
 | ticket-review | Ticket gaps; cache permissions; source/related-ticket confirmation; BE/DB/optional FE comparison; grouped questions and related-feature impact. |
+| change-review | Optional Jira ticket/related-ticket context; `changed_paths` + multi-source impact scan (`source__callers`, `source__search`, `source__read`); Gate 1 risk confirmation (`confirm_risks`); `/ponytail` simplification scan (`ponytail_check`) awaiting approval; end-to-end Mermaid workflow diagram. |
 
-Ticket-review explicitly opts into multi_source. Its interaction-only confirmation node has no tools and requires successful ticket evidence. Select registered be_project/db_project/fe_project aliases and optional related_issue_keys, then report sources_confirmed after the user agrees. Selection may be corrected before confirmation; additions/changes afterwards require a new scoped task. source_coverage requires source-read evidence from every selected alias before review_complete. Other playbooks retain their original project and ticket restrictions.
+`ticket-review` and `change-review` opt into `multi_source` and `multi_ticket`. In `ticket-review`, an interaction-only confirmation node (`confirm_sources`) requires successful ticket evidence before selecting registered `be_project`/`db_project`/`fe_project` aliases and optional `related_issue_keys`. In `change-review`, `impact_scan` requires `source_selection` and comma-separated relative `changed_paths` (locked after the first `source__*` call), then stops at `confirm_risks` (requiring source evidence via `evidence_any`) before `ponytail_check` and `ready`. `source_coverage` requires source evidence from every selected alias before reporting stage completion. Other playbooks retain their original project and ticket restrictions.
