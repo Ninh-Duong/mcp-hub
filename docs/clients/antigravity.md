@@ -47,6 +47,7 @@ Do the general procedure in [../connecting-a-client.md](../connecting-a-client.m
 - Call `hub__status` to see the automatically detected sibling MCPs and readiness before choosing a child.
 - `/mcp-hub <server-id> <task>`, e.g. `/mcp-hub mcp-server-logs show the prod logs for service orders-api`.
 - Without the skill, type `mcp-hub:<server-id> <task>` (no leading `/`; the `/` opens the command menu).
+- Built-in execution profile: `antigravity` (`invoke_subagent` with `pro`/`flash`/`flash_lite`). Present `hub__plan` playbook and execution confirmation choices via `ask_question` when available; customize models in `config/private/client_profiles.json` and verify with `uv run python scripts/private_config.py client-status`.
 
 ## 6. Logs and quirks
 - The CLI's `/mcp` manager shows live connection logs. No log file path is documented.

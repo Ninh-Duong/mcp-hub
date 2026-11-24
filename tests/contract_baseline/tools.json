@@ -144,6 +144,10 @@
         "be_project": {
           "type": "string"
         },
+        "client": {
+          "description": "Optional AI client identifier (e.g. antigravity, claude-code, codex, cursor) when MCP clientInfo is generic.",
+          "type": "string"
+        },
         "confirm_token": {
           "description": "The token from the offer of playbooks, sent with the playbook the user chose.",
           "type": "string"
@@ -163,6 +167,14 @@
           "description": "The environment the user named (dev, stg, prod); keep it for the task.",
           "type": "string"
         },
+        "execute_model": {
+          "description": "Confirmed fast subagent model for bounded tool-execution stages.",
+          "type": "string"
+        },
+        "execution_mode": {
+          "description": "Confirmed session execution mode: multi_agent or single_agent.",
+          "type": "string"
+        },
         "fe_project": {
           "type": "string"
         },
@@ -170,6 +182,10 @@
           "type": "string"
         },
         "issue_key": {
+          "type": "string"
+        },
+        "orchestrate_model": {
+          "description": "Confirmed model for planning, user interaction, and final synthesis.",
           "type": "string"
         },
         "path": {

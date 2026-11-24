@@ -35,6 +35,15 @@ The plan travels as an argument, not as MCP session state, because current MCP p
 
 With `policy.confirmPlaybook` set to `always` (the default), `hub__plan` without a `confirm_token` plans nothing: it returns the playbooks that fit the task, each with what it is for, a choice of no playbook, and a `confirm_token`. The agent asks the user which one to use, then calls `hub__plan` again with the same task, the chosen playbook (or none), and the token. A token is single use, bound to that task text and the offered choices, and expires after `policy.confirmTokenSeconds`. A refused token is a `Policy:` error, and the agent asks the user again. A chosen playbook skips the BitNet planner. `ambiguous` offers only when no single playbook matches the task; `off` never offers.
 
+## Session execution confirmation
+
+Curated per-client execution profiles live in `config/client_profiles.example.json` (covering Antigravity, Claude Code, Codex, Cursor, GitHub Copilot, and Gemini CLI, plus a single-choice `default` fallback), with optional local overrides in `config/private/client_profiles.json` (no secrets; inspect with `uv run python scripts/private_config.py client-status`).
+
+- With `policy.confirmExecution` set to `always` (the default), `hub__plan` combines playbook confirmation and session execution confirmation (`execution_mode`, `orchestrate_model`, `execute_model`) into a single `confirm_token` offer whenever the detected client (from MCP `clientInfo` or the optional `client` argument) has selectable choices. Setting `policy.confirmExecution` to `off` applies the profile defaults without prompting.
+- `multi_agent` is offered only on the shared service (so subagents share the in-memory `PlanBook` and `hub_plan_id`); isolated stdio restricts sessions to `single_agent`.
+- Confirmed execution choices lock onto the plan and are inherited across `continue_from` continuations without re-prompting; changing them mid-continuation is refused.
+- Workflow stages in `hub__workflow` report `active_tier` (`orchestrate` for missing inputs, `interaction` nodes, and terminal `ready`; `execute` for bounded tool-collection nodes, or an explicit optional node `tier`) and an `execution` object with `recommended_model` and `delegate_stage` (`false` whenever `required_writes` is non-empty).
+
 ## Playbooks
 
 A plan can name a playbook (`docs/playbooks/<id>.md`, [list](playbooks/README.md)): a recipe for one kind of input, such as an rcid, a Jira key, a service, or a PR. The `hub__plan` description lists each playbook with its `when` line, so every client can choose one.

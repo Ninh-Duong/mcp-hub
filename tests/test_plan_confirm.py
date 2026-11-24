@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import unittest
 
+from mcp_hub.client_profiles import ClientProfile
 from mcp_hub.planning import confirm as plan_confirm
 from mcp_hub.planning.playbooks import Playbook
 from mcp_hub.planning.policy import PolicyRefused
@@ -93,6 +94,14 @@ class ConfirmTokensTest(unittest.TestCase):
         self.tokens.issue(TASK, ["source-search"])
         self.assertEqual(len(self.tokens._issued), 1)
 
+    def test_execution_only_offer_preserves_profile_key_and_allows_no_playbooks(self) -> None:
+        exec_token = self.tokens.issue(TASK, offered=None, profile_key="antigravity")
+        offer = self.tokens.redeem(exec_token, TASK)
+        self.assertEqual(offer.profile_key, "antigravity")
+        self.assertIsNone(offer.playbooks)
+        with self.assertRaisesRegex(PolicyRefused, "already used"):
+            self.tokens.redeem(exec_token, TASK)
+
 
 class OfferTextTest(unittest.TestCase):
     def test_the_offer_names_the_token_and_every_choice(self) -> None:
@@ -100,6 +109,79 @@ class OfferTextTest(unittest.TestCase):
         self.assertIn("confirm_token: tok123", text)
         for choice in ("source-search", "rcid-bug", plan_confirm.NONE_CHOICE):
             self.assertIn(f"- {choice}:", text)
+
+
+class SessionOfferTextTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.multi_profile = ClientProfile(
+            key="antigravity",
+            match=("antigravity", "agy"),
+            modes=("multi_agent", "single_agent"),
+            default_mode="multi_agent",
+            mechanism="invoke_subagent",
+            orchestrate_models=("pro", "inherit", "flash"),
+            default_orchestrate_model="pro",
+            execute_models=("flash", "flash_lite", "pro", "inherit"),
+            default_execute_model="flash",
+        )
+        self.downgraded_profile = ClientProfile(
+            key="antigravity",
+            match=("antigravity",),
+            modes=("single_agent",),
+            default_mode="single_agent",
+            mechanism="inline",
+            orchestrate_models=("pro", "inherit"),
+            default_orchestrate_model="pro",
+            execute_models=("flash", "pro"),
+            default_execute_model="flash",
+        )
+        self.default_profile = ClientProfile(
+            key="default",
+            match=(),
+            modes=("single_agent",),
+            default_mode="single_agent",
+            mechanism="inline",
+            orchestrate_models=("inherit",),
+            default_orchestrate_model="inherit",
+            execute_models=("inherit",),
+            default_execute_model="inherit",
+        )
+
+    def test_renders_playbook_choices_and_execution_setup(self) -> None:
+        text = plan_confirm.session_offer_text(
+            "tok123",
+            plan_confirm.choices(TASK, PLAYBOOKS),
+            self.multi_profile,
+            shared_service=True,
+        )
+        self.assertIn("confirm_token: tok123", text)
+        self.assertIn("Playbook choices", text)
+        self.assertIn("- source-search:", text)
+        self.assertIn("Execution setup for client 'antigravity' (mechanism: invoke_subagent):", text)
+        self.assertIn("- execution_mode: multi_agent (recommended), single_agent", text)
+        self.assertIn("- orchestrate_model (planning, user confirmation, synthesis): pro (recommended), inherit, flash", text)
+        self.assertIn("- execute_model (fast subagent stages when multi_agent): flash (recommended), flash_lite, pro, inherit", text)
+
+    def test_renders_isolated_stdio_note_when_shared_service_is_false(self) -> None:
+        text = plan_confirm.session_offer_text(
+            "tok123",
+            None,
+            self.downgraded_profile,
+            shared_service=False,
+        )
+        self.assertNotIn("Playbook choices", text)
+        self.assertIn("- execution_mode: single_agent (recommended)", text)
+        self.assertNotIn("- execute_model", text)
+        self.assertIn("multi_agent requires the shared service; only single_agent is available on isolated stdio.", text)
+
+    def test_renders_tip_when_profile_has_no_choices_and_known_clients_present(self) -> None:
+        text = plan_confirm.session_offer_text(
+            "tok123",
+            plan_confirm.choices(TASK, PLAYBOOKS),
+            self.default_profile,
+            known_clients=["antigravity", "claude-code"],
+        )
+        self.assertIn("Tip: if running inside [antigravity, claude-code], pass client='<id>' to confirm its model options.", text)
 
 
 if __name__ == "__main__":

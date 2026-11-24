@@ -18,6 +18,7 @@ _TARGET = {"oneOf": [{"type": "string"}, {"type": "object", "additionalPropertie
 _NODE = {
     "type": "object", "additionalProperties": False,
     "properties": {"tools": _LIST, "requires": _LIST, "interaction": {"type": "boolean"}, "evidence": _LIST,
+                   "tier": {"enum": ["orchestrate", "execute"]},
                    "source_coverage": {"type": "boolean"},
                    "ticket_scope": {"enum": ["primary", "related"]}, "ticket_coverage": {"type": "boolean"},
                    "allow_missing_cache": {"type": "boolean"},
@@ -102,6 +103,14 @@ def map_target(target: Any, convert: Any) -> Any:
 def targets(node: dict[str, Any]) -> list[str]:
     return [value for target in node["reports"].values()
             for value in ([target] if isinstance(target, str) else [target["present"], target["missing"]])]
+
+
+def node_tier(stage: str, node: dict[str, Any]) -> str:
+    """Derive stage execution tier; explicit node `tier` overrides the default."""
+    # ponytail: derive tier from stage/interaction; explicit node "tier" stays optional for overrides
+    if stage in TERMINALS or node.get("interaction"):
+        return "orchestrate"
+    return str(node.get("tier") or "execute")
 
 
 def compile_definition(name: str, definitions: dict[str, WorkflowDefinition | None], tools: set[str]) -> WorkflowDefinition:

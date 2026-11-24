@@ -81,6 +81,36 @@ class PrivateConfigTest(unittest.TestCase):
         self.assertIn("orders: default_env=dev, allowed_envs=dev,stg", output.getvalue())
         self.assertNotIn(str(self.tmp), output.getvalue())
 
+    def test_client_status_prints_profiles_and_private_source_when_overridden(self) -> None:
+        default_out = io.StringIO()
+        with contextlib.redirect_stdout(default_out):
+            private_config.main(["client-status"])
+        text = default_out.getvalue()
+        for prefix in ("default:", "antigravity:", "claude-code:", "codex:"):
+            self.assertIn(prefix, text)
+        self.assertIn("source=default", text)
+
+        (self.tmp / "client_profiles.json").write_text(json.dumps({
+            "version": 1,
+            "profiles": {
+                "antigravity": {
+                    "modes": ["multi_agent", "single_agent"],
+                    "default_mode": "multi_agent",
+                    "mechanism": "invoke_subagent",
+                    "orchestrate_models": ["pro", "inherit"],
+                    "default_orchestrate_model": "pro",
+                    "execute_models": ["flash", "pro"],
+                    "default_execute_model": "flash",
+                },
+            },
+        }), encoding="utf-8")
+        private_out = io.StringIO()
+        with contextlib.redirect_stdout(private_out):
+            private_config.main(["client-status"])
+        lines = {line.split(":", 1)[0]: line for line in private_out.getvalue().splitlines() if ":" in line}
+        self.assertIn("source=private", lines["antigravity"])
+        self.assertIn("source=default", lines["codex"])
+
 
 if __name__ == "__main__":
     unittest.main()

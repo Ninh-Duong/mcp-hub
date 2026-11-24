@@ -38,6 +38,7 @@ from .workflow_definition import REVIEW_SELECTION
 from mcp.types import Tool
 
 from .playbooks import Playbook
+from ..client_profiles import SessionExecution
 from ..projects import LogTarget, ProjectConfig, SqlTarget
 from ..results.cache import cache_key
 # Re-exported: server.py and the tests use policy.PLAN_ID_ARG and policy.with_plan_id.
@@ -121,6 +122,7 @@ class Plan:
     # Call key -> clock time of its latest success.
     succeeded_at: dict[str, float] = field(default_factory=dict)
     workflow: Workflow | None = None
+    execution: SessionExecution | None = None
 
 
 _STRING_LIST = {"type": "array", "items": {"type": "string"}}
@@ -144,6 +146,14 @@ _PLAN_SCHEMA: dict[str, Any] = {
         "until": {"type": "string", "format": "date-time", "description": "UTC window for log/SQL time filters."},
         "confirm_token": {"type": "string",
                           "description": "The token from the offer of playbooks, sent with the playbook the user chose."},
+        "client": {"type": "string",
+                   "description": "Optional AI client identifier (e.g. antigravity, claude-code, codex, cursor) when MCP clientInfo is generic."},
+        "execution_mode": {"type": "string",
+                           "description": "Confirmed session execution mode: multi_agent or single_agent."},
+        "orchestrate_model": {"type": "string",
+                              "description": "Confirmed model for planning, user interaction, and final synthesis."},
+        "execute_model": {"type": "string",
+                          "description": "Confirmed fast subagent model for bounded tool-execution stages."},
     },
     "required": ["task"],
     "additionalProperties": False,
@@ -201,8 +211,11 @@ class PlanBook:
             self._plans.move_to_end(plan_id)
         return plan
 
-    def create(self, arguments: Mapping[str, Any], catalog: PlanCatalog) -> Plan:
+    def create(
+        self, arguments: Mapping[str, Any], catalog: PlanCatalog, *, execution: SessionExecution | None = None,
+    ) -> Plan:
         plan = parse_plan(arguments, catalog, f"plan-{secrets.token_hex(16)}")
+        plan.execution = execution
         if arguments.get("continue_from") is not None:
             self._continue(plan, arguments["continue_from"])
         plan.clock = self.clock
@@ -223,6 +236,10 @@ class PlanBook:
             raise PolicyRefused("Continuation must keep the same task and playbook.")
         if old.context != plan.workflow.context or previous.servers != plan.servers or previous.connection_checks != plan.connection_checks:
             raise PolicyRefused("Continuation must keep exactly the predecessor's scope/context.")
+        if previous.execution is not None:
+            if plan.execution is not None and plan.execution != previous.execution:
+                raise PolicyRefused("Continuation must keep the confirmed session execution setup.")
+            plan.execution = previous.execution
         if not previous.writes <= plan.writes:
             raise PolicyRefused("Continuation may only add cache-refresh write permissions.")
         added = plan.writes - previous.writes
@@ -571,6 +588,13 @@ def plan_summary(plan: Plan, tools_by_server: Mapping[str, list[str]], contracts
         "including hub__batch.",
         f"Environment: {plan.env or 'not set (child defaults)'}.",
         f"Writes allowed: {', '.join(sorted(plan.writes)) or 'none'}.",
+        *(
+            [
+                f"Session execution ({plan.execution.client}): mode={plan.execution.mode}, "
+                f"orchestrate={plan.execution.orchestrate_model}, execute={plan.execution.execute_model}."
+            ]
+            if plan.execution is not None else []
+        ),
         "Enforced: only these children; the plan's environment; no undeclared writes; connection checks only "
         "after a failed call; no identical repeats. Batch independent reads with hub__batch.",
     ]

@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from mcp.types import CallToolRequestParams, CallToolResult, TextContent, Tool
 
+from mcp_hub.client_profiles import load_client_profiles
 from mcp_hub.planning import confirm as plan_confirm, policy
 from mcp_hub.config import ConfigError, HubConfig, ServerConfig, ToolRoute
 from mcp_hub.planning.playbooks import Playbook, load_playbooks, parse_playbook
@@ -246,6 +247,154 @@ class ConfirmGateTest(RuntimeGateTest):
         _args, assist = await self.runtime._assist_plan({"task": "Find the failed order", "playbook": "find-request"})
         self.assertEqual(assist, "off")
         self.runtime.plan_assistant.hints.assert_not_called()
+
+
+class ExecutionConfirmGateTest(RuntimeGateTest):
+    """Per-client session execution mode/model confirmation and defaults."""
+
+    async def asyncSetUp(self) -> None:
+        await super().asyncSetUp()
+        self.tmp_profiles = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp_profiles.cleanup)
+        self.runtime.client_profiles = load_client_profiles(private_root=self.tmp_profiles.name)
+        self.runtime.shared_service = True
+        self.runtime.settings = Settings(
+            policy=PolicySettings(mode="enforce", confirm_playbook="always", confirm_execution="always"),
+        )
+        self.runtime.confirm_tokens = plan_confirm.ConfirmTokens(600)
+
+    def _ctx(self, client_name: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            request_id=1,
+            session=SimpleNamespace(client_params=SimpleNamespace(client_info=SimpleNamespace(name=client_name))),
+        )
+
+    async def call_as(self, client_name: str, name: str, arguments: dict) -> CallToolResult:
+        return await self.runtime.call_tool(self._ctx(client_name), CallToolRequestParams(name=name, arguments=arguments))
+
+    @staticmethod
+    def _token(result: CallToolResult) -> str:
+        return re.search(r"confirm_token: (\S+?)\.?$", result.content[0].text, re.M)[1]
+
+    async def test_offer_lists_antigravity_options_and_redeem_requires_valid_execution_choices(self) -> None:
+        offer = await self.call_as("Antigravity", "hub__plan", plan_args())
+        self.assertFalse(offer.is_error)
+        text = offer.content[0].text
+        self.assertIn("confirm_token:", text)
+        self.assertIn("Playbook choices", text)
+        for expected in ("multi_agent", "single_agent", "pro", "flash", "flash_lite"):
+            self.assertIn(expected, text)
+
+        refused_missing = await self.call_as("Antigravity", "hub__plan", plan_args(confirm_token=self._token(offer)))
+        self.assertTrue(refused_missing.is_error)
+        self.assertEqual(len(self.events("hub.plan.confirm_refused")), 1)
+
+        bad_model_offer = await self.call_as("Antigravity", "hub__plan", plan_args())
+        refused_model = await self.call_as("Antigravity", "hub__plan", plan_args(
+            confirm_token=self._token(bad_model_offer),
+            execution_mode="multi_agent", orchestrate_model="pro", execute_model="unknown-model",
+        ))
+        self.assertTrue(refused_model.is_error)
+
+        mismatch_offer = await self.call_as("Antigravity", "hub__plan", plan_args())
+        refused_client = await self.call_as("Claude Code", "hub__plan", plan_args(
+            confirm_token=self._token(mismatch_offer),
+            execution_mode="multi_agent", orchestrate_model="sonnet", execute_model="haiku",
+        ))
+        self.assertTrue(refused_client.is_error)
+
+        good_offer = await self.call_as("Antigravity", "hub__plan", plan_args())
+        created = await self.call_as("Antigravity", "hub__plan", plan_args(
+            confirm_token=self._token(good_offer),
+            execution_mode="multi_agent", orchestrate_model="pro", execute_model="flash",
+        ))
+        self.assertFalse(created.is_error, created.content[0].text)
+        self.assertIn("Session execution (antigravity): mode=multi_agent, orchestrate=pro, execute=flash.",
+                      created.content[0].text)
+        event = self.events("hub.plan.created")[-1]
+        self.assertEqual((event["client_profile"], event["execution_mode"]), ("antigravity", "multi_agent"))
+
+    async def test_explicit_client_mismatch_on_unknown_client_is_refused(self) -> None:
+        offer = await self.call_as("unknown", "hub__plan", plan_args(client="antigravity"))
+        self.assertFalse(offer.is_error)
+        refused = await self.call_as("unknown", "hub__plan", plan_args(
+            client="claude-code",
+            confirm_token=self._token(offer),
+            execution_mode="multi_agent", orchestrate_model="sonnet", execute_model="haiku",
+        ))
+        self.assertTrue(refused.is_error)
+
+    async def test_confirm_token_profile_binding_blocks_omitting_or_adding_client(self) -> None:
+        self.runtime.settings = Settings(
+            policy=PolicySettings(mode="enforce", confirm_playbook="off", confirm_execution="always"),
+        )
+        offer = await self.call_as("unknown", "hub__plan", plan_args(client="antigravity"))
+        refused_omitted = await self.call_as("unknown", "hub__plan", plan_args(confirm_token=self._token(offer)))
+        self.assertTrue(refused_omitted.is_error)
+
+        self.runtime.settings = Settings(
+            policy=PolicySettings(mode="enforce", confirm_playbook="always", confirm_execution="always"),
+        )
+        default_offer = await self.call_as("unknown", "hub__plan", plan_args())
+        refused_switched = await self.call_as("unknown", "hub__plan", plan_args(
+            client="antigravity", confirm_token=self._token(default_offer),
+            execution_mode="multi_agent", orchestrate_model="pro", execute_model="flash",
+        ))
+        self.assertTrue(refused_switched.is_error)
+
+        ws = await self.call_as("Antigravity", "hub__plan", plan_args(task="   "))
+        self.assertTrue(ws.is_error)
+
+    async def test_confirm_playbook_off_with_confirm_execution_always(self) -> None:
+        self.runtime.settings = Settings(
+            policy=PolicySettings(mode="enforce", confirm_playbook="off", confirm_execution="always"),
+        )
+        offer = await self.call_as("Antigravity", "hub__plan", plan_args())
+        self.assertFalse(offer.is_error)
+        self.assertIn("confirm_token:", offer.content[0].text)
+        self.assertNotIn("Playbook choices", offer.content[0].text)
+
+        created = await self.call_as("Antigravity", "hub__plan", plan_args(
+            confirm_token=self._token(offer),
+            execution_mode="single_agent", orchestrate_model="pro",
+        ))
+        self.assertFalse(created.is_error, created.content[0].text)
+        self.assertIn("Session execution (antigravity): mode=single_agent, orchestrate=pro, execute=pro.",
+                      created.content[0].text)
+
+    async def test_confirm_execution_off_applies_profile_defaults(self) -> None:
+        self.runtime.settings = Settings(
+            policy=PolicySettings(mode="enforce", confirm_playbook="off", confirm_execution="off"),
+        )
+        created = await self.call_as("Antigravity", "hub__plan", plan_args())
+        self.assertFalse(created.is_error, created.content[0].text)
+        self.assertIn("Session execution (antigravity): mode=multi_agent, orchestrate=pro, execute=flash.",
+                      created.content[0].text)
+        event = self.events("hub.plan.created")[-1]
+        self.assertEqual((event["client_profile"], event["execution_mode"]), ("antigravity", "multi_agent"))
+
+    async def test_isolated_stdio_restricts_antigravity_to_single_agent(self) -> None:
+        self.runtime.shared_service = False
+        self.runtime.settings = Settings(
+            policy=PolicySettings(mode="enforce", confirm_playbook="off", confirm_execution="always"),
+        )
+        offer = await self.call_as("Antigravity", "hub__plan", plan_args())
+        self.assertFalse(offer.is_error)
+        self.assertIn("only single_agent is available on isolated stdio", offer.content[0].text)
+        refused = await self.call_as("Antigravity", "hub__plan", plan_args(
+            confirm_token=self._token(offer),
+            execution_mode="multi_agent", orchestrate_model="pro", execute_model="flash",
+        ))
+        self.assertTrue(refused.is_error)
+
+        offer_two = await self.call_as("Antigravity", "hub__plan", plan_args())
+        ok = await self.call_as("Antigravity", "hub__plan", plan_args(
+            confirm_token=self._token(offer_two),
+            execution_mode="single_agent", orchestrate_model="pro",
+        ))
+        self.assertFalse(ok.is_error, ok.content[0].text)
+        self.assertIn("Session execution (antigravity): mode=single_agent, orchestrate=pro, execute=pro.",
+                      ok.content[0].text)
 
 
 class EnforceGateTest(RuntimeGateTest):

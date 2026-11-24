@@ -8,7 +8,7 @@ from datetime import datetime
 from time import monotonic
 from typing import Any
 
-from .workflow_definition import WorkflowDefinition, SOURCE_ROLES, REVIEW_SELECTION
+from .workflow_definition import WorkflowDefinition, SOURCE_ROLES, REVIEW_SELECTION, node_tier
 from .workflow_scope import WorkflowError, absolute, check_scope, fill_context, missing_inputs, source_projects, related_issues
 from ..settings import JobSettings, PolicySettings
 
@@ -69,9 +69,13 @@ class Workflow:
             return []
         return missing_inputs(self.context, [*self.definition.inputs, *self.node().get("requires", [])])
 
+    def active_tier(self) -> str:
+        return "orchestrate" if self.missing() else node_tier(self.stage, self.node())
+
     def status(self) -> dict[str, Any]:
         return {
             "stage": "awaiting_input" if self.missing() else self.stage, "active_stage": self.stage,
+            "active_tier": self.active_tier(),
             "missing_inputs": self.missing(), "allowed_tools": self.allowed_tools(),
             "report_options": [*self.node()["reports"], "access_blocked"], "busy": self.lock.locked(), "outcome": self.outcome,
             "scope": {key: value for key, value in self.context.items() if key in {"project", "env", "rcid", "service", "issue_key", "pr_url", "query", "glob", "path", "since", "until"} | REVIEW_SELECTION},

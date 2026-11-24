@@ -1,6 +1,6 @@
 # Rules for agents using mcp-hub
 
-Version: 2026-11-17. A copy with an older version, or without this line, is stale; refresh it (connecting-a-client.md, prompt C).
+Version: 2026-11-24. A copy with an older version, or without this line, is stale; refresh it (connecting-a-client.md, prompt C).
 
 These rules apply in any workspace where the `mcp-hub` MCP server is connected. The Hub also sends them as its server instructions. Step 7 of `docs/connecting-a-client.md` in the mcp-hub repo installs them as an always-on client rule. The file has no machine-specific paths; its relative links are for readers in this repository.
 
@@ -19,7 +19,7 @@ The canonical rule index is in [`agent-rules/`](../agent-rules/README.md). Each 
 
   `hub__plan` lists every playbook with when to use it. The playbook returns the steps to follow and the project's log targets (organization, stream, request-ID field). Use exactly those targets; never list organizations or streams to find them. If the plan is refused because a project has no log targets, ask the user to add them. Do not search without them.
 - **Without a matching playbook, call `hub__plan` with your own plan before any child tool.** Give `task`, the child `servers` the task needs, the `env` the user named, and the planned `steps`. List in `writes` only the write tools the user asked for. Set `connection_checks: true` only when the user asked to check connections.
-- **Confirm the playbook with the user.** When `hub__plan` answers with a list of playbooks and a `confirm_token` instead of a plan, ask the user which one fits. Then call `hub__plan` again with the same task, the chosen playbook (or none), and that token. Never choose a playbook for the user, and never reuse a token.
+- **Confirm the playbook and session execution setup with the user.** When `hub__plan` answers with a `confirm_token` offer containing playbooks and/or session execution options (`execution_mode`, `orchestrate_model`, `execute_model`), ask the user which playbook and execution choices fit. Then call `hub__plan` again with the same task, the chosen playbook (or none), the confirmed execution options (when offered), and that token. Never choose them for the user, and never reuse a token. When `execution.delegate_stage` is `true` in `hub__workflow` status (shared service with `multi_agent`), the orchestrator may delegate that bounded stage and its `hub_plan_id` to a fast subagent using `execution.recommended_model` (one stage at a time, respecting `workflow.lock`), keeping user confirmations and final synthesis on `orchestrate_model`.
 - **Stop on a configuration error.** When a child reports an unknown project or a missing setting, stop and report it to the user. Do not search the disk, a clone, or another tool to get around it.
 - **Read what it returns:** a `hub_plan_id`, the allowed tools, and each child's rules (its contract). Follow those rules.
 - **Pass `hub_plan_id` with every call of the task,** including `hub__batch`, where it goes beside `calls`.

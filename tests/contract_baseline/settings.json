@@ -59,6 +59,7 @@
   "jobs.tool_result_chars": 6000,
   "logs.backups": 3,
   "logs.max_bytes": 5242880,
+  "policy.confirm_execution": "always",
   "policy.confirm_playbook": "always",
   "policy.confirm_token_seconds": 600.0,
   "policy.health_check_tools": [

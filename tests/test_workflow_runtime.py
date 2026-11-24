@@ -2,16 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
-from mcp.types import CallToolResult, ImageContent, TextContent
+from mcp.types import CallToolRequestParams, CallToolResult, ImageContent, TextContent
 
 from tests.helpers.workflow import call, create_plan, runtime_fixture
+from mcp_hub.client_profiles import load_client_profiles
 from mcp_hub.planning.workflow_runtime import WORKFLOW_META, workflow_tool
 from mcp_hub.planning.policy import PlanBook
 from mcp_hub.results.full_results import FullResultStore
+from mcp_hub.settings import PolicySettings, Settings
 
 
 class WorkflowRuntimeTest(unittest.IsolatedAsyncioTestCase):
@@ -167,3 +171,49 @@ class WorkflowRuntimeTest(unittest.IsolatedAsyncioTestCase):
             {"tool": "logs__read_ai_context", "arguments": {"snapshot": "c", "file": "b"}}])
         self.assertTrue(result.is_error)
         self.assertEqual(len(self.client.calls), 1)
+
+    async def test_required_writes_disable_delegation_until_continued_with_writes(self):
+        root = Path(self.tmp.name)
+        runtime, _ = runtime_fixture(root)
+        runtime.client_profiles = load_client_profiles(private_root=root)
+        runtime.shared_service = True
+        runtime.settings = Settings(
+            policy=PolicySettings(mode="enforce", confirm_playbook="off", confirm_execution="off"),
+        )
+        ctx = SimpleNamespace(
+            request_id="pr-exec",
+            session=SimpleNamespace(client_params=SimpleNamespace(client_info=SimpleNamespace(name="Antigravity"))),
+        )
+        pr_url = "https://bitbucket.example.com/org/repo/pull-requests/1"
+        plan_res = await runtime.call_tool(ctx, CallToolRequestParams(
+            name="hub__plan",
+            arguments={"task": "Review PR", "playbook": "pr-review", "pr_url": pr_url},
+        ))
+        self.assertFalse(plan_res.is_error, plan_res.content)
+        pid = re.search(r'hub_plan_id="([^"]+)"', plan_res.content[0].text)[1]
+
+        status_res = await runtime.call_tool(ctx, CallToolRequestParams(
+            name="hub__workflow", arguments={"hub_plan_id": pid, "action": "status"},
+        ))
+        status = json.loads(status_res.content[0].text)
+        self.assertEqual(status["active_stage"], "context")
+        self.assertEqual(status["required_writes"], ["pr__get_pr_context_pack"])
+        self.assertEqual(status["execution"]["active_tier"], "execute")
+        self.assertIs(status["execution"]["delegate_stage"], False)
+
+        cont_res = await runtime.call_tool(ctx, CallToolRequestParams(
+            name="hub__plan",
+            arguments={
+                "task": "Review PR", "playbook": "pr-review", "pr_url": pr_url,
+                "writes": ["pr__get_pr_context_pack"], "continue_from": pid,
+            },
+        ))
+        self.assertFalse(cont_res.is_error, cont_res.content)
+        cont_pid = re.search(r'hub_plan_id="([^"]+)"', cont_res.content[0].text)[1]
+        cont_status_res = await runtime.call_tool(ctx, CallToolRequestParams(
+            name="hub__workflow", arguments={"hub_plan_id": cont_pid, "action": "status"},
+        ))
+        cont_status = json.loads(cont_status_res.content[0].text)
+        self.assertEqual(cont_status["required_writes"], [])
+        self.assertIs(cont_status["execution"]["delegate_stage"], True)
+        self.assertEqual(cont_status["execution"]["recommended_model"], "flash")

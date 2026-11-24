@@ -45,6 +45,7 @@ Do the general procedure in [../connecting-a-client.md](../connecting-a-client.m
 - `/mcp-hub <server-id> <task>` (skill).
 - `/mcp-hub:<server-id> <one-word-task>` (native MCP prompt).
 - `mcp-hub:<server-id> <task>` (plain text).
+- Built-in execution profile: `claude-code` (`Task` with `opus`/`sonnet`/`haiku`). Customize models in `config/private/client_profiles.json` and verify with `uv run python scripts/private_config.py client-status`.
 
 ## 6. Logs and quirks
 - `claude --debug=mcp` writes server stderr to `~/.claude/debug/<session-id>.txt`.

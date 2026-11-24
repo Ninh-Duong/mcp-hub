@@ -12,7 +12,9 @@ import re
 import secrets
 import time
 from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass
 
+from ..client_profiles import ClientProfile
 from .playbooks import Playbook
 from .policy import PolicyRefused
 
@@ -61,8 +63,60 @@ def offer_text(token: str, options: Iterable[tuple[str, str]]) -> str:
     )
 
 
+def _format_choices(items: tuple[str, ...], default: str) -> str:
+    return ", ".join(f"{item} (recommended)" if item == default else item for item in items)
+
+
+def session_offer_text(
+    token: str,
+    options: Iterable[tuple[str, str]] | None,
+    profile: ClientProfile | None,
+    known_clients: Iterable[str] = (),
+    *,
+    shared_service: bool = True,
+) -> str:
+    """Format the confirmation offer for playbook and/or client execution setup."""
+    if profile is None or not profile.has_choices:
+        base = offer_text(token, options or ())
+        clients = list(known_clients)
+        if clients:
+            base += f"\nTip: if running inside [{', '.join(clients)}], pass client='<id>' to confirm its model options."
+        return base
+    lines = [
+        "No plan yet: confirm the session setup with the user first, then call hub__plan again with the same task, "
+        "their choices, and",
+        f"{CONFIRM_ARG}: {token}.",
+    ]
+    if options is not None:
+        listed = "\n".join(f"- {choice}: {what}" for choice, what in options)
+        lines.append(f"Playbook choices (omit playbook for {NONE_CHOICE}):\n{listed}")
+    exec_lines = [
+        f"Execution setup for client '{profile.key}' (mechanism: {profile.mechanism}):",
+        f"- execution_mode: {_format_choices(profile.modes, profile.default_mode)}",
+        f"- orchestrate_model (planning, user confirmation, synthesis): {_format_choices(profile.orchestrate_models, profile.default_orchestrate_model)}",
+    ]
+    if "multi_agent" in profile.modes:
+        exec_lines.append(
+            f"- execute_model (fast subagent stages when multi_agent): {_format_choices(profile.execute_models, profile.default_execute_model)}"
+        )
+    elif not shared_service:
+        exec_lines.append("- note: multi_agent requires the shared service; only single_agent is available on isolated stdio.")
+    lines.append("\n".join(exec_lines))
+    return "\n\n".join(lines)
+
+
 def _digest(task: str) -> str:
     return hashlib.sha256(task.strip().encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True)
+class ConfirmOffer:
+    """Single-use confirmation offer bound to one task, optional playbook choices, and optional client profile."""
+
+    expires: float
+    digest: str
+    playbooks: frozenset[str] | None = None
+    profile_key: str | None = None
 
 
 class ConfirmTokens:
@@ -71,29 +125,30 @@ class ConfirmTokens:
     def __init__(self, ttl_seconds: float, clock: Callable[[], float] = time.monotonic) -> None:
         self.ttl_seconds = ttl_seconds
         self.clock = clock
-        self._issued: dict[str, tuple[float, str, frozenset[str]]] = {}
+        self._issued: dict[str, ConfirmOffer] = {}
 
-    def issue(self, task: str, offered: Iterable[str]) -> str:
+    def issue(self, task: str, offered: Iterable[str] | None = None, *, profile_key: str | None = None) -> str:
         self._prune()
         token = secrets.token_urlsafe(16)
-        self._issued[token] = (self.clock() + self.ttl_seconds, _digest(task), frozenset(offered))
+        playbooks = frozenset(offered) if offered is not None else None
+        self._issued[token] = ConfirmOffer(self.clock() + self.ttl_seconds, _digest(task), playbooks, profile_key)
         return token
 
-    def redeem(self, token: object, task: str, choice: str) -> None:
+    def redeem(self, token: object, task: str, choice: str | None = None) -> ConfirmOffer:
         """Use a token for one choice; PolicyRefused says what to do when it does not fit."""
         entry = self._issued.pop(token, None) if isinstance(token, str) else None
-        if entry is None or self.clock() > entry[0]:
+        if entry is None or self.clock() > entry.expires:
             raise PolicyRefused(
                 f"'{CONFIRM_ARG}' is unknown, already used, or expired. Ask the user again: call hub__plan "
                 "without it to get a new offer."
             )
-        _expires, digest, offered = entry
-        if digest != _digest(task):
+        if entry.digest != _digest(task):
             raise PolicyRefused(f"'{CONFIRM_ARG}' was issued for another task. Ask the user again for this one.")
-        if choice not in offered:
-            raise PolicyRefused(f"'playbook' must be one of the offered choices: {', '.join(sorted(offered))}.")
+        if entry.playbooks is not None and choice not in entry.playbooks:
+            raise PolicyRefused(f"'playbook' must be one of the offered choices: {', '.join(sorted(entry.playbooks))}.")
+        return entry
 
     def _prune(self) -> None:
         now = self.clock()
-        for token in [token for token, entry in self._issued.items() if now > entry[0]]:
+        for token in [token for token, entry in self._issued.items() if now > entry.expires]:
             del self._issued[token]

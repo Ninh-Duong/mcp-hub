@@ -2,17 +2,21 @@
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
-from mcp.types import CallToolResult, TextContent
+from mcp.types import CallToolResult, CallToolRequestParams, TextContent
 
+from mcp_hub.client_profiles import load_client_profiles
 from mcp_hub.config import DOCS_ROOT, ConfigError
 from mcp_hub.planning.playbooks import load_playbooks
 from mcp_hub.planning.workflow_definition import parse_definition, compile_definition
 from mcp_hub.planning.workflow_runtime import WORKFLOW_META
 from mcp_hub.projects import ProjectConfig
+from mcp_hub.settings import PolicySettings, Settings
 from tests.helpers.workflow import runtime_fixture, create_plan, call
 
 
@@ -239,3 +243,120 @@ class TicketReviewContractTest(unittest.TestCase):
         with self.assertRaises(ConfigError):
             parse_definition("```workflow\n" + json.dumps(base) + "\n```", "example")
         self.assertTrue((DOCS_ROOT / "playbooks" / "ticket-review.md").is_file())
+
+
+class TicketReviewExecutionRoutingTest(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name)
+        self.runtime, self.client = runtime_fixture(root)
+        self.runtime.client_profiles = load_client_profiles(private_root=root)
+        self.runtime.shared_service = True
+        self.runtime.settings = Settings(
+            policy=PolicySettings(mode="enforce", confirm_playbook="off", confirm_execution="always"),
+        )
+        for alias in ("backend", "database"):
+            self.runtime.projects[alias] = ProjectConfig(alias, ("dev",), "dev")
+
+    def _ctx(self) -> SimpleNamespace:
+        return SimpleNamespace(
+            request_id="exec-test",
+            session=SimpleNamespace(client_params=SimpleNamespace(client_info=SimpleNamespace(name="Antigravity"))),
+        )
+
+    async def call_agy(self, name: str, arguments: dict) -> CallToolResult:
+        return await self.runtime.call_tool(self._ctx(), CallToolRequestParams(name=name, arguments=arguments))
+
+    async def _start_antigravity_review(self) -> tuple[str, str]:
+        task = "Review ticket requirements"
+        base_args = {"task": task, "playbook": "ticket-review", "issue_key": "EX-123"}
+        offer = await self.call_agy("hub__plan", base_args)
+        self.assertFalse(offer.is_error)
+        token = re.search(r"confirm_token: (\S+?)\.?$", offer.content[0].text, re.M)[1]
+        created = await self.call_agy("hub__plan", {
+            **base_args, "confirm_token": token,
+            "execution_mode": "multi_agent", "orchestrate_model": "pro", "execute_model": "flash",
+        })
+        self.assertFalse(created.is_error, created.content[0].text)
+        return task, re.search(r'hub_plan_id="([^"]+)"', created.content[0].text)[1]
+
+    async def test_execution_routing_across_ticket_review_stages(self) -> None:
+        _, pid = await self._start_antigravity_review()
+        ticket_status = json.loads((await self.call_agy("hub__workflow", {"hub_plan_id": pid, "action": "status"})).content[0].text)
+        self.assertEqual(ticket_status["active_stage"], "ticket")
+        self.assertEqual((ticket_status["execution"]["active_tier"], ticket_status["execution"]["delegate_stage"],
+                          ticket_status["execution"]["recommended_model"]), ("execute", True, "flash"))
+
+        self.client.result = CallToolResult(content=[TextContent(type="text", text="Ticket text")])
+        read_res = await self.call_agy("jira__read_ticket", {"hub_plan_id": pid, "issue_key": "EX-123"})
+        self.assertEqual((read_res.meta[WORKFLOW_META]["execution"]["active_tier"],
+                          read_res.meta[WORKFLOW_META]["execution"]["delegate_stage"]), ("execute", True))
+        ref = read_res.meta[WORKFLOW_META]["receipt_id"]
+
+        confirm_res = await self.call_agy("hub__workflow", {
+            "hub_plan_id": pid, "action": "report", "decision": "ticket_reviewed", "refs": [ref],
+        })
+        confirm_status = json.loads(confirm_res.content[0].text)
+        self.assertEqual(confirm_status["active_stage"], "confirm_sources")
+        self.assertEqual((confirm_status["execution"]["active_tier"], confirm_status["execution"]["delegate_stage"],
+                          confirm_status["execution"]["recommended_model"]), ("orchestrate", False, "pro"))
+
+        await self.call_agy("hub__workflow", {
+            "hub_plan_id": pid, "action": "provide_input", "inputs": {"be_project": "backend"},
+        })
+        compare_status = json.loads((await self.call_agy("hub__workflow", {
+            "hub_plan_id": pid, "action": "report", "decision": "sources_confirmed", "refs": [],
+        })).content[0].text)
+        self.assertEqual(compare_status["active_stage"], "compare")
+        self.assertEqual((compare_status["execution"]["active_tier"], compare_status["execution"]["delegate_stage"],
+                          compare_status["execution"]["recommended_model"]), ("execute", True, "flash"))
+
+        self.client.result = None
+        await self.call_agy("source__search", {"hub_plan_id": pid, "project": "backend", "query": "TicketField"})
+        self.client.result = CallToolResult(content=[TextContent(type="text", text="Source code")])
+        src_read = await self.call_agy("source__read", {"hub_plan_id": pid, "project": "backend", "path": "app.py"})
+        ready_status = json.loads((await self.call_agy("hub__workflow", {
+            "hub_plan_id": pid, "action": "report", "decision": "review_complete",
+            "refs": [src_read.meta[WORKFLOW_META]["receipt_id"]],
+        })).content[0].text)
+        self.assertEqual(ready_status["active_stage"], "ready")
+        self.assertEqual((ready_status["execution"]["active_tier"], ready_status["execution"]["delegate_stage"],
+                          ready_status["execution"]["recommended_model"]), ("orchestrate", False, "pro"))
+
+    async def test_continuation_preserves_execution_and_refuses_changes(self) -> None:
+        task, pid = await self._start_antigravity_review()
+        self.client.result = CallToolResult(content=[TextContent(type="text", text="Ticket text")])
+        read_res = await self.call_agy("jira__read_ticket", {"hub_plan_id": pid, "issue_key": "EX-123"})
+        await self.call_agy("hub__workflow", {
+            "hub_plan_id": pid, "action": "report", "decision": "ticket_reviewed",
+            "refs": [read_res.meta[WORKFLOW_META]["receipt_id"]],
+        })
+        filled = json.loads((await self.call_agy("hub__workflow", {
+            "hub_plan_id": pid, "action": "provide_input", "inputs": {"be_project": "backend"},
+        })).content[0].text)
+        self.assertEqual((filled["active_stage"], filled["execution"]["active_tier"], filled["execution"]["delegate_stage"]),
+                         ("confirm_sources", "orchestrate", False))
+
+        scope = filled["scope"]
+        for extra in (
+            {"client": "claude-code"},
+            {"execution_mode": "single_agent", "orchestrate_model": "pro"},
+            {"execution_mode": "multi_agent", "orchestrate_model": "pro", "execute_model": "flash_lite"},
+        ):
+            bad_cont = await self.call_agy("hub__plan", {
+                "task": task, "playbook": "ticket-review", **scope,
+                "writes": ["jira__sync_ticket"], "continue_from": pid, **extra,
+            })
+            self.assertTrue(bad_cont.is_error)
+            self.assertIn("session execution setup", bad_cont.content[0].text)
+
+        cont = await self.call_agy("hub__plan", {
+            "task": task, "playbook": "ticket-review", **scope,
+            "writes": ["jira__sync_ticket"], "continue_from": pid,
+        })
+        self.assertFalse(cont.is_error, cont.content[0].text)
+        self.assertIn("Session execution (antigravity): mode=multi_agent, orchestrate=pro, execute=flash.",
+                      cont.content[0].text)
+        new_pid = re.search(r'hub_plan_id="([^"]+)"', cont.content[0].text)[1]
+        self.assertEqual(self.runtime.plans.get(new_pid).execution, self.runtime.plans.get(pid).execution)

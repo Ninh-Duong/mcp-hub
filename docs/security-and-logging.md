@@ -91,7 +91,7 @@ The BitNet [processing stream](bitnet.md#processing-stream) is transient metadat
 | `hub.plan.confirm_requested` | INFO | `hub__plan` came without a playbook choice, so the Hub offered the playbooks and a token: `mode`, `options` (count). Never the task text. |
 | `hub.plan.confirm_refused` | WARNING | A `confirm_token` was refused (unknown, used, expired, another task, or a choice that was not offered): `mode`. |
 | `hub.plan.needs_registration` | WARNING | A playbook that searches source was asked for a project that is not registered: `playbook`. Never the alias or path. |
-| `hub.plan.created` | INFO | A client declared a plan with `hub__plan`: `plan_id`, `servers`, `env_set`, `writes`, `steps` (count), `connection_checks`, `mode`, `playbook`, and `project_set`. Never the task text, the steps, the project alias, or its log targets. |
+| `hub.plan.created` | INFO | A client declared a plan with `hub__plan`: `plan_id`, `servers`, `env_set`, `writes`, `steps` (count), `connection_checks`, `mode`, `playbook`, `project_set`, `client_profile`, and `execution_mode`. Never the task text, the steps, the project alias, or its log targets. |
 | `hub.workflow.updated` | INFO | A client reported a workflow decision or finish: `request_id`, `action`, `stage`, `outcome`, `calls`, `refusals`, `tool_ms`, `elapsed_ms`. No semantic findings, references, targets or result content. |
 | `hub.workflow.refused` | INFO | Workflow scope/stage/budget/concurrency refusal: `request_id`, `stage`. No arguments or raw refusal message. |
 | `hub.workflow.call` | INFO | Workflow child execution: `request_id`, `stage`, `outcome` (succeeded/failed/cancelled), `duration_ms`, configured `tool`. No arguments, evidence or model output. |

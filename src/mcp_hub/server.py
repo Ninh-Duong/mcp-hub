@@ -39,6 +39,7 @@ from .audit_events import TOOL_ARGUMENTS_INVALID
 from .batch import BATCH_TOOL, BatchMixin, batch_tool
 from .child_lifecycle import ChildLifecycleMixin
 from .children import Backoff, ChildOpener, ChildSupervisor, ChildUnavailable, open_stdio_client
+from .client_profiles import ClientProfileCatalog, load_client_profiles
 from .clients import request_client_name
 from .results.condense import RuleCondenser
 from .config_sources import ConfigSources, gaps_after_reports
@@ -99,6 +100,7 @@ class HubRuntime(ChildLifecycleMixin, PinScreeningMixin, WorkflowRuntimeMixin, B
     def __init__(
         self, config: HubConfig, audit: AuditLog, settings: Settings = _DEFAULT_SETTINGS, *,
         playbooks: Mapping[str, Playbook] | None = None, projects: Mapping[str, ProjectConfig] | None = None,
+        client_profiles: ClientProfileCatalog | None = None, shared_service: bool = False,
         processing_observer: ProcessingObserver | None = None, pin_path: Path | None = None,
     ) -> None:
         self.config = config
@@ -113,36 +115,41 @@ class HubRuntime(ChildLifecycleMixin, PinScreeningMixin, WorkflowRuntimeMixin, B
         self.activity_source: ActivitySource | None = None
         self.processing_observer = processing_observer
         self.result_cache = ResultCache(max_entries=settings.cache.max_entries, max_bytes=settings.cache.max_bytes)
-        # Child supervision settings; tests replace them before `connect`.
         self.child_opener: ChildOpener = open_stdio_client
         self.child_backoff = Backoff(
             initial=settings.children.reconnect_initial_seconds, maximum=settings.children.reconnect_max_seconds,
         )
-        # Child stderr logs sit next to the audit log: logs/children/<server-id>.log by default.
         audit_path = getattr(audit, "path", None)
-        self.child_log_dir: Path = (
-            audit_path.parent if isinstance(audit_path, Path) else default_log_dir()
-        ) / "children"
+        self.child_log_dir: Path = (audit_path.parent if isinstance(audit_path, Path) else default_log_dir()) / "children"
         self.supervisors: dict[str, ChildSupervisor] = {}
-        # What each child reports through `config_status` about where its required settings come from.
         self.config_sources = ConfigSources(audit, settings.children.config_status_timeout_seconds)
         self._discovered: dict[str, dict[str, Tool]] = {}
         self._read_only: set[str] = set()
-        # What the usage policy knows about each routed tool, and the recent plans from hub__plan.
-        self._call_facts: dict[str, CallFacts] = {}
-        self.plans = PlanBook(settings.policy.max_plans, repeat_after_seconds=settings.policy.repeat_after_seconds)
-        self.confirm_tokens = plan_confirm.ConfirmTokens(settings.policy.confirm_token_seconds)
-        # Playbooks come from docs/playbooks (read once, here at start); projects from the caller's config load.
-        self.playbooks: Mapping[str, Playbook] = load_playbooks() if playbooks is None else playbooks
-        self.projects: Mapping[str, ProjectConfig] = projects or {}
-        self._health_tools = frozenset(settings.policy.health_check_tools)
-        self.plan_assistant: PlanAssistant | None = None
-        self.condenser: ResultCondenser | None = None
-        self.full_results: FullResultStore | None = None
+        self._setup_planning(settings, playbooks, projects, client_profiles, shared_service)
         self.events = HubEvents(settings.protocol.list_changed_debounce_seconds, on_publish=self._audit_tools_published)
         self._background: set[asyncio.Task[None]] = set()
         self._setup_pins(pin_path, settings)
         self._starting = False
+
+    def _setup_planning(
+        self, settings: Settings, playbooks: Mapping[str, Playbook] | None,
+        projects: Mapping[str, ProjectConfig] | None, client_profiles: ClientProfileCatalog | None,
+        shared_service: bool,
+    ) -> None:
+        """Initialize plan book, playbooks, projects, client profiles, and optional result helpers."""
+        self._call_facts: dict[str, CallFacts] = {}
+        self.plans = PlanBook(settings.policy.max_plans, repeat_after_seconds=settings.policy.repeat_after_seconds)
+        self.confirm_tokens = plan_confirm.ConfirmTokens(settings.policy.confirm_token_seconds)
+        self.playbooks: Mapping[str, Playbook] = load_playbooks() if playbooks is None else playbooks
+        self.projects: Mapping[str, ProjectConfig] = projects or {}
+        self.client_profiles: ClientProfileCatalog = (
+            load_client_profiles(private_root=None) if client_profiles is None else client_profiles
+        )
+        self.shared_service = shared_service
+        self._health_tools = frozenset(settings.policy.health_check_tools)
+        self.plan_assistant: PlanAssistant | None = None
+        self.condenser: ResultCondenser | None = None
+        self.full_results: FullResultStore | None = None
 
     def _setup_pins(self, pin_path: Path | None, settings: Settings) -> None:
         """Pins are kept only when a pin file is given (the service passes the private one) and the mode is warn."""
@@ -316,7 +323,8 @@ class HubRuntime(ChildLifecycleMixin, PinScreeningMixin, WorkflowRuntimeMixin, B
         if params.name == FULL_RESULT_TOOL and self.full_results is not None:
             return self._get_full_result(arguments, request_id)
         if params.name == PLAN_TOOL:
-            return await self._create_plan(arguments, request_id)
+            plan_client = client_name if self.observers else request_client_name(ctx)
+            return await self._create_plan(arguments, request_id, plan_client)
         if params.name == WORKFLOW_TOOL:
             return self._workflow_operation(arguments, request_id)
         if params.name == BATCH_TOOL:
@@ -568,7 +576,7 @@ async def serve() -> None:
     inputs = load_start_inputs(audit)
     runtime = HubRuntime(
         inputs.config, audit, inputs.settings, playbooks=inputs.playbooks, projects=inputs.projects,
-        pin_path=tool_pins_path(),
+        client_profiles=inputs.client_profiles, shared_service=False, pin_path=tool_pins_path(),
     )
     async with AsyncExitStack() as stack:
         await runtime.connect(stack)

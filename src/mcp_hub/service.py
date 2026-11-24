@@ -36,7 +36,10 @@ async def run_http() -> None:
     config, playbooks, projects = inputs.config, inputs.playbooks, inputs.projects
     agent_configs = load_agent_configs()
     job_store = _open_job_store(settings.jobs.retention_days)
-    runtime = HubRuntime(config, audit, settings, playbooks=playbooks, projects=projects, pin_path=tool_pins_path())
+    runtime = HubRuntime(
+        config, audit, settings, playbooks=playbooks, projects=projects,
+        client_profiles=inputs.client_profiles, shared_service=True, pin_path=tool_pins_path(),
+    )
     try:
         async with AsyncExitStack() as stack:
             await runtime.connect(stack)

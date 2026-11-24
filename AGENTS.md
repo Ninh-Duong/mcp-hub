@@ -39,6 +39,7 @@ This repo is maintained entirely by AI agents. These rules are mandatory. Text r
 | Path | Agent may |
 |------|-----------|
 | `config/private/hub.json` | Read and edit. It must never contain secrets. The desktop app also writes `servers.<id>.enabled` and the top-level `extensions` list here, through `hub_settings.py` only. |
+| `config/private/client_profiles.json` | Read and edit. Must never contain secrets; holds optional per-AI-client execution modes and model lists (override of `config/client_profiles.example.json`). Inspect with `uv run python scripts/private_config.py client-status`. |
 | `config/private/mcps/<id>.json` | Create by copying a template. Never open, print, or cat it afterwards; inspect and change it only with `uv run python scripts/private_config.py keys\|set ...`. |
 | `config/private/agents.json` | User edits provider, model, and API keys. Never open, print, or cat it; report readiness only with `uv run python scripts/private_config.py agent-status`. |
 | `config/private/projects.json` | User edits project aliases and allowed environments. Never open, print, or cat it; report aliases with `uv run python scripts/private_config.py project-status`. |

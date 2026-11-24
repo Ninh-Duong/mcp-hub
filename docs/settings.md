@@ -19,7 +19,7 @@ The values an operator may want to change live in one optional `settings` object
 - Keys are camelCase, like the rest of the Hub config.
 - **Whole numbers:** a key whose default is a whole number takes only whole numbers.
 - **Other numbers:** every other numeric key takes any finite number.
-- **Text and lists:** `policy.mode`, `policy.confirmPlaybook`, `protocol.validateArguments`, and `security.toolPinMode` take one of the listed words; `policy.healthCheckTools` takes a list of tool names.
+- **Text and lists:** `policy.mode`, `policy.confirmPlaybook`, `policy.confirmExecution`, `protocol.validateArguments`, and `security.toolPinMode` take one of the listed words; `policy.healthCheckTools` takes a list of tool names.
 - **True or false:** `jobs.promptCache` takes `true` or `false`.
 - All values must be positive, except where the table gives another range.
 
@@ -72,6 +72,7 @@ The values an operator may want to change live in one optional `settings` object
 | `policy` | `mode` | `"enforce"` | How the Hub applies a client's `hub__plan`: `enforce` refuses calls that break it, `warn` runs them with a warning, `off` needs no plan. See [usage-policy.md](usage-policy.md). |
 | `policy` | `maxPlans` | `256` | Plans kept in memory; the least recently used one is dropped, and a call naming it must plan again. |
 | `policy` | `confirmPlaybook` | `"always"` | Whether `hub__plan` asks the user to choose a playbook first: `always` offers the playbooks before every plan, `ambiguous` offers only when no single playbook matches the task, `off` never asks. See [usage-policy.md](usage-policy.md#playbook-confirmation). |
+| `policy` | `confirmExecution` | `"always"` | Whether `hub__plan` confirms per-client execution mode (`multi_agent` or `single_agent`), reasoning model, and execution model at the start of a new plan: `always` asks when the client profile has selectable choices, `off` applies the profile defaults. See [usage-policy.md](usage-policy.md#session-execution-confirmation). |
 | `policy` | `confirmTokenSeconds` | `600` | Seconds a playbook offer's `confirm_token` stays valid; a token is single use. |
 | `policy` | `workflowInputMaxChars` | `2000` | Maximum characters per workflow context value and retained evidence anchor. |
 | `policy` | `workflowMaxReceipts` | `128` | Maximum child-call receipts in a playbook workflow; inherited plans share the same budget. |

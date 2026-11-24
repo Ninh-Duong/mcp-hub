@@ -133,6 +133,8 @@ class PolicySettings:
     # Playbook confirmation (docs/usage-policy.md): always asks before every plan; ambiguous asks unless exactly one
     # playbook matches the task; off never asks. A confirmation token lives confirm_token_seconds and is used once.
     confirm_playbook: str = "always"
+    # Execution profile confirmation: "always" confirms per-client execution mode and models on new plans; "off" uses profile defaults.
+    confirm_execution: str = "always"
     confirm_token_seconds: float = 600.0
     # An identical call that already succeeded is refused, unless this many seconds have passed (0: always refused).
     repeat_after_seconds: float = 0.0
@@ -211,6 +213,7 @@ _MAXIMUMS = {("http", "port"): 65535, ("bitnet", "port"): 65535, ("children", "c
 _CHOICES = {
     ("policy", "mode"): ("enforce", "warn", "off"),
     ("policy", "confirm_playbook"): ("always", "ambiguous", "off"),
+    ("policy", "confirm_execution"): ("always", "off"),
     ("protocol", "validate_arguments"): ("off", "warn"),
     ("security", "tool_pin_mode"): ("off", "warn"),
 }

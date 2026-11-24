@@ -103,12 +103,16 @@ class SettingsTest(unittest.TestCase):
         self.assertIs(settings.jobs.prompt_cache, False)
         self.assertEqual(settings.security.max_description_chars, 512)
         self.assertEqual(settings.bitnet.full_result_max_bytes, 1024)
+        self.assertEqual(Settings().policy.confirm_execution, "always")
+        self.assertEqual(parse_settings({"policy": {"confirmExecution": "always"}}).policy.confirm_execution, "always")
+        self.assertEqual(parse_settings({"policy": {"confirmExecution": "off"}}).policy.confirm_execution, "off")
 
     def test_new_keys_refuse_bad_values_naming_the_key(self) -> None:
         cases = {
             "settings.jobs.promptCache must be true or false": {"jobs": {"promptCache": "yes"}},
             "settings.protocol.validateArguments must be one of: off, warn": {"protocol": {"validateArguments": "block"}},
             "settings.security.toolPinMode must be one of: off, warn": {"security": {"toolPinMode": "block"}},
+            "settings.policy.confirmExecution must be one of: always, off": {"policy": {"confirmExecution": "ambiguous"}},
             "settings.protocol.toolsListTtlMs must be at least 0": {"protocol": {"toolsListTtlMs": -1}},
             "settings.policy.repeatAfterSeconds must be at least 0": {"policy": {"repeatAfterSeconds": -0.5}},
             "settings.children.startupWaitSeconds must be positive": {"children": {"startupWaitSeconds": 0}},

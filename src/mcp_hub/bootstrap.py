@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from .audit import AuditLog
+from .client_profiles import ClientProfileCatalog, load_client_profiles
 from .config import HubConfig, load_config
 from .planning.playbooks import Playbook, load_playbooks
 from .projects import ProjectConfig, load_projects
@@ -22,6 +23,7 @@ class StartInputs:
     config: HubConfig
     playbooks: Mapping[str, Playbook]
     projects: Mapping[str, ProjectConfig]
+    client_profiles: ClientProfileCatalog | None = None
 
 
 def _log_failure(audit: AuditLog, exc: Exception) -> None:
@@ -46,7 +48,14 @@ def load_start_inputs(audit: AuditLog, settings: Settings | None = None) -> Star
         config = load_config()
         playbooks = load_playbooks()
         projects = load_projects()
+        client_profiles = load_client_profiles()
     except Exception as exc:
         _log_failure(audit, exc)
         raise
-    return StartInputs(settings=resolved, config=config, playbooks=playbooks, projects=projects)
+    return StartInputs(
+        settings=resolved,
+        config=config,
+        playbooks=playbooks,
+        projects=projects,
+        client_profiles=client_profiles,
+    )

@@ -4,6 +4,7 @@
   uv run python scripts/private_config.py set <id> <dotted.key> <json-value>
   uv run python scripts/private_config.py project-status
   uv run python scripts/private_config.py agent-status
+  uv run python scripts/private_config.py client-status
 """
 from __future__ import annotations
 
@@ -24,28 +25,52 @@ def _walk(value: Any, prefix: str = ""):
         yield prefix[:-1], value
 
 
+def _print_agent_status() -> None:
+    from mcp_hub.agents.config import load_agent_configs
+
+    configs = load_agent_configs(path=PRIVATE_ROOT / "agents.json", private_root=PRIVATE_ROOT)
+    for role, config in configs.items():
+        provider = config.provider or "<unset>"
+        model = config.model or "<unset>"
+        print(f"{role}: provider={provider}, model={model}, state={'configured' if config.configured else 'not configured'}")
+
+
+def _print_project_status() -> None:
+    from mcp_hub.projects import load_projects
+
+    projects = load_projects(path=PRIVATE_ROOT / "projects.json", private_root=PRIVATE_ROOT)
+    if not projects:
+        print("No projects registered.")
+        return
+    for alias, project in projects.items():
+        default = project.default_env or "<ask per job>"
+        logs = ",".join(project.logs) or "<none>"
+        sql = ",".join(project.sql) or "<none>"
+        print(f"{alias}: default_env={default}, allowed_envs={','.join(project.allowed_envs)}, logs_envs={logs}, sql_envs={sql}")
+
+
+def _print_client_status() -> None:
+    from mcp_hub.client_profiles import load_client_profiles
+
+    catalog = load_client_profiles(private_root=PRIVATE_ROOT)
+    for key, profile in [("default", catalog.default), *sorted(catalog.profiles.items())]:
+        print(
+            f"{key}: mode={profile.default_mode} ({','.join(profile.modes)}), "
+            f"orchestrate={','.join(profile.orchestrate_models)} [default={profile.default_orchestrate_model}], "
+            f"execute={','.join(profile.execute_models)} [default={profile.default_execute_model}], "
+            f"source={profile.source}"
+        )
+
+
 def main(argv: list[str]) -> None:
     if argv == ["agent-status"]:
-        from mcp_hub.agents.config import load_agent_configs
-
-        configs = load_agent_configs(path=PRIVATE_ROOT / "agents.json", private_root=PRIVATE_ROOT)
-        for role, config in configs.items():
-            provider = config.provider or "<unset>"
-            model = config.model or "<unset>"
-            print(f"{role}: provider={provider}, model={model}, state={'configured' if config.configured else 'not configured'}")
+        _print_agent_status()
         return
     if argv == ["project-status"]:
-        from mcp_hub.projects import load_projects
-
-        projects = load_projects(path=PRIVATE_ROOT / "projects.json", private_root=PRIVATE_ROOT)
-        if not projects:
-            print("No projects registered.")
-            return
-        for alias, project in projects.items():
-            default = project.default_env or "<ask per job>"
-            logs = ",".join(project.logs) or "<none>"
-            sql = ",".join(project.sql) or "<none>"
-            print(f"{alias}: default_env={default}, allowed_envs={','.join(project.allowed_envs)}, logs_envs={logs}, sql_envs={sql}")
+        _print_project_status()
+        return
+    if argv == ["client-status"]:
+        _print_client_status()
         return
     if len(argv) < 2 or argv[0] not in {"keys", "set"} or (argv[0] == "set" and len(argv) != 4):
         raise SystemExit(__doc__)

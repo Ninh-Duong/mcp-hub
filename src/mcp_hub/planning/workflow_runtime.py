@@ -82,14 +82,33 @@ class WorkflowRuntimeMixin:
                                   max_window_hours=self.settings.jobs.max_window_hours,
                                   policy_settings=self.settings.policy)
 
+    def _required_writes(self, plan: Any, allowed_tools: list[str]) -> list[str]:
+        return [name for name in allowed_tools if name in self._call_facts
+                and not self._call_facts[name].read_only and name not in plan.writes]
+
     def _workflow_status(self, plan: Any) -> dict[str, Any]:
         status = plan.workflow.status()
-        status["required_writes"] = [name for name in status["allowed_tools"] if name in self._call_facts
-                                     and not self._call_facts[name].read_only and name not in plan.writes]
+        status["required_writes"] = self._required_writes(plan, status["allowed_tools"])
         if plan.workflow.definition.multi_source:
             status["source_choices"] = sorted(self.projects)
             status["source_roles"] = ["be_project", "db_project", "fe_project"]
+        execution = self._execution_status(plan, status["active_tier"], status["required_writes"])
+        if execution is not None:
+            status["execution"] = execution
         return status
+
+    def _execution_status(self, plan: Any, tier: str, required_writes: list[str]) -> dict[str, Any] | None:
+        cfg = getattr(plan, "execution", None)
+        if cfg is None:
+            return None
+        recommended = cfg.orchestrate_model if tier == "orchestrate" or cfg.mode != "multi_agent" else cfg.execute_model
+        delegate = bool(self.shared_service and cfg.mode == "multi_agent" and tier == "execute" and not required_writes)
+        return {
+            "client": cfg.client, "mode": cfg.mode, "mechanism": cfg.mechanism,
+            "active_tier": tier, "recommended_model": recommended,
+            "orchestrate_model": cfg.orchestrate_model, "execute_model": cfg.execute_model,
+            "delegate_stage": delegate,
+        }
 
     async def _call_planned(self, name: str, arguments: dict[str, Any], request_id: str,
                             client_name: str, options: Any = None) -> CallToolResult:
@@ -176,8 +195,15 @@ class WorkflowRuntimeMixin:
             return result
         if name == "jira__sync_ticket" and outcome == "succeeded":
             self._allow_refreshed_ticket(plan, arguments["issue_key"])
-        return attach_workflow(result, {"hub_plan_id": plan.plan_id, "receipt_id": receipt.receipt_id,
-                                        "stage": workflow.stage, "allowed_tools": workflow.allowed_tools()})
+        allowed = workflow.allowed_tools()
+        meta: dict[str, Any] = {
+            "hub_plan_id": plan.plan_id, "receipt_id": receipt.receipt_id,
+            "stage": workflow.stage, "allowed_tools": allowed,
+        }
+        execution = self._execution_status(plan, workflow.active_tier(), self._required_writes(plan, allowed))
+        if execution is not None:
+            meta["execution"] = execution
+        return attach_workflow(result, meta)
 
     def _allow_refreshed_ticket(self, plan: Any, issue_key: str) -> None:
         """An explicitly permitted refresh allows one intentional read of the new ticket revision."""

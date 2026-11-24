@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "default": {
+    "modes": ["single_agent"],
+    "default_mode": "single_agent",
+    "mechanism": "inline",
+    "orchestrate_models": ["inherit"],
+    "default_orchestrate_model": "inherit",
+    "execute_models": ["inherit"],
+    "default_execute_model": "inherit"
+  },
+  "profiles": {
+    "antigravity": {
+      "match": ["antigravity", "agy"],
+      "modes": ["multi_agent", "single_agent"],
+      "default_mode": "multi_agent",
+      "mechanism": "invoke_subagent",
+      "orchestrate_models": ["pro", "inherit", "flash"],
+      "default_orchestrate_model": "pro",
+      "execute_models": ["flash", "flash_lite", "pro", "inherit"],
+      "default_execute_model": "flash"
+    },
+    "claude-code": {
+      "match": ["claude code", "claude-code", "claude"],
+      "modes": ["multi_agent", "single_agent"],
+      "default_mode": "multi_agent",
+      "mechanism": "Task",
+      "orchestrate_models": ["opus", "sonnet", "inherit"],
+      "default_orchestrate_model": "sonnet",
+      "execute_models": ["haiku", "sonnet", "opus", "inherit"],
+      "default_execute_model": "haiku"
+    },
+    "codex": {
+      "match": ["codex", "codex-mcp-client", "openai codex"],
+      "modes": ["multi_agent", "single_agent"],
+      "default_mode": "multi_agent",
+      "mechanism": "subagent",
+      "orchestrate_models": ["gpt-5", "o3", "inherit"],
+      "default_orchestrate_model": "gpt-5",
+      "execute_models": ["gpt-5-mini", "codex-mini", "gpt-5", "inherit"],
+      "default_execute_model": "gpt-5-mini"
+    },
+    "cursor": {
+      "match": ["cursor"],
+      "modes": ["multi_agent", "single_agent"],
+      "default_mode": "multi_agent",
+      "mechanism": "subagent",
+      "orchestrate_models": ["inherit", "sonnet", "gpt-5", "gemini-pro"],
+      "default_orchestrate_model": "inherit",
+      "execute_models": ["fast", "haiku", "flash", "inherit"],
+      "default_execute_model": "fast"
+    },
+    "github-copilot": {
+      "match": ["github copilot", "visual studio code", "vscode"],
+      "modes": ["single_agent", "multi_agent"],
+      "default_mode": "single_agent",
+      "mechanism": "runSubagent",
+      "orchestrate_models": ["inherit", "claude-sonnet", "gpt-5", "gemini-pro"],
+      "default_orchestrate_model": "inherit",
+      "execute_models": ["gpt-5-mini", "claude-haiku", "gemini-flash", "inherit"],
+      "default_execute_model": "gpt-5-mini"
+    },
+    "gemini-cli": {
+      "match": ["gemini cli", "gemini-cli"],
+      "modes": ["single_agent"],
+      "default_mode": "single_agent",
+      "mechanism": "inline",
+      "orchestrate_models": ["inherit", "gemini-2.5-pro", "gemini-2.5-flash"],
+      "default_orchestrate_model": "inherit",
+      "execute_models": ["inherit", "gemini-2.5-flash"],
+      "default_execute_model": "inherit"
+    }
+  }
+}
