@@ -51,6 +51,16 @@ class LoadConfigTest(unittest.TestCase):
     def test_bare_command_stays_on_path(self) -> None:
         self.assertEqual(self.load(self.server(command="python")).command, "python")
 
+    def test_declarative_use_hub_venv_and_python_path(self) -> None:
+        child = self.load(self.server(command="python", useHubVenv=True, pythonPath="bin"))
+        self.assertIn(".venv", child.command)
+        self.assertEqual(child.env["PYTHONPATH"], str((self.tmp / "child" / "bin").resolve()))
+        with self.assertRaisesRegex(ConfigError, "useHubVenv"):
+            self.load(self.server(useHubVenv="yes"))
+        for bad_path in ("../outside", "/abs/path", " "):
+            with self.subTest(bad_path=bad_path), self.assertRaisesRegex(ConfigError, "pythonPath"):
+                self.load(self.server(pythonPath=bad_path))
+
     def test_unfilled_placeholder_is_rejected_without_value(self) -> None:
         with self.assertRaises(ConfigError) as caught:
             self.load(self.server(env={"API_TOKEN": "<SET_BY_USER>"}))
@@ -281,6 +291,35 @@ class LoadConfigTest(unittest.TestCase):
         for value in (-1, True, False, "60", None, float("inf"), float("nan"), 10**400):
             with self.subTest(value=value), self.assertRaisesRegex(ConfigError, "feature f tool t cacheSeconds"):
                 self.load_route(cacheSeconds=value)
+
+    def test_streamable_http_child_accepts_https_and_loopback_http_and_collects_secret_headers(self) -> None:
+        https_child = self.load({
+            "transport": "streamable-http",
+            "url": "https://mcp.example.com/mcp",
+            "headers": {"Authorization": "Bearer remote-secret-token", "X-Client": "hub"},
+            "timeoutSeconds": 15,
+        })
+        self.assertEqual(https_child.transport, "streamable-http")
+        self.assertEqual(https_child.url, "https://mcp.example.com/mcp")
+        self.assertEqual(https_child.headers["X-Client"], "hub")
+        self.assertIn("Bearer remote-secret-token", https_child.secret_values)
+        self.assertNotIn("hub", https_child.secret_values)
+
+        loopback = self.load({"transport": "streamable-http", "url": "http://127.0.0.1:9001/mcp"})
+        self.assertEqual(loopback.url, "http://127.0.0.1:9001/mcp")
+
+    def test_streamable_http_child_rejects_unsafe_urls_and_bad_headers(self) -> None:
+        cases = (
+            ({"transport": "streamable-http", "url": "http://mcp.example.com/mcp"}, "https:// or loopback"),
+            ({"transport": "streamable-http", "url": "https://user:pass@example.com/mcp"}, "embedded credentials"),
+            ({"transport": "streamable-http", "url": "ftp://mcp.example.com/mcp"}, "https:// or loopback"),
+            ({"transport": "streamable-http", "url": ""}, "url must be a non-empty string"),
+            ({"transport": "streamable-http", "url": "https://mcp.example.com/mcp", "headers": ["bad"]}, "headers must be an object"),
+            ({"transport": "streamable-http", "url": "https://mcp.example.com/mcp", "headers": {"X-A": 1}}, "headers must contain"),
+        )
+        for cfg, pattern in cases:
+            with self.subTest(pattern=pattern), self.assertRaisesRegex(ConfigError, pattern):
+                self.load(cfg)
 
 
 class DefaultPrepareTest(unittest.TestCase):

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from ..config import PRIVATE_ROOT
-from ..security.dpapi import DPAPIProtector
+from ..security.dpapi import default_protector
 from .activity_store import ActivityStoreMixin
 from .timeutil import utc_now, utc_timestamp
 
@@ -93,6 +93,9 @@ _APPROVAL_EXPIRED_SUMMARY = (
     "The approval window ended before the pending write was approved; the write was not run "
     "and the investigation did not resume."
 )
+_APPROVAL_REJECTED_SUMMARY = (
+    "The pending write was rejected by the operator; the write was not run."
+)
 
 
 class Protector(Protocol):
@@ -113,7 +116,7 @@ class JobStore(ActivityStoreMixin):
     ) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.protector = protector or DPAPIProtector()
+        self.protector = protector or default_protector(self.path.parent / "job_store.key")
         self.clock = clock
         self.retention = timedelta(days=retention_days)
         self._lock = threading.RLock()
@@ -371,25 +374,56 @@ class JobStore(ActivityStoreMixin):
                 result["arguments"] = json.loads(self.protector.unprotect(row["arguments_blob"]).decode("utf-8"))
             return result
 
+    def list_pending_calls(self) -> list[dict[str, Any]]:
+        """Return unapproved pending writes with parameter names only (never raw values)."""
+        now = self._timestamp()
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT p.job_id,p.tool_name,p.agent,p.expires_at,p.arguments_blob "
+                "FROM pending_calls p JOIN jobs j ON j.job_id=p.job_id "
+                "WHERE j.state='awaiting_approval' AND p.approved=0 AND p.expires_at>? "
+                "ORDER BY p.expires_at",
+                (now,),
+            ).fetchall()
+            items: list[dict[str, Any]] = []
+            for row in rows:
+                keys: list[str] = []
+                try:
+                    args = json.loads(self.protector.unprotect(row["arguments_blob"]).decode("utf-8"))
+                    if isinstance(args, dict):
+                        keys = sorted(str(key) for key in args)
+                except (OSError, ValueError):
+                    keys = []
+                items.append({
+                    "job_id": row["job_id"], "tool_name": row["tool_name"],
+                    "agent": row["agent"], "expires_at": row["expires_at"], "argument_keys": keys,
+                })
+            return items
+
     def approve_pending_call(
         self,
         job_id: str,
         code: str,
     ) -> bool:
+        return self._approve_pending_row(job_id, code=code, require_code=True)
+
+    def approve_pending_call_admin(self, job_id: str) -> bool:
+        """Approve a pending write from the admin-authenticated local channel without a code."""
+        return self._approve_pending_row(job_id, code=None, require_code=False)
+
+    def _approve_pending_row(self, job_id: str, *, code: str | None, require_code: bool) -> bool:
         now = self._timestamp()
         with self._lock, self._connection:
             row = self._connection.execute(
                 "SELECT code_hash,expires_at,approved,tool_name FROM pending_calls WHERE job_id=?", (job_id,)
             ).fetchone()
-            if row is None or row["approved"]:
+            if row is None or row["approved"] or row["expires_at"] <= now:
                 return False
-            if not isinstance(code, str) or row["expires_at"] <= now:
-                return False
-            valid = hmac.compare_digest(
-                hashlib.sha256(code.encode("utf-8")).hexdigest(), row["code_hash"]
-            )
-            if not valid:
-                return False
+            if require_code:
+                if not isinstance(code, str):
+                    return False
+                if not hmac.compare_digest(hashlib.sha256(code.encode("utf-8")).hexdigest(), row["code_hash"]):
+                    return False
             job = self._connection.execute("SELECT state FROM jobs WHERE job_id=?", (job_id,)).fetchone()
             if job is None or job["state"] != "awaiting_approval":
                 return False
@@ -398,6 +432,27 @@ class JobStore(ActivityStoreMixin):
                 "UPDATE jobs SET state='running',updated_at=? WHERE job_id=?", (now, job_id)
             )
             self._insert_event(job_id, "job.approved", None, row["tool_name"], None, "awaiting_approval", "running")
+            return True
+
+    def reject_pending_call(self, job_id: str) -> bool:
+        """Reject a pending write from the admin channel and settle the job to partial."""
+        now = self._timestamp()
+        with self._lock, self._connection:
+            row = self._connection.execute(
+                "SELECT tool_name,agent,approved FROM pending_calls WHERE job_id=?", (job_id,)
+            ).fetchone()
+            job = self._connection.execute("SELECT state,summary_blob FROM jobs WHERE job_id=?", (job_id,)).fetchone()
+            if row is None or row["approved"] or job is None or job["state"] != "awaiting_approval":
+                return False
+            summary = job["summary_blob"] or self.protector.protect(_APPROVAL_REJECTED_SUMMARY.encode("utf-8"))
+            self._connection.execute("DELETE FROM pending_calls WHERE job_id=?", (job_id,))
+            self._connection.execute(
+                "UPDATE jobs SET state='partial',summary_blob=?,updated_at=? WHERE job_id=?",
+                (summary, now, job_id),
+            )
+            self._insert_event(
+                job_id, "approval.rejected", row["agent"], row["tool_name"], None, "awaiting_approval", "partial",
+            )
             return True
 
     def consume_approved_call(self, job_id: str) -> tuple[str, dict[str, Any]]:

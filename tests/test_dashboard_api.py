@@ -81,3 +81,63 @@ class DashboardAPITest(unittest.TestCase):
         with TestClient(self.app) as client:
             status = client.get("/dashboard/api/status", headers=self.headers)
         self.assertEqual(status.headers["cache-control"], "no-store")
+
+    def test_pending_approval_routes_require_admin_token_and_forward_decisions(self) -> None:
+        from mcp_hub.dashboard.api import create_dashboard_routes
+        from mcp_hub.http import create_http_app
+
+        decisions: list[tuple[str, bool]] = []
+
+        class _FakeJobs:
+            async def list_pending_approvals(self):
+                return [{"job_id": "job-1", "tool_name": "jira__sync_ticket", "agent": "jira",
+                         "expires_at": "2026-11-26T01:00:00+00:00", "argument_keys": ["force", "issue_key"]}]
+
+            async def resolve_pending_approval(self, job_id: str, *, approve: bool):
+                decisions.append((job_id, approve))
+                return {"job_id": job_id, "action": "approve" if approve else "reject", "applied": True}
+
+        routes = create_dashboard_routes(self.runtime, job_runner=_FakeJobs())
+        app = create_http_app(
+            Server("approval-api"), CLIENT_TOKEN, host="127.0.0.1", port=8765,
+            admin_token=self.token, custom_routes=routes,
+        )
+        client_headers = {"Host": "127.0.0.1:8765", "Authorization": f"Bearer {CLIENT_TOKEN}"}
+        with TestClient(app) as client:
+            self.assertEqual(client.get("/dashboard/api/jobs/pending", headers=client_headers).status_code, 403)
+            self.assertEqual(
+                client.post("/dashboard/api/jobs/job-1/decision", headers=client_headers, json={"action": "approve"}).status_code,
+                403,
+            )
+            listed = client.get("/dashboard/api/jobs/pending", headers=self.headers)
+            status = client.get("/dashboard/api/status", headers=self.headers)
+            bad = client.post("/dashboard/api/jobs/job-1/decision", headers=self.headers, json={"action": "maybe"})
+            ok = client.post("/dashboard/api/jobs/job-1/decision", headers=self.headers, json={"action": "approve"})
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(listed.json()["pending"][0]["job_id"], "job-1")
+        self.assertEqual(status.json()["pending_approvals"][0]["tool_name"], "jira__sync_ticket")
+        self.assertEqual(bad.status_code, 400)
+        self.assertEqual(ok.json(), {"job_id": "job-1", "action": "approve", "applied": True})
+        self.assertEqual(decisions, [("job-1", True)])
+
+    def test_accept_pins_route_requires_admin_token_and_forwards_server_id(self) -> None:
+        from mcp_hub.dashboard.api import create_dashboard_routes
+        from mcp_hub.http import create_http_app
+
+        calls: list[str | None] = []
+        self.runtime.accept_pins = lambda sid=None: (calls.append(sid) or [{"server": sid or "all", "tool": "read"}])
+        routes = create_dashboard_routes(self.runtime)
+        app = create_http_app(
+            Server("pins-api"), CLIENT_TOKEN, host="127.0.0.1", port=8765,
+            admin_token=self.token, custom_routes=routes,
+        )
+        client_headers = {"Host": "127.0.0.1:8765", "Authorization": f"Bearer {CLIENT_TOKEN}"}
+        with TestClient(app) as client:
+            self.assertEqual(client.post("/dashboard/api/security/pins/accept", headers=client_headers).status_code, 403)
+            bad = client.post("/dashboard/api/security/pins/accept", headers=self.headers, json={"server_id": ""})
+            ok_all = client.post("/dashboard/api/security/pins/accept", headers=self.headers, json={})
+            ok_one = client.post("/dashboard/api/security/pins/accept", headers=self.headers, json={"server_id": "child"})
+        self.assertEqual(bad.status_code, 400)
+        self.assertEqual(ok_all.json(), {"accepted": [{"server": "all", "tool": "read"}]})
+        self.assertEqual(ok_one.json(), {"accepted": [{"server": "child", "tool": "read"}]})
+        self.assertEqual(calls, [None, "child"])

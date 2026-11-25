@@ -74,6 +74,35 @@ class ToolListOrderTest(unittest.IsolatedAsyncioTestCase):
         server = create_mcp_server(runtime)
         self.assertEqual(server.cache_hints["tools/list"].ttl_ms, 5000)
 
+    async def test_planned_tool_exposure_hides_child_tools_until_plan_activates_them(self) -> None:
+        from mcp.types import CallToolRequestParams
+        from mcp_hub.settings import PolicySettings
+
+        settings = Settings(
+            protocol=ProtocolSettings(tool_exposure="planned", list_changed_debounce_seconds=0.01),
+            policy=PolicySettings(mode="enforce", confirm_playbook="off", confirm_execution="off"),
+        )
+        runtime = HubRuntime(self.runtime.config, self.audit, settings)
+        runtime.child_connected("alpha-server", object(), {"zeta": _tool("zeta"), "alpha": _tool("alpha")})
+        runtime.child_connected("beta-server", object(), {"beta": _tool("beta")})
+        self.addCleanup(runtime.events.close)
+
+        before = [t.name for t in (await runtime.list_tools(SimpleNamespace(request_id=1), None)).tools]
+        self.assertEqual(before, ["hub__status", "hub__plan", "hub__batch", "hub__workflow"])
+
+        res = await runtime.call_tool(
+            SimpleNamespace(request_id=2, session=None),
+            CallToolRequestParams(name="hub__plan", arguments={
+                "task": "Use alpha only", "servers": ["alpha-server"], "steps": ["alpha-server__alpha"],
+            }),
+        )
+        self.assertFalse(res.is_error, res.content)
+        after = [t.name for t in (await runtime.list_tools(SimpleNamespace(request_id=3), None)).tools]
+        self.assertEqual(
+            after,
+            ["hub__status", "hub__plan", "hub__batch", "hub__workflow", "alpha-server__alpha", "alpha-server__zeta"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

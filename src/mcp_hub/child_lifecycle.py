@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from collections.abc import Callable
 from contextlib import AsyncExitStack
 from mcp import Client
 from mcp.types import (
@@ -11,11 +12,19 @@ from mcp.types import (
 )
 from .audit_events import TOOLS_LIST_CHANGED_PUBLISHED
 from .children import ChildSupervisor
-from .config import ServerConfig, is_sensitive_key
+from .config import HubConfig, ServerConfig, is_sensitive_key, load_config
+from .planning.policy import PlanCatalog
 
 
 class ChildLifecycleMixin:
     """Methods of HubRuntime, moved out of server.py."""
+
+    def _new_supervisor(self, server_config: ServerConfig) -> ChildSupervisor:
+        return ChildSupervisor(
+            server_config, self.audit, self.child_connected, self.child_lost,
+            log_dir=self.child_log_dir, opener=self.child_opener, backoff=self.child_backoff,
+            log_max_bytes=self.settings.logs.max_bytes, on_tools_changed=self.child_tools_changed,
+        )
 
     async def connect(self, stack: AsyncExitStack) -> None:
         """Start one supervisor per child and wait until each has connected or failed its first attempt.
@@ -27,11 +36,7 @@ class ChildLifecycleMixin:
             self.audit.write("child_config_incomplete", level=logging.WARNING, server_id=server_id, keys=list(keys))
         for server_config in self.config.servers.values():
             self._add_child_secrets(server_config)
-            self.supervisors[server_config.server_id] = ChildSupervisor(
-                server_config, self.audit, self.child_connected, self.child_lost,
-                log_dir=self.child_log_dir, opener=self.child_opener, backoff=self.child_backoff,
-                log_max_bytes=self.settings.logs.max_bytes, on_tools_changed=self.child_tools_changed,
-            )
+            self.supervisors[server_config.server_id] = self._new_supervisor(server_config)
         stack.push_async_callback(self.close_children)
         if self.pins is not None:
             await asyncio.to_thread(self.pins.load)  # before the first check of any child's tools
@@ -40,12 +45,51 @@ class ChildLifecycleMixin:
             supervisor.start()
         await self._wait_for_first_attempts()
         self._starting = False
-        self.events.prime(self._register_routes())
+        signature = self._register_routes()
+        if self.plans.persist_path is not None:
+            catalog = PlanCatalog(
+                self._call_facts, self.playbooks, self.projects,
+                max_window_hours=self.settings.jobs.max_window_hours,
+                policy_settings=self.settings.policy,
+            )
+            if await asyncio.to_thread(self.plans.load, catalog, self.audit) and self.settings.protocol.tool_exposure == "planned":
+                signature = self._exposed_signature()
+        self.events.prime(signature)
         self.audit.write(
             "hub.tools.registered",
             tool_count=len(self.public_tools),
             tools=[tool.name for tool in self.public_tools],
         )
+
+    async def reload_server(self, server_id: str, config_loader: Callable[[], HubConfig] = load_config) -> bool:
+        """Live hot-toggle one child MCP from reloaded config without restarting the Hub."""
+        async with self._reload_lock:
+            new_config = await asyncio.to_thread(config_loader)
+            old_supervisor = self.supervisors.pop(server_id, None)
+            if old_supervisor is not None:
+                await old_supervisor.stop()
+            old_tools = [name for name, route in self.routes.items() if route.server_id == server_id]
+            if old_tools:
+                self.result_cache.invalidate(old_tools)
+            self.clients.pop(server_id, None)
+            self._discovered.pop(server_id, None)
+            self.discovered_tool_counts.pop(server_id, None)
+            self.config = new_config
+            enabled = server_id in new_config.servers
+            if enabled:
+                server_cfg = new_config.servers[server_id]
+                self._add_child_secrets(server_cfg)
+                supervisor = self._new_supervisor(server_cfg)
+                self.supervisors[server_id] = supervisor
+                supervisor.start()
+                waiter = asyncio.ensure_future(supervisor.wait_first_attempt())
+                try:
+                    await asyncio.wait([waiter], timeout=min(2.0, self.settings.children.startup_wait_seconds))
+                finally:
+                    waiter.cancel()
+            await self.announce_tools(self._rebuild_child_routes(server_id))
+            self.audit.write("server.reloaded", server=server_id, enabled=enabled)
+            return enabled
 
     async def _wait_for_first_attempts(self) -> None:
         """Wait for each child's first attempt, but no longer than `children.startupWaitSeconds` (SC-004).
@@ -63,12 +107,13 @@ class ChildLifecycleMixin:
                 waiter.cancel()
 
     def _add_child_secrets(self, server_config: ServerConfig) -> None:
-        """Redact the child's secrets: sensitive config values and env/inherited values under sensitive names.
+        """Redact the child's secrets: sensitive config values, headers, and env/inherited values under sensitive names.
 
         Plain values such as PATH, TEMP, or USERPROFILE are not secrets; redacting them would garble errors.
         """
         self.audit.add_secrets(server_config.secret_values)
         self.audit.add_secrets(value for name, value in server_config.env.items() if is_sensitive_key(name))
+        self.audit.add_secrets(value for name, value in server_config.headers.items() if is_sensitive_key(name))
         self.audit.add_secrets(
             os.environ.get(name, "") for name in server_config.inherit_env if is_sensitive_key(name)
         )

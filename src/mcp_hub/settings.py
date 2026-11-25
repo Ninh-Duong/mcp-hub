@@ -34,20 +34,24 @@ class BridgeSettings:
 
 @dataclass(frozen=True)
 class ProtocolSettings:
-    # Argument checks against a child's input schema: off, or warn (audit only; the call still runs).
+    # Argument checks against a child's input schema: off, warn (audit only), or enforce (reject invalid calls).
     validate_arguments: str = "warn"
     # Quiet time before one notifications/tools/list_changed is sent for a burst of tool changes.
     list_changed_debounce_seconds: float = 1.0
     # ttlMs of tools/list results; 0 tells clients not to cache them.
     tools_list_ttl_ms: int = 0
+    # Which child tools tools/list returns: all allowlisted tools, or only servers named by active plans.
+    tool_exposure: str = "all"
 
 
 @dataclass(frozen=True)
 class SecuritySettings:
-    # Tool definition pins (config/private/tool_pins.json): off, or warn (audit when a child's definition changes).
+    # Tool definition pins (config/private/tool_pins.json): off, warn (audit), or enforce (block changed/suspicious).
     tool_pin_mode: str = "warn"
     # Longest tool description accepted without a finding.
     max_description_chars: int = 4096
+    # Redact known child secrets and credential token shapes from CallToolResult text returned to clients.
+    redact_results: bool = True
 
 
 @dataclass(frozen=True)
@@ -126,6 +130,8 @@ class PolicySettings:
     workflow_max_receipts: int = 128
     workflow_initial_window_seconds: float = 3600.0
     workflow_max_limit: int = 50
+    # Longest a concurrent workflow call waits on the plan's execution lock before being refused.
+    workflow_lock_timeout_seconds: float = 30.0
     # enforce: refuse calls that break the client's hub__plan; warn: run them with a warning; off: no plan needed.
     mode: str = "enforce"
     # Plans kept in memory; the least recently used is dropped, and a call naming it must plan again.
@@ -214,8 +220,9 @@ _CHOICES = {
     ("policy", "mode"): ("enforce", "warn", "off"),
     ("policy", "confirm_playbook"): ("always", "ambiguous", "off"),
     ("policy", "confirm_execution"): ("always", "off"),
-    ("protocol", "validate_arguments"): ("off", "warn"),
-    ("security", "tool_pin_mode"): ("off", "warn"),
+    ("protocol", "validate_arguments"): ("off", "warn", "enforce"),
+    ("protocol", "tool_exposure"): ("all", "planned"),
+    ("security", "tool_pin_mode"): ("off", "warn", "enforce"),
 }
 
 

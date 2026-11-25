@@ -28,12 +28,15 @@ The shared service listens on `127.0.0.1` and `settings.http.port` (default 8765
 | GET | `/dashboard/api/status` | admin token | Hub and child states, plus activity and extension state when enabled |
 | POST | `/dashboard/api/control/{command}` | admin token | `restart` or `stop` through `hubctl` in the background (404 for another command, 503 off Windows) |
 | POST | `/dashboard/api/service/shutdown` | admin token | Graceful stop; `hubctl stop` uses it |
+| GET | `/dashboard/api/jobs/pending` | admin token only | List pending investigation writes (`job_id`, `tool_name`, `agent`, `expires_at`, `argument_keys`) |
+| POST | `/dashboard/api/jobs/{job_id}/decision` | admin token only | `{"action": "approve"\|"reject"}`: approve or reject a pending investigation write |
+| POST | `/dashboard/api/security/pins/accept` | admin token only | `{"server_id"?: str}`: accept changed tool definitions for one or all connected children |
 | GET | `/dashboard/api/settings` | admin token only | Children on/off, tracking, and whether the config is editable: booleans and IDs only |
 | POST | `/dashboard/api/settings/tracking` | admin token only | `{"enabled": bool}`: the activity UI at the next start |
 | POST | `/dashboard/api/settings/bitnet` | admin token only | `{"enabled": bool}`: the BitNet extension at the next start |
 | POST | `/dashboard/api/bitnet/install` | admin token only | Start the BitNet install in the background (`202` with the `bitnet` status block; `409` when installed); see [bitnet.md](bitnet.md#install-from-the-desktop-app) |
 | GET | `/dashboard/api/bitnet/processing/stream` | admin token | BitNet only: transient processing events and last-three snapshots over SSE; see [bitnet.md](bitnet.md#processing-stream) |
-| POST | `/dashboard/api/settings/servers/{server_id}` | admin token only | `{"enabled": bool}` for one child (404 unknown, 409 with `MCP_HUB_CONFIG`) |
+| POST | `/dashboard/api/settings/servers/{server_id}` | admin token only | `{"enabled": bool}` for one child; saves `hub.json` and live-reloads that child (`reloaded` flag; 404 unknown, 409 with `MCP_HUB_CONFIG`) |
 | POST | `/dashboard/api/settings/servers/{server_id}/config-file` | admin token only | Create the child's private config from its template if missing; returns `{"path"}` (404 unknown, 409 with `MCP_HUB_CONFIG`, 500 when the file cannot be written) |
 | GET, POST | `/dashboard/api/settings/autostart` | admin token only | The Hub's sign-in task, `{"hub": bool}` (503 when `hubctl` fails) |
 | GET | `/dashboard/api/update` | admin token only | Current bounded update state and sanitized component events |

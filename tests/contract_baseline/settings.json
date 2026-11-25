@@ -73,11 +73,14 @@
   "policy.repeat_after_seconds": 0.0,
   "policy.workflow_initial_window_seconds": 3600.0,
   "policy.workflow_input_max_chars": 2000,
+  "policy.workflow_lock_timeout_seconds": 30.0,
   "policy.workflow_max_limit": 50,
   "policy.workflow_max_receipts": 128,
   "protocol.list_changed_debounce_seconds": 1.0,
+  "protocol.tool_exposure": "all",
   "protocol.tools_list_ttl_ms": 0,
   "protocol.validate_arguments": "warn",
   "security.max_description_chars": 4096,
+  "security.redact_results": true,
   "security.tool_pin_mode": "warn"
 }

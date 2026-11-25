@@ -54,6 +54,33 @@ class ChildRow:
 
 
 @dataclass(frozen=True)
+class PendingApproval:
+    job_id: str
+    tool_name: str
+    agent: str | None = None
+    expires_at: str = ""
+    argument_keys: tuple[str, ...] = ()
+
+
+def pending_approvals_from(value: Any) -> tuple[PendingApproval, ...]:
+    if not isinstance(value, list):
+        return ()
+    items: list[PendingApproval] = []
+    for entry in value:
+        if not isinstance(entry, dict) or not entry.get("job_id") or not entry.get("tool_name"):
+            continue
+        keys = entry.get("argument_keys")
+        items.append(PendingApproval(
+            job_id=str(entry["job_id"]),
+            tool_name=str(entry["tool_name"]),
+            agent=str(entry["agent"]) if isinstance(entry.get("agent"), str) else None,
+            expires_at=str(entry.get("expires_at") or ""),
+            argument_keys=tuple(str(k) for k in keys if isinstance(k, str)) if isinstance(keys, list) else (),
+        ))
+    return tuple(items)
+
+
+@dataclass(frozen=True)
 class BitnetInfo:
     """The Hub's `bitnet` status block: installed or not, the sidecar's state, and a running install."""
 
@@ -108,6 +135,7 @@ class HubSnapshot:
     checked_at: datetime = field(default_factory=datetime.now)
     bitnet_state: str | None = None
     bitnet: BitnetInfo | None = None
+    pending_approvals: tuple[PendingApproval, ...] = ()
 
     @property
     def tone(self) -> str:
@@ -175,6 +203,7 @@ def snapshot_from_status(status: dict[str, Any]) -> HubSnapshot:
         recent=recent_clients(clients),
         bitnet_state=bitnet_state,
         bitnet=bitnet_from_status(bitnet),
+        pending_approvals=pending_approvals_from(status.get("pending_approvals")),
     )
 
 

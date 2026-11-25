@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import ctypes
 import os
+import tempfile
 import threading
 from ctypes import wintypes
+from pathlib import Path
 from typing import Any, NamedTuple
+
+from cryptography.fernet import Fernet, InvalidToken
 
 
 class DataBlob(ctypes.Structure):
@@ -81,3 +85,60 @@ class DPAPIProtector:
             return ctypes.string_at(destination.pbData, destination.cbData)
         finally:
             api.local_free(destination.pbData)
+
+
+class FernetProtector:
+    """Encrypt bytes on POSIX systems with a user-only (0600) Fernet key file."""
+
+    def __init__(self, key_path: Path) -> None:
+        self._key_path = Path(key_path)
+        self._lock = threading.Lock()
+        self._fernet: Fernet | None = None
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    def _cipher(self) -> Fernet:
+        with self._lock:
+            if self._fernet is None:
+                self._fernet = Fernet(self._load_or_create_key())
+            return self._fernet
+
+    def _load_or_create_key(self) -> bytes:
+        if self._key_path.is_file():
+            return self._key_path.read_bytes().strip()
+        key = Fernet.generate_key()
+        self._key_path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=f".{self._key_path.name}.", dir=self._key_path.parent)
+        try:
+            handle = os.fdopen(fd, "wb")
+        except BaseException:
+            os.close(fd)
+            Path(tmp).unlink(missing_ok=True)
+            raise
+        try:
+            with handle:
+                handle.write(key)
+            if os.name != "nt":
+                os.chmod(tmp, 0o600)
+            os.replace(tmp, self._key_path)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
+        return key
+
+    def protect(self, data: bytes) -> bytes:
+        return self._cipher().encrypt(data)
+
+    def unprotect(self, data: bytes) -> bytes:
+        try:
+            return self._cipher().decrypt(data)
+        except InvalidToken as exc:
+            raise ValueError("Could not decrypt job data") from exc
+
+
+def default_protector(key_path: Path) -> DPAPIProtector | FernetProtector:
+    """Use Windows DPAPI on Windows and a user-restricted local Fernet key elsewhere."""
+    # ponytail: Windows uses OS user-bound DPAPI; POSIX uses a 0600 local Fernet key beside the store.
+    return DPAPIProtector() if dpapi_available() else FernetProtector(key_path)

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -70,14 +70,21 @@ class SettingsHandlers:
         read_autostart: Callable[[], dict[str, bool]] = control.autostart_state,
         write_autostart: Callable[[str, bool], dict[str, bool]] = control.set_autostart,
         source_reports: Callable[[], SourceReports] | None = None,
+        reload_server: Callable[[str], Awaitable[bool]] | None = None,
     ) -> None:
         self.store, self.read_autostart, self.write_autostart = store, read_autostart, write_autostart
         self.source_reports = source_reports
+        self.reload_server = reload_server
 
     def use_source_reports(self, source_reports: Callable[[], SourceReports]) -> None:
         """Where the running Hub keeps its children's `config_status` reports (set by DashboardHandlers)."""
         if self.source_reports is None:
             self.source_reports = source_reports
+
+    def use_reload_server(self, reload_server: Callable[[str], Awaitable[bool]]) -> None:
+        """Live child hot-toggle hook on the running Hub runtime (set by DashboardHandlers)."""
+        if self.reload_server is None:
+            self.reload_server = reload_server
 
     def routes(self) -> list[Route]:
         return [
@@ -89,11 +96,11 @@ class SettingsHandlers:
             Route("/dashboard/api/settings/autostart", self.autostart, methods=["GET", "POST"]),
         ]
 
-    async def _read(self) -> Response:
+    async def _read(self, **extra: Any) -> Response:
         try:
             settings = await asyncio.to_thread(self.store.read_settings)
             reports = self.source_reports() if self.source_reports is not None else _NO_REPORTS
-            return JSONResponse(settings_payload(settings, reports))
+            return JSONResponse({**settings_payload(settings, reports), **extra})
         except (ConfigError, OSError):
             return _error("Hub settings could not be read.", 500)
 
@@ -123,7 +130,18 @@ class SettingsHandlers:
             return _error("Hub settings could not be read.", 500)
         if server_id not in {item.server_id for item in current.servers}:
             return _error("Unknown child MCP.", 404)
-        return await self._write(self.store.set_server_enabled, server_id, enabled)
+        try:
+            await asyncio.to_thread(self.store.set_server_enabled, server_id, enabled)
+        except (ConfigError, OSError):
+            return _error("Hub settings could not be changed here.", 409)
+        reloaded = False
+        if self.reload_server is not None:
+            try:
+                await self.reload_server(server_id)
+                reloaded = True
+            except (ConfigError, OSError):
+                reloaded = False
+        return await self._read(reloaded=reloaded)
 
     async def config_file(self, request: Request) -> Response:
         """Create the child's private file from its template if needed; return its path for the app to open."""

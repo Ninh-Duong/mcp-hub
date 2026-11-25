@@ -20,6 +20,7 @@ from ..extensions import PlanContext, PlanHints
 from ..extensions import processing_step
 from ..planning.merge import merge_plan_arguments
 from ..planning import confirm as plan_confirm, policy
+from ..planning.plan_store import write_snapshot
 from ..planning.policy import PLAN_TOOL, PlanCatalog, PolicyRefused, Violation
 from ..instructions import runtime_contract
 from ..results.runtime import error_result
@@ -108,7 +109,34 @@ class PlanningMixin:
         text = policy.plan_summary(plan, self.tools_by_server(), contracts)
         if plan.workflow is not None:
             text += "\nWorkflow: " + json.dumps(self._workflow_status(plan))
+        self._schedule_plan_save()
+        if self.settings.protocol.tool_exposure == "planned":
+            self._schedule_announcement(self._exposed_signature())
         return CallToolResult(content=[TextContent(type="text", text=text)])
+
+    def _schedule_plan_save(self) -> None:
+        """Persist plan metadata off the event loop when a snapshot path is configured."""
+        path = self.plans.persist_path
+        if path is None:
+            return
+        entries = self.plans.snapshot_entries()
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                write_snapshot(path, entries)
+            except OSError:
+                pass
+            return
+
+        async def _save() -> None:
+            async with self._plan_save_lock:
+                try:
+                    await asyncio.to_thread(write_snapshot, path, entries)
+                except OSError:
+                    pass
+
+        self._keep_background(asyncio.ensure_future(_save()))
 
     def _confirm_and_execution(
         self, arguments: dict[str, Any], fields: dict[str, Any], client_name: str,

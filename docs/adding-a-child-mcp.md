@@ -26,15 +26,19 @@ Never open the file after creating it. The `set` value is JSON, so strings need 
 
 | Key | Required | Default | Notes |
 |-----|----------|---------|-------|
-| `transport` | yes | none | Must be `"stdio"`. |
-| `cwd` | yes | none | Relative paths resolve against the `mcp-hub` root, e.g. `../<repo>`. Must exist. |
-| `command` | yes | none | A relative path containing `/` resolves against `cwd`, e.g. `.venv/Scripts/python.exe` (Windows) or `.venv/bin/python` (macOS/Linux; templates show the Windows form). A bare name (`python`, `node`, `uv`) is looked up on `PATH`. |
-| `args` | no | `[]` | A list of strings, passed verbatim. No secrets. |
-| `inheritEnv` | no | `PATH`, `SYSTEMROOT`, `WINDIR`, `TEMP`, `TMP`, `USERPROFILE` | Hub process env vars passed to the child, in addition to the MCP SDK's default safe set (e.g. `PATH`, `APPDATA`, `USERNAME`; POSIX: `HOME`, `USER`). No other Hub env vars reach the child. |
-| `env` | no | `{}` | String values passed verbatim. A path inside `env` is resolved by the child, normally against its `cwd`, so use a path relative to the child repo (e.g. `../mcp-hub/config/private/mcps/<id>.json`). All values are redacted from Hub error logs. |
-| `timeoutSeconds` | no | `60` | Positive finite number of seconds for each tool call. |
-| `connectTimeoutSeconds` | no | `120` | Positive finite number of seconds to start the child, finish the MCP handshake, and list its tools, at Hub start and on each reconnect. Raise it for a child whose first start builds or installs dependencies. |
-| any other key | no | none | Ignored by the Hub; children may read them (e.g. the `jira` block). Values under a sensitive key, including nested string values, are redacted from Hub error logs. Sensitive keys include `api_key`, keys ending in `_key` (e.g. `ai_context_key`), and common token, password, authorization, email, and credential names. |
+| `transport` | yes | none | `"stdio"` or `"streamable-http"`. |
+| `cwd` | stdio only | none | Relative paths resolve against the `mcp-hub` root, e.g. `../<repo>`. Must exist. |
+| `command` | stdio only | none | A relative path containing `/` resolves against `cwd`, e.g. `.venv/Scripts/python.exe` (Windows) or `.venv/bin/python` (macOS/Linux; templates show the Windows form). A bare name (`python`, `node`, `uv`) is looked up on `PATH`. |
+| `args` | no | `[]` | A list of strings, passed verbatim (stdio). No secrets. |
+| `useHubVenv` | no | `false` | When `true`, runs a Python stdio child with the Hub's own `.venv` interpreter. |
+| `pythonPath` | no | none | Relative path inside `cwd` prepended to the stdio child's `PYTHONPATH` (e.g. `"src"`). |
+| `url` | http only | none | Endpoint for `streamable-http`: must use `https://` or loopback `http://` (`127.0.0.1`, `localhost`, `::1`), with no embedded credentials. |
+| `headers` | no | `{}` | String header map for `streamable-http`. Values under sensitive header names (`Authorization`, `X-Api-Key`, etc.) are automatically added to Hub redaction. |
+| `inheritEnv` | no | `PATH`, `SYSTEMROOT`, `WINDIR`, `TEMP`, `TMP`, `USERPROFILE` | Hub process env vars passed to a stdio child, in addition to the MCP SDK's default safe set (e.g. `PATH`, `APPDATA`, `USERNAME`; POSIX: `HOME`, `USER`). No other Hub env vars reach the child. |
+| `env` | no | `{}` | String values passed verbatim (stdio). A path inside `env` is resolved by the child, normally against its `cwd`, so use a path relative to the child repo (e.g. `../mcp-hub/config/private/mcps/<id>.json`). All values under sensitive keys are redacted from Hub logs and results. |
+| `timeoutSeconds` | no | `60` | Positive finite number of seconds for each tool or resource call. |
+| `connectTimeoutSeconds` | no | `120` | Positive finite number of seconds to start/connect the child, finish the MCP handshake, and list its tools, at Hub start and on each reconnect. Raise it for a child whose first start builds or installs dependencies. |
+| any other key | no | none | Ignored by the Hub; children may read them (e.g. the `jira` block). Values under a sensitive key, including nested string values, are redacted from Hub error logs and results. Sensitive keys include `api_key`, keys ending in `_key` (e.g. `ai_context_key`), and common token, password, authorization, email, and credential names. |
 
 The Hub config version must be the integer `1`. Values of `inheritEnv` variables with sensitive names (token, secret, password, API key, ...), and child `env` values under sensitive keys, are added to the Hub's exact-value error redaction set; give a secret variable such a name.
 

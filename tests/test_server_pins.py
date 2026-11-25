@@ -108,6 +108,27 @@ class PinTest(unittest.IsolatedAsyncioTestCase):
         runtime.child_connected("child", _client(), {"read": CLEAN})
         self.assertEqual(self.events("tool.description.suspicious")[0]["reason"], "too-long")
 
+    async def test_enforce_mode_blocks_changed_and_suspicious_tools_until_accepted(self) -> None:
+        runtime = self.runtime(SecuritySettings(tool_pin_mode="enforce"))
+        runtime.child_connected("child", _client(), {"read": CLEAN})
+        await self.settle()
+        self.assertIn("child__read", runtime.routes)
+
+        runtime.child_connected("child", _client(), {"read": CHANGED})
+        self.assertNotIn("child__read", runtime.routes)
+        skipped = [ev for ev in self.events("route.skipped") if ev.get("reason") == "pin mismatch"]
+        self.assertEqual(len(skipped), 1)
+
+        accepted = runtime.accept_pins("child")
+        self.assertEqual(accepted, [{"server": "child", "tool": "read"}])
+        self.assertIn("child__read", runtime.routes)
+        self.assertEqual(self.events("tool.pins.accepted")[0]["count"], 1)
+
+        runtime.child_connected("child", _client(), {"read": HIDDEN})
+        self.assertNotIn("child__read", runtime.routes)
+        self.assertEqual(runtime.accept_pins("child"), [])
+        self.assertNotIn("child__read", runtime.routes)
+
     def test_the_pin_file_lives_under_the_private_root(self) -> None:
         with patch.object(hub_config, "PRIVATE_ROOT", self.root):
             self.assertEqual(tool_pins_path(), self.root / "tool_pins.json")

@@ -19,6 +19,7 @@ class AuditEventNamesTest(unittest.TestCase):
                 "tool.definition.changed",
                 "tool.description.suspicious",
                 "tool.arguments.invalid",
+                "tool.pins.accepted",
             },
         )
         for name in audit_events.ALL:

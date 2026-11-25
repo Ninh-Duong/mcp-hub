@@ -181,5 +181,9 @@
   "desktop.settings.config.opened": "Opened. Save the file, then restart the Hub.",
   "desktop.settings.config.note": "Fill in the values, save, then Restart Hub. Values are never shown here.",
   "desktop.settings.config.disabled.needsHub": "Start the Hub to edit its settings",
-  "desktop.settings.config.disabled.readOnly": "Read-only: MCP_HUB_CONFIG is set"
+  "desktop.settings.config.disabled.readOnly": "Read-only: MCP_HUB_CONFIG is set",
+  "desktop.section.approvals": "PENDING APPROVALS",
+  "desktop.approvals.approve": "Approve",
+  "desktop.approvals.reject": "Reject",
+  "desktop.error.approval": "Could not apply the write approval decision."
 }

@@ -196,6 +196,7 @@ class StatusWindow(AppearanceMixin, ActionsMixin, LiveFeedsMixin, PollingMixin, 
         self.settings.hide()
         outer.addWidget(self.settings)
         self.children_count, self.children_list = self._list_card(outer, "desktop.section.children", refresh=True)
+        self.approvals_card, self.approvals_count, self.approvals_list = self._build_approvals_card(outer)
         self.clients_count, self.clients_list = self._list_card(outer, "desktop.section.clients")
         # Always present in the full window so the user can check Hub/child updates too.
         self.update_card = UpdateCard(self.check_updates, self.install_update, self.retry_update, self.show_update_notes)
@@ -260,6 +261,12 @@ class StatusWindow(AppearanceMixin, ActionsMixin, LiveFeedsMixin, PollingMixin, 
         card.content.addLayout(rows)
         self._texts.append((title, title_key))
         return count, rows
+
+    def _build_approvals_card(self, outer: QVBoxLayout) -> tuple[Card, QLabel, QVBoxLayout]:
+        count, rows = self._list_card(outer, "desktop.section.approvals")
+        card = self.cards[-1]
+        card.hide()
+        return card, count, rows
 
     def _build_action_card(self, outer: QVBoxLayout) -> None:
         card = self._card(outer)

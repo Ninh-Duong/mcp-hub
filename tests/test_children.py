@@ -286,5 +286,65 @@ class BackoffTest(unittest.TestCase):
         self.assertEqual(Backoff().delay(10_000), 60)
 
 
+class HttpChildOpenerTest(unittest.IsolatedAsyncioTestCase):
+    async def test_open_child_client_dispatches_streamable_http_with_headers_and_no_proxy(self) -> None:
+        from contextlib import asynccontextmanager
+        from io import StringIO
+        from unittest.mock import patch
+        import anyio
+        from mcp.server import Server
+        from mcp.shared.memory import create_client_server_memory_streams
+        from mcp.types import ListToolsResult, Tool
+        from mcp_hub import children
+
+        captured: dict[str, Any] = {}
+        srv = Server(
+            "remote-http-fake",
+            on_list_tools=lambda _ctx, _params: asyncio.sleep(
+                0, result=ListToolsResult(tools=[Tool(name="ping", inputSchema={"type": "object"})]),
+            ),
+        )
+        async with create_client_server_memory_streams() as (client_streams, server_streams):
+            client_read, client_write = client_streams
+            server_read, server_write = server_streams
+
+            @asynccontextmanager
+            async def fake_http_transport(url: str, *, http_client=None, **_kw):
+                captured["url"] = url
+                captured["headers"] = dict(http_client.headers)
+                captured["trust_env"] = http_client._trust_env
+                yield client_read, client_write
+
+            cfg = ServerConfig(
+                "remote", "", (), HUB_ROOT, {}, (),
+                transport="streamable-http", url="https://remote.example.com/mcp",
+                headers={"Authorization": "Bearer secret-http-token"},
+            )
+            closed = False
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(srv.run, server_read, server_write, srv.create_initialization_options())
+                try:
+                    with patch.object(children, "streamable_http_client", fake_http_transport):
+                        async with children.open_child_client(cfg, StringIO(), lambda: None) as client:
+                            tools = await client.list_tools()
+                            self.assertEqual([t.name for t in tools.tools], ["ping"])
+                            closed = True
+                finally:
+                    tg.cancel_scope.cancel()
+        self.assertTrue(closed)
+        self.assertEqual(captured["url"], "https://remote.example.com/mcp")
+        self.assertEqual(captured["headers"].get("authorization"), "Bearer secret-http-token")
+        self.assertFalse(captured["trust_env"])
+
+    async def test_open_http_client_requires_url(self) -> None:
+        from io import StringIO
+        from mcp_hub.children import open_http_client
+
+        cfg = ServerConfig("remote", "", (), HUB_ROOT, {}, (), transport="streamable-http", url=None)
+        with self.assertRaisesRegex(ValueError, "no streamable-http url"):
+            async with open_http_client(cfg, StringIO(), lambda: None):
+                pass
+
+
 if __name__ == "__main__":
     unittest.main()

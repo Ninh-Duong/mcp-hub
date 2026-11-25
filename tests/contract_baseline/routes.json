@@ -39,6 +39,28 @@
   },
   {
     "methods": [
+      "GET",
+      "HEAD"
+    ],
+    "name": "pending_jobs",
+    "path": "/dashboard/api/jobs/pending"
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "name": "job_decision",
+    "path": "/dashboard/api/jobs/{job_id:str}/decision"
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "name": "accept_pins",
+    "path": "/dashboard/api/security/pins/accept"
+  },
+  {
+    "methods": [
       "POST"
     ],
     "name": "request_shutdown",

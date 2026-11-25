@@ -181,5 +181,9 @@
   "desktop.settings.config.opened": "Đã mở. Lưu file rồi khởi động lại Hub.",
   "desktop.settings.config.note": "Điền giá trị, lưu file, rồi bấm Restart Hub. Giá trị không hiển thị ở đây.",
   "desktop.settings.config.disabled.needsHub": "Khởi động Hub để sửa cấu hình",
-  "desktop.settings.config.disabled.readOnly": "Chỉ đọc: đang dùng MCP_HUB_CONFIG"
+  "desktop.settings.config.disabled.readOnly": "Chỉ đọc: đang dùng MCP_HUB_CONFIG",
+  "desktop.section.approvals": "CHỜ PHÊ DUYỆT",
+  "desktop.approvals.approve": "Chấp nhận",
+  "desktop.approvals.reject": "Từ chối",
+  "desktop.error.approval": "Không thể gửi quyết định phê duyệt."
 }

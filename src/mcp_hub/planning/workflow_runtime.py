@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 import json
 from dataclasses import replace
 from time import perf_counter
@@ -75,6 +77,9 @@ class WorkflowRuntimeMixin:
             self.audit.write("hub.workflow.updated", request_id=request_id, action=action, stage=workflow.stage,
                              outcome=workflow.outcome, calls=len(workflow.receipts), refusals=workflow.refusals,
                              tool_ms=metrics["tool_ms"], elapsed_ms=metrics["elapsed_ms"])
+            self._schedule_plan_save()
+            if action == "finish" and self.settings.protocol.tool_exposure == "planned":
+                self._schedule_announcement(self._exposed_signature())
         return CallToolResult(content=[TextContent(type="text", text=json.dumps(self._workflow_status(plan)))])
 
     def _workflow_catalog(self) -> policy.PlanCatalog:
@@ -110,22 +115,32 @@ class WorkflowRuntimeMixin:
             "delegate_stage": delegate,
         }
 
+    @asynccontextmanager
+    async def _acquire_workflow_lock(self, workflow: Any) -> AsyncIterator[None]:
+        # ponytail: serialize concurrent workflow calls within a bounded wait instead of refusing immediately.
+        await asyncio.wait_for(workflow.lock.acquire(), timeout=self.settings.policy.workflow_lock_timeout_seconds)
+        try:
+            yield
+        finally:
+            workflow.lock.release()
+
     async def _call_planned(self, name: str, arguments: dict[str, Any], request_id: str,
                             client_name: str, options: Any = None) -> CallToolResult:
         plan = self.plans.get(arguments.get(policy.PLAN_ID_ARG))
         if plan is None or plan.workflow is None or self.policy_mode != "enforce":
             return await self._call_planned_core(name, arguments, request_id, client_name, options)
         workflow = plan.workflow
-        if workflow.lock.locked():
+        try:
+            async with self._acquire_workflow_lock(workflow):
+                try:
+                    clean = policy.split_plan_id(arguments)[1]
+                    self._check_workflow_call(plan, name, clean)
+                except WorkflowError as exc:
+                    return self._workflow_refusal(workflow, str(exc), request_id)
+                result = await self._call_planned_core(name, arguments, request_id, client_name, options)
+                return self._workflow_result(plan, result)
+        except TimeoutError:
             return self._workflow_refusal(workflow, "Calls are active; wait before another request.", request_id)
-        async with workflow.lock:
-            try:
-                clean = policy.split_plan_id(arguments)[1]
-                self._check_workflow_call(plan, name, clean)
-            except WorkflowError as exc:
-                return self._workflow_refusal(workflow, str(exc), request_id)
-            result = await self._call_planned_core(name, arguments, request_id, client_name, options)
-            return self._workflow_result(plan, result)
 
     def _workflow_refusal(self, workflow: Any, message: str, request_id: str) -> CallToolResult:
         workflow.refusals += 1
@@ -148,21 +163,22 @@ class WorkflowRuntimeMixin:
         if plan is None or plan.workflow is None or self.policy_mode != "enforce":
             return await self._call_batch_core(arguments, request_id, client_name)
         workflow = plan.workflow
-        if workflow.lock.locked():
+        try:
+            async with self._acquire_workflow_lock(workflow):
+                try:
+                    servers = {name: route.server_id for name, route in self.routes.items()}
+                    builtin = frozenset({FULL_RESULT_TOOL}) if self.full_results is not None else frozenset()
+                    calls = parse_calls(arguments, servers, frozenset(self._read_only),
+                                        self.settings.batch.max_calls, builtin_tools=builtin)
+                    if len(workflow.receipts) + sum(c.tool != FULL_RESULT_TOOL for c in calls) > workflow.max_receipts:
+                        raise WorkflowError("Workflow call budget exhausted.")
+                    for call in calls:
+                        self._check_workflow_call(plan, call.tool, policy.split_plan_id(call.arguments)[1])
+                except (WorkflowError, BatchRefused) as exc:
+                    return self._workflow_refusal(workflow, str(exc), request_id)
+                return await self._call_batch_core(arguments, request_id, client_name)
+        except TimeoutError:
             return self._workflow_refusal(workflow, "Calls are active; wait before another request.", request_id)
-        async with workflow.lock:
-            try:
-                servers = {name: route.server_id for name, route in self.routes.items()}
-                builtin = frozenset({FULL_RESULT_TOOL}) if self.full_results is not None else frozenset()
-                calls = parse_calls(arguments, servers, frozenset(self._read_only),
-                                    self.settings.batch.max_calls, builtin_tools=builtin)
-                if len(workflow.receipts) + sum(c.tool != FULL_RESULT_TOOL for c in calls) > workflow.max_receipts:
-                    raise WorkflowError("Workflow call budget exhausted.")
-                for call in calls:
-                    self._check_workflow_call(plan, call.tool, policy.split_plan_id(call.arguments)[1])
-            except (WorkflowError, BatchRefused) as exc:
-                return self._workflow_refusal(workflow, str(exc), request_id)
-            return await self._call_batch_core(arguments, request_id, client_name)
 
     async def _workflow_child_call(self, plan: Any, name: str, arguments: dict[str, Any],
                                    request_id: str, client_name: str, options: Any = None) -> CallToolResult:
@@ -191,6 +207,7 @@ class WorkflowRuntimeMixin:
                 receipt = workflow.record(name, outcome, round((perf_counter() - started) * 1000), observations=observed)
                 self.audit.write("hub.workflow.call", request_id=request_id, stage=receipt.stage,
                                  outcome=outcome, duration_ms=receipt.duration_ms, tool=name)
+                self._schedule_plan_save()
         if workflow is None:
             return result
         if name == "jira__sync_ticket" and outcome == "succeeded":

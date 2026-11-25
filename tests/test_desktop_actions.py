@@ -132,6 +132,21 @@ class HubStateActionsTest(unittest.TestCase):
         self.window.apply(HubSnapshot(hub="stopped"))
         self.assertFalse(self.window.mode_label.isVisibleTo(self.window))
 
+    def test_pending_approvals_card_shows_actions_and_hides_when_empty(self) -> None:
+        from mcp_hub.desktop.status import PendingApproval
+
+        decisions: list[tuple[str, bool]] = []
+        self.window.hub_store.decide_pending_approval = lambda jid, ok: (decisions.append((jid, ok)) or True)
+        self.window.apply(HubSnapshot(hub="running"))
+        self.assertTrue(self.window.approvals_card.isHidden())
+        pending = (PendingApproval("job-9", "jira__sync_ticket", "jira", argument_keys=("force", "issue_key")),)
+        self.window.apply(HubSnapshot(hub="running", pending_approvals=pending))
+        self.assertFalse(self.window.approvals_card.isHidden())
+        self.assertEqual(self.window.approvals_count.text(), "1")
+        self.window.decide_approval("job-9", True)
+        self.window.process_results()
+        self.assertEqual(decisions, [("job-9", True)])
+
 
 if __name__ == "__main__":
     unittest.main()

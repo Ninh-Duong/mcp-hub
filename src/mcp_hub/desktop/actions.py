@@ -90,6 +90,12 @@ class ActionsMixin:
         write = partial(self.hub_store.set_server_enabled, server_id, enabled)
         self._run("hub_changed", self._write_hub_settings, write, error_key="desktop.error.settings")
 
+    def decide_approval(self, job_id: str, approve: bool) -> None:
+        self._run(
+            "approval_done", self.hub_store.decide_pending_approval, job_id, approve,
+            error_key="desktop.error.approval",
+        )
+
     def load_tab(self, name: str) -> None:
         """Read what the opened tab shows; the Appearance tab needs nothing."""
         if name != "config":

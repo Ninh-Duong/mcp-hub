@@ -133,6 +133,19 @@ class HubClient:
     def retry_update(self, components: tuple[str, ...]) -> UpdateStatus:
         return update_status_from(self._call(f"{UPDATE_PATH}/retry", {"components": list(components)}))
 
+    def read_pending_approvals(self) -> tuple[status.PendingApproval, ...]:
+        return status.pending_approvals_from(self._call("/dashboard/api/jobs/pending").get("pending"))
+
+    def decide_pending_approval(self, job_id: str, approve: bool) -> bool:
+        action = "approve" if approve else "reject"
+        result = self._call(f"/dashboard/api/jobs/{quote(job_id, safe='')}/decision", {"action": action})
+        return result.get("applied") is True
+
+    def accept_pins(self, server_id: str | None = None) -> list[dict[str, Any]]:
+        body = {"server_id": server_id} if server_id else {}
+        accepted = self._call("/dashboard/api/security/pins/accept", body).get("accepted")
+        return accepted if isinstance(accepted, list) else []
+
     @staticmethod
     def read_saved_update() -> UpdateStatus | None:
         """Read the app's sanitized update status while the Hub is restarting."""

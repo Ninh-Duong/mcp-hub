@@ -68,6 +68,14 @@ class WindowsOnlyJobsTest(_RunnerCase):
         with patch.object(dpapi, "os", SimpleNamespace(name="posix")):
             self.assertFalse(DPAPIProtector().available)
 
+    def test_default_job_store_encrypts_off_windows_with_fernet_fallback(self) -> None:
+        with patch.object(dpapi, "dpapi_available", return_value=False):
+            store = JobStore(Path(self.tmp.name) / "posix.sqlite3")
+            self.addCleanup(store.close)
+            self.assertTrue(store.encryption_available)
+            job_id = store.create_job(project="orders", question="posix test")
+            self.assertEqual(store.get_request(job_id)["question"], "posix test")
+
 
 class ProviderPackageTest(_RunnerCase):
     def test_missing_package_is_reported_instead_of_failing_later(self) -> None:

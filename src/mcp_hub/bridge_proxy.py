@@ -11,8 +11,12 @@ from mcp.types import (
     GetPromptRequestParams,
     GetPromptResult,
     ListPromptsResult,
+    ListResourcesResult,
+    ListResourceTemplatesResult,
     ListToolsResult,
     PaginatedRequestParams,
+    ReadResourceRequestParams,
+    ReadResourceResult,
 )
 
 if TYPE_CHECKING:
@@ -68,8 +72,31 @@ class DownstreamLink:
             await self._session.send_tool_list_changed()
 
 
+def _resource_handlers(remote: Any, downstream: DownstreamLink) -> dict[str, Any]:
+    """Forward MCP resource discovery and reads through the bridge to the Hub."""
+    async def list_resources(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListResourcesResult:
+        downstream.bind(ctx)
+        return await remote.list_resources(cursor=params.cursor if params else None)
+
+    async def list_resource_templates(
+        ctx: ServerRequestContext, params: PaginatedRequestParams | None,
+    ) -> ListResourceTemplatesResult:
+        downstream.bind(ctx)
+        return await remote.list_resource_templates(cursor=params.cursor if params else None)
+
+    async def read_resource(ctx: ServerRequestContext, params: ReadResourceRequestParams) -> ReadResourceResult:
+        downstream.bind(ctx)
+        return await remote.read_resource(str(params.uri))
+
+    return {
+        "on_list_resources": list_resources,
+        "on_list_resource_templates": list_resource_templates,
+        "on_read_resource": read_resource,
+    }
+
+
 def create_bridge_server(remote: Any, link: DownstreamLink | None = None) -> Server:
-    """A stdio MCP server that forwards tools and prompts to the Hub client `remote`."""
+    """A stdio MCP server that forwards tools, resources, and prompts to the Hub client `remote`."""
     downstream = link if link is not None else DownstreamLink()
 
     async def list_tools(
@@ -102,4 +129,5 @@ def create_bridge_server(remote: Any, link: DownstreamLink | None = None) -> Ser
         on_list_prompts=list_prompts,
         on_get_prompt=get_prompt,
         on_subscriptions_listen=ListenHandler(downstream.bus),
+        **_resource_handlers(remote, downstream),
     )

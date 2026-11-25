@@ -1,6 +1,6 @@
 # Shared Agent Hub operations
 
-This is the operator process for one Windows user running a single Hub for several local AI clients. The shared service, investigation jobs (DPAPI), and the winget runtime install are Windows-only; see the [support matrix](../packaging-and-qc.md#support-matrix). The source reader used by investigations is the sibling repository `mcp-read-source`.
+This is the operator process for one Windows user running a single Hub for several local AI clients. The shared Windows Task Scheduler service and winget runtime install are Windows-only (on POSIX, investigation job blobs fall back to a user-only `0600` Fernet key); see the [support matrix](../packaging-and-qc.md#support-matrix). The source reader used by investigations is the sibling repository `mcp-read-source`.
 
 ## 1. Prepare the repositories
 
@@ -120,7 +120,7 @@ Only client names and times are kept, in memory. Session IDs and tokens are neve
 
 The service starts serving after `children.startupWaitSeconds` (default 10) even if a child has not answered; that child's tools appear when it connects, and clients are told about the new tool list.
 
-The Hub pins each child tool definition in `config/private/tool_pins.json` (hashes only). When a definition changes, the Hub writes `tool.definition.changed` to the audit log and lists the tool under `tool_pins` in `hub__status` while it differs; the tool keeps running. To accept a change, stop the service, delete that tool's entry from the file, and start again: the next start pins the new definition. Hidden Unicode or an over-long description writes `tool.description.suspicious`. A corrupt or unreadable pin file is treated as empty, so every tool is pinned again at the next start without a warning.
+The Hub pins each child tool definition in `config/private/tool_pins.json` (hashes only). When a definition changes, the Hub writes `tool.definition.changed` to the audit log and lists the tool under `tool_pins` in `hub__status` while it differs; in `warn` mode the tool keeps running, and in `enforce` mode it is omitted from routing until accepted. To accept legitimate changes after updating a child MCP, run `hubctl pins` (optionally with `-ServerId <server-id>`) or call `POST /dashboard/api/security/pins/accept` with the admin token. Hidden Unicode or an over-long description writes `tool.description.suspicious` (hidden Unicode also blocks routing in `enforce` mode). A corrupt or unreadable pin file is treated as empty, so every tool is pinned again at the next start without a warning.
 
 ## 4. Connect each AI client
 
@@ -142,13 +142,13 @@ Limits are two active jobs, 20 queued jobs, a 15-minute investigation window per
 
 ## 6. Approve a pending write
 
-A gated write (today: a forced `jira__sync_ticket` with `force=true`) waits in `awaiting_approval`. The browser job review and approval interface has been removed. The Hub does not execute a gated write unless a user supplies a valid one-time code through `hub__approve_job(job_id, code)`; each write waits for its own approval, and a code expires after 10 minutes and works once. Since the desktop app does not expose job review or approval, a gated write without a separately delivered code remains pending and expires under the job window. The user must explicitly choose to approve; an agent saying “approved” is not enough.
+A gated write (today: a forced `jira__sync_ticket` with `force=true`) waits in `awaiting_approval`. The browser job review and approval interface has been removed. An operator can inspect and approve or reject waiting writes through the admin-authenticated local channel — in **mcp-hub Status** or from PowerShell with `hubctl approvals` (list) and `hubctl approvals -JobId <id> -Action approve|reject` — or by passing a one-time code to `hub__approve_job(job_id, code)`. The MCP client token receives `403` on the admin approval routes, so an AI client cannot self-approve. Each write waits for its own approval, and codes expire after 10 minutes and work once. The user must explicitly choose to approve; an agent saying “approved” is not enough.
 
 Documented encrypted cache updates made automatically as part of read workflows do not prompt. Direct child calls keep their current behavior and must follow their child contract. If the service restarts while an investigation is running, the job is marked interrupted and model work is not replayed. One-time codes do not survive a restart. A job still waiting for approval remains pending until 15 minutes after it was created, then becomes `partial` with event `approval.expired` (at start for older ones) and its write is not run. Approving it in time runs only its exact saved operation once and returns a partial job because the broader investigation does not resume.
 
 ## 7. Retention and support
 
-SQLite job records, events, pending actions, summaries, tool results, and daily child-call history are removed after 30 days. Sensitive blobs are protected at rest with Windows user-scope DPAPI. The database belongs to the Windows account that created it and cannot be decrypted under another account. Hub audit logs remain metadata-only and are in `logs/mcp-hub.jsonl`.
+SQLite job records, events, pending actions, summaries, tool results, and daily child-call history are removed after 30 days. Sensitive blobs are protected at rest with Windows user-scope DPAPI on Windows (or a user-only `0600` Fernet key on POSIX). Bounded `hub__plan` metadata (never raw tool results or secrets) is persisted to `config/private/plans.json` with a 2-hour TTL across restarts. Toggling a child MCP on or off via the local settings API reloads that child live without restarting the Hub. Hub audit logs remain metadata-only and are in `logs/mcp-hub.jsonl`.
 
 | Symptom | Check |
 |---|---|

@@ -19,8 +19,8 @@ The values an operator may want to change live in one optional `settings` object
 - Keys are camelCase, like the rest of the Hub config.
 - **Whole numbers:** a key whose default is a whole number takes only whole numbers.
 - **Other numbers:** every other numeric key takes any finite number.
-- **Text and lists:** `policy.mode`, `policy.confirmPlaybook`, `policy.confirmExecution`, `protocol.validateArguments`, and `security.toolPinMode` take one of the listed words; `policy.healthCheckTools` takes a list of tool names.
-- **True or false:** `jobs.promptCache` takes `true` or `false`.
+- **Text and lists:** `policy.mode`, `policy.confirmPlaybook`, `policy.confirmExecution`, `protocol.validateArguments`, `protocol.toolExposure`, and `security.toolPinMode` take one of the listed words; `policy.healthCheckTools` takes a list of tool names.
+- **True or false:** `jobs.promptCache` and `security.redactResults` take `true` or `false`.
 - All values must be positive, except where the table gives another range.
 
 | Group | Key | Default | What it changes |
@@ -29,11 +29,13 @@ The values an operator may want to change live in one optional `settings` object
 | `http` | `shutdownDrainSeconds` | `20` | How long a stopping Hub waits for open requests before it closes them. |
 | `bridge` | `presenceRetrySeconds` | `5` | Seconds the stdio bridge waits before it opens the presence stream again. |
 | `bridge` | `connectTimeoutSeconds` | `60` | Timeout of one request the stdio bridge forwards to the shared service. |
-| `protocol` | `validateArguments` | `"warn"` | Checks each call's arguments against the child's input schema: `off` does nothing, `warn` only writes a `tool.arguments.invalid` audit line and still runs the call. |
+| `protocol` | `validateArguments` | `"warn"` | Checks each call's arguments against the child's input schema: `off` does nothing, `warn` writes a `tool.arguments.invalid` audit line and runs the call, `enforce` refuses invalid arguments before calling the child. |
 | `protocol` | `listChangedDebounceSeconds` | `1` | Quiet time before one `notifications/tools/list_changed` is sent for a burst of tool changes; `0` sends each change at once. |
 | `protocol` | `toolsListTtlMs` | `0` | `ttlMs` of `tools/list` results; `0` tells clients not to cache the list. |
-| `security` | `toolPinMode` | `"warn"` | Tool definition pins: `off` does nothing; `warn` writes a `tool.definition.changed` audit line when a child's tool definition changes. |
+| `protocol` | `toolExposure` | `"all"` | Child tools exposed by `tools/list`: `all` exposes every allowlisted child tool upfront; `planned` exposes Hub coordination tools initially and unlocks child tools from active `hub__plan` servers via `notifications/tools/list_changed`. |
+| `security` | `toolPinMode` | `"warn"` | Tool definition pins: `off` does nothing; `warn` writes a `tool.definition.changed` audit line when a child's tool definition changes; `enforce` also omits changed or suspicious-description tools from routing until pins are accepted. |
 | `security` | `maxDescriptionChars` | `4096` | Longest tool description accepted without a `tool.description.suspicious` audit line. |
+| `security` | `redactResults` | `true` | Redact known configured child secrets and high-confidence credential token shapes from text blocks returned to clients before caching or delivery. |
 | `children` | `reconnectInitialSeconds` | `1` | The first delay before a dropped child MCP is started again; it doubles after each failed attempt. |
 | `children` | `reconnectMaxSeconds` | `60` | The longest delay between reconnect attempts. A session that stayed up this long resets the delay. |
 | `children` | `startupWaitSeconds` | `10` | Longest the Hub waits for children at start; a child that has not answered by then joins later, and the Hub serves without it. |
@@ -78,6 +80,7 @@ The values an operator may want to change live in one optional `settings` object
 | `policy` | `workflowMaxReceipts` | `128` | Maximum child-call receipts in a playbook workflow; inherited plans share the same budget. |
 | `policy` | `workflowInitialWindowSeconds` | `3600` | Deprecated compatibility key; retained when loading old config but ignored. Ask the user for log times. |
 | `policy` | `workflowMaxLimit` | `50` | Maximum explicit row limit for workflow upstream log calls, also bounded by the playbook. |
+| `policy` | `workflowLockTimeoutSeconds` | `30` | Maximum seconds a concurrent workflow call waits on the plan's execution lock before being refused. |
 | `policy` | `repeatAfterSeconds` | `0` | An identical call that already succeeded is refused unless this many seconds have passed; `0` refuses every repeat, as before. |
 | `policy` | `healthCheckTools` | `jira__check_connection`, `pr__check_bitbucket_connection`, `source__check_connection`, `sql__check_connection` | Tool names treated as connection checks: allowed only after a failed call of the plan, or with `connection_checks: true`. A list of strings. |
 | `bitnet` | `port` | `8766` | llama-server port on `127.0.0.1` (`1024` to `65535`). |

@@ -167,6 +167,27 @@ class SettingsApiTest(unittest.TestCase):
         self.autostart_fails = True
         self.assertEqual(self.call("GET", "/dashboard/api/settings/autostart").status_code, 503)
 
+    def test_server_toggle_invokes_live_reload_callback_when_configured(self) -> None:
+        reloaded_ids: list[str] = []
+
+        async def fake_reload(server_id: str) -> bool:
+            reloaded_ids.append(server_id)
+            return True
+
+        handlers = SettingsHandlers(
+            store=self.store, read_autostart=self.read_autostart, write_autostart=self.write_autostart,
+            reload_server=fake_reload,
+        )
+        routes = create_dashboard_routes(FakeRuntime(), settings=handlers)
+        app = create_http_app(
+            Server("reload-test"), "test-client-bearer-token-value-0000", custom_routes=routes, admin_token=TOKEN,
+        )
+        with TestClient(app) as client:
+            resp = client.post("/dashboard/api/settings/servers/other-child", headers=HEADERS, json={"enabled": True})
+            self.assertEqual(resp.status_code, 200)
+            self.assertTrue(resp.json()["reloaded"])
+            self.assertEqual(reloaded_ids, ["other-child"])
+
     def test_the_default_handlers_are_the_hub_owners(self) -> None:
         from mcp_hub import control
 

@@ -1,5 +1,7 @@
 {
   "transport": "stdio",
+  "useHubVenv": true,
+  "pythonPath": "src",
   "command": "python",
   "args": ["-m", "mcp_read_source.server"],
   "cwd": "../mcp-read-source",

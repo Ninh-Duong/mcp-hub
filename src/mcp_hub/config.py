@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from .jsonio import read_json
 from .child_requirements import (
@@ -62,6 +63,9 @@ class ServerConfig:
     secret_values: tuple[str, ...] = field(default=(), repr=False)
     prepare: PrepareSpec | None = None
     connect_timeout_seconds: float = 120.0
+    transport: str = "stdio"
+    url: str | None = None
+    headers: dict[str, str] = field(default_factory=dict, repr=False)
 
 
 @dataclass(frozen=True)
@@ -380,15 +384,24 @@ def _load_server(server_id: str, item: dict[str, Any], context: _LoadContext) ->
         # Starts anyway: the child may read these from its own files (its `config_status` says so later).
         context.incomplete[server_id] = remaining_keys(gaps)
         context.incomplete_groups[server_id] = gaps
-    if local.get("transport") != "stdio":
-        raise ConfigError(f"server {server_id} uses an unsupported transport")
+    transport = local.get("transport")
+    if transport == "stdio":
+        return _load_stdio_server(server_id, item, local, context)
+    if transport == "streamable-http":
+        return _load_http_server(server_id, item, local)
+    raise ConfigError(f"server {server_id} uses an unsupported transport")
+
+
+def _load_stdio_server(
+    server_id: str, item: dict[str, Any], local: dict[str, Any], context: _LoadContext,
+) -> ServerConfig:
     command = _string(local.get("command"), f"server {server_id} command")
     args = _parse_args(local.get("args", []), server_id)
     cwd = _parse_cwd(local.get("cwd"), server_id)
     if not Path(command).is_absolute() and ("/" in command or "\\" in command):
         command = str((cwd / command).resolve())
     env = _parse_env(local.get("env", {}), server_id)
-    command = _apply_hub_venv(server_id, command, cwd, env, context)
+    command = _apply_hub_venv(server_id, command, cwd, env, local, context)
     return ServerConfig(
         server_id=server_id,
         command=command,
@@ -402,7 +415,50 @@ def _load_server(server_id: str, item: dict[str, Any], context: _LoadContext) ->
         connect_timeout_seconds=_parse_timeout(
             local.get("connectTimeoutSeconds", 120), f"server {server_id} connectTimeoutSeconds",
         ),
+        transport="stdio",
     )
+
+
+def _load_http_server(server_id: str, item: dict[str, Any], local: dict[str, Any]) -> ServerConfig:
+    url = _parse_http_url(local.get("url"), server_id)
+    headers = _parse_headers(local.get("headers", {}), server_id)
+    return ServerConfig(
+        server_id=server_id,
+        command="",
+        args=(),
+        cwd=HUB_ROOT,
+        env={},
+        inherit_env=(),
+        timeout_seconds=_parse_timeout(local.get("timeoutSeconds", 60), f"server {server_id} timeoutSeconds"),
+        secret_values=tuple(_collect_sensitive_values(local)),
+        prepare=_parse_prepare(item.get("prepare"), server_id),
+        connect_timeout_seconds=_parse_timeout(
+            local.get("connectTimeoutSeconds", 120), f"server {server_id} connectTimeoutSeconds",
+        ),
+        transport="streamable-http",
+        url=url,
+        headers=headers,
+    )
+
+
+def _parse_http_url(value: Any, server_id: str) -> str:
+    url = _string(value, f"server {server_id} url")
+    parsed = urlsplit(url)
+    if parsed.username is not None or parsed.password is not None:
+        raise ConfigError(f"server {server_id} url must not contain embedded credentials")
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme == "https" and host:
+        return url
+    if parsed.scheme == "http" and host in {"127.0.0.1", "localhost", "::1"}:
+        return url
+    raise ConfigError(f"server {server_id} url must use https:// or loopback http://")
+
+
+def _parse_headers(value: Any, server_id: str) -> dict[str, str]:
+    headers = _mapping(value, f"server {server_id} headers")
+    if not all(isinstance(key, str) and key.strip() and isinstance(item, str) for key, item in headers.items()):
+        raise ConfigError(f"server {server_id} headers must contain non-empty string keys and string values")
+    return dict(headers)
 
 
 def _parse_args(value: Any, server_id: str) -> tuple[str, ...]:
@@ -447,13 +503,41 @@ def _hub_python() -> str:
     return str(HUB_ROOT / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python"))
 
 
-def _apply_hub_venv(server_id: str, command: str, cwd: Path, env: dict[str, str], context: _LoadContext) -> str:
+def _parse_python_path(value: Any, cwd: Path, server_id: str) -> Path | None:
+    if value is None:
+        return None
+    rel = Path(_string(value, f"server {server_id} pythonPath"))
+    if rel.is_absolute() or ".." in rel.parts:
+        raise ConfigError(f"server {server_id} pythonPath must stay inside cwd")
+    resolved = (cwd / rel).resolve()
+    if not resolved.is_relative_to(cwd):
+        raise ConfigError(f"server {server_id} pythonPath must stay inside cwd")
+    return resolved
+
+
+def _prepend_pythonpath(env: dict[str, str], entry: Path) -> None:
+    inherited = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = str(entry) + (os.pathsep + inherited if inherited else "")
+
+
+def _apply_hub_venv(
+    server_id: str, command: str, cwd: Path, env: dict[str, str], local: dict[str, Any], context: _LoadContext,
+) -> str:
     """Run Python children that share this repo's dependencies on the Hub's own venv."""
+    use_hub_venv = local.get("useHubVenv")
+    if use_hub_venv is not None and not isinstance(use_hub_venv, bool):
+        raise ConfigError(f"server {server_id} useHubVenv must be true or false")
+    python_path = _parse_python_path(local.get("pythonPath"), cwd, server_id)
+    if python_path is not None:
+        _prepend_pythonpath(env, python_path)
+    if use_hub_venv is not None:
+        return _hub_python() if use_hub_venv else command
+    # ponytail: legacy fallback for pre-008 private configs written before useHubVenv existed.
     if server_id == "mcp-jira-sync" and context.automatic and server_id not in context.explicit_files:
         return _hub_python()
     if server_id == "mcp-read-source":
-        inherited_pythonpath = env.get("PYTHONPATH")
-        env["PYTHONPATH"] = str(cwd / "src") + (os.pathsep + inherited_pythonpath if inherited_pythonpath else "")
+        if python_path is None:
+            _prepend_pythonpath(env, cwd / "src")
         return _hub_python()
     return command
 

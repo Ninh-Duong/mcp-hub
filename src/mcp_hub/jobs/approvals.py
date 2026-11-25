@@ -21,9 +21,26 @@ class ApprovalMixin:
         approved = await self._approve_pending_call(job_id, code=code)
         return {"job_id": job_id, "approved": approved}
 
-    async def _approve_pending_call(self, job_id: str, *, code: str) -> bool:
+    async def list_pending_approvals(self) -> list[dict[str, Any]]:
+        """List unapproved pending writes (admin channel only; never exposes raw values or codes)."""
+        return await store_call(self.store.list_pending_calls)
+
+    async def resolve_pending_approval(self, job_id: str, *, approve: bool) -> dict[str, Any]:
+        """Approve or reject a pending write from the admin-authenticated local channel."""
+        action = "approve" if approve else "reject"
+        if approve:
+            applied = await self._approve_pending_call(job_id, admin=True)
+            return {"job_id": job_id, "action": action, "applied": applied}
+        applied = await store_call(self.store.reject_pending_call, job_id)
+        if applied:
+            event = self._approval_events.get(job_id)
+            if event is not None:
+                event.set()
+        return {"job_id": job_id, "action": action, "applied": applied}
+
+    async def _approve_pending_call(self, job_id: str, *, code: str | None = None, admin: bool = False) -> bool:
         live = job_id in self._approval_events
-        pending = await store_call(self._approve_in_store, job_id, code, live)
+        pending = await store_call(self._approve_in_store, job_id, code, live, admin)
         if pending is None:
             return False
         event = self._approval_events.get(job_id)
@@ -37,7 +54,7 @@ class ApprovalMixin:
             )
         return True
 
-    def _approve_in_store(self, job_id: str, code: str, live: bool) -> dict[str, Any] | None:
+    def _approve_in_store(self, job_id: str, code: str | None, live: bool, admin: bool = False) -> dict[str, Any] | None:
         """Approve the pending call; return it, or None when it is missing, expired, or the code is wrong.
 
         A live wait is bounded by its running job; a wait restored after a restart expires
@@ -48,9 +65,8 @@ class ApprovalMixin:
             return None
         if not live and self.store.expire_awaiting_approval(self._job_window, job_id=job_id):
             return None
-        if not self.store.approve_pending_call(job_id, code):
-            return None
-        return pending
+        ok = self.store.approve_pending_call_admin(job_id) if admin else self.store.approve_pending_call(job_id, code or "")
+        return pending if ok else None
 
     async def _run_approved_write(self, job_id: str, expected: dict[str, Any]) -> None:
         slot = JobSlot(self._slots)

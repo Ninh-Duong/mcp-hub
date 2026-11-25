@@ -73,6 +73,29 @@ class ApproveJobTest(unittest.TestCase):
 
         self.assertTrue(issubclass(JobRunner, ApprovalMixin))
 
+    def test_admin_can_list_approve_and_reject_pending_writes(self) -> None:
+        async def exercise() -> None:
+            with _runner(self.runtime, {}, clock=lambda: self.now) as runner:
+                approve_id, _ = self._pending_write(runner)
+                reject_id, _ = self._pending_write(runner)
+                pending = await runner.list_pending_approvals()
+                self.assertEqual([item["job_id"] for item in pending], [approve_id, reject_id])
+                self.assertEqual(pending[0]["argument_keys"], ["force", "issue_key"])
+                self.assertNotIn("EX-1", repr(pending))
+
+                approved = await runner.resolve_pending_approval(approve_id, approve=True)
+                self.assertEqual(approved, {"job_id": approve_id, "action": "approve", "applied": True})
+                if approve_id in runner._tasks:
+                    await runner._tasks[approve_id]
+                self.assertEqual(self.runtime.calls, [(WRITE_TOOL, WRITE_ARGUMENTS)])
+
+                rejected = await runner.resolve_pending_approval(reject_id, approve=False)
+                self.assertEqual(rejected, {"job_id": reject_id, "action": "reject", "applied": True})
+                self.assertEqual(runner.store.get_job(reject_id)["state"], "partial")
+                self.assertEqual(await runner.list_pending_approvals(), [])
+
+        asyncio.run(exercise())
+
 
 if __name__ == "__main__":
     unittest.main()

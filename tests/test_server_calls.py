@@ -82,6 +82,40 @@ class ChildTimeoutTest(_RuntimeCase):
         self.assertEqual((failed[0]["server"], failed[0]["tool"]), ("child", "read"))
 
 
+class OutboundResultRedactionTest(unittest.IsolatedAsyncioTestCase):
+    async def test_child_secrets_and_token_shapes_are_redacted_before_returning(self) -> None:
+        from mcp_hub.settings import SecuritySettings, Settings
+
+        class _LeakyClient:
+            async def call_tool(self, name: str, arguments: dict) -> CallToolResult:
+                return CallToolResult(content=[TextContent(
+                    type="text", text="secret=child-secret-9999 token=ghp_12345678901234567890 token_count=3",
+                )])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            audit = AuditLog(root / "audit.jsonl")
+            try:
+                child = ServerConfig("child", "python", (), root, {}, (), secret_values=("child-secret-9999",))
+                cfg = HubConfig(root / "hub.json", {"child": child}, (ROUTE,))
+                runtime = HubRuntime(cfg, audit, Settings(security=SecuritySettings(redact_results=True)))
+                audit.add_secrets(child.secret_values)
+                tool = Tool(name="read", input_schema={"type": "object"}, annotations={"readOnlyHint": True})
+                runtime.child_connected("child", _LeakyClient(), {"read": tool})
+
+                redacted = await runtime.call_child_tool("child__read", {}, request_id="r-red")
+                self.assertNotIn("child-secret-9999", redacted.content[0].text)
+                self.assertNotIn("ghp_12345678901234567890", redacted.content[0].text)
+                self.assertIn("token_count=3", redacted.content[0].text)
+
+                unredacted_rt = HubRuntime(cfg, audit, Settings(security=SecuritySettings(redact_results=False)))
+                unredacted_rt.child_connected("child", _LeakyClient(), {"read": tool})
+                raw = await unredacted_rt.call_child_tool("child__read", {}, request_id="r-raw")
+                self.assertIn("child-secret-9999", raw.content[0].text)
+            finally:
+                audit.close()
+
+
 class AuditSecretScopeTest(unittest.IsolatedAsyncioTestCase):
     async def test_only_values_under_sensitive_names_become_audit_secrets(self) -> None:
         root = Path(tempfile.mkdtemp())

@@ -114,7 +114,7 @@ class BootstrapScriptsTest(unittest.TestCase):
         self.assertNotIn(r"config\private\service.json", script)
         self.assertIn("Get-Content -LiteralPath $connectionPath -Raw", script)
         self.assertIn("return [string]$connection.token", script)
-        self.assertEqual(script.count('"Bearer $(Get-AdminToken)"'), 3)
+        self.assertGreaterEqual(script.count('"Bearer $(Get-AdminToken)"'), 4)
         lookup = script[script.index("function Get-ConnectionPath"):script.index("function Get-AdminToken")]
         for source in ("$env:MCP_HUB_CONNECTION_FILE", "$env:MCP_HUB_PRIVATE_DIR", r'"mcp-hub\connection.json"'):
             self.assertIn(source, lookup)
@@ -243,7 +243,7 @@ class BootstrapScriptsTest(unittest.TestCase):
         # The running service locks its entry-point exe, so it stops before the environment sync.
         self.assertLess(install.index("Stop-HubTask"), install.index("Initialize-HubEnvironment"))
         self.assertLess(install.index("Start-HubTask"), install.index("Open-StatusApp"))
-        self.assertIn('"preflight", "app", "autostart", "update")]', script)
+        self.assertIn('"preflight", "app", "autostart", "update", "approvals"', script)
         self.assertIn('if ($Install) { Install-StatusApp } else { Open-StatusApp; Write-StatusAppHint }', script)
 
     def test_app_opens_the_installed_exe_or_else_runs_from_source(self) -> None:

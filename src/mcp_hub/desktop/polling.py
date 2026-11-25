@@ -56,7 +56,7 @@ class PollingMixin:
                 self._apply_usage(*value)
             elif kind == "processing":
                 self._apply_processing(*value)
-            elif kind == "bitnet_install":
+            elif kind in ("bitnet_install", "approval_done"):
                 self.refresh()
             else:
                 self.message_key = value

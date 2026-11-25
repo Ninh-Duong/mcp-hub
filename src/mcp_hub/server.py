@@ -34,11 +34,11 @@ from mcp.types import (
 )
 
 from . import config as hub_config
-from .audit import AuditLog, default_log_dir, describe_exception, redact
+from .audit import AuditLog, default_log_dir, describe_exception, redact, redact_secrets
 from .audit_events import TOOL_ARGUMENTS_INVALID
 from .batch import BATCH_TOOL, BatchMixin, batch_tool
 from .child_lifecycle import ChildLifecycleMixin
-from .children import Backoff, ChildOpener, ChildSupervisor, ChildUnavailable, open_stdio_client
+from .children import Backoff, ChildOpener, ChildSupervisor, ChildUnavailable, open_child_client
 from .client_profiles import ClientProfileCatalog, load_client_profiles
 from .clients import request_client_name
 from .results.condense import RuleCondenser
@@ -62,8 +62,9 @@ from .planning.hub_plan import PlanningMixin
 from .planning.workflow_runtime import WorkflowRuntimeMixin, WORKFLOW_TOOL, workflow_tool
 from .call_observers import CallObserverMixin, ChildCallState
 from .bootstrap import load_start_inputs
+from .resources import ResourcesMixin
 from .results.runtime import FULL_RESULT_TOOL, ResultsMixin, error_result, full_result_tool
-from .results.shape import SUMMARY_REDACTION_MARGIN, result_error_summary, result_succeeded
+from .results.shape import SUMMARY_REDACTION_MARGIN, redact_tool_result, result_error_summary, result_succeeded
 from .tool_pins import PinScreeningMixin, PinStore, fingerprint
 
 
@@ -88,10 +89,15 @@ def tool_pins_path() -> Path:
     return hub_config.PRIVATE_ROOT / "tool_pins.json"
 
 
+def plans_snapshot_path() -> Path:
+    """Metadata-only plan snapshot file: config/private/plans.json under the private root."""
+    return hub_config.PRIVATE_ROOT / "plans.json"
+
+
 _DEFAULT_SETTINGS = Settings()
 
 
-class HubRuntime(ChildLifecycleMixin, PinScreeningMixin, WorkflowRuntimeMixin, BatchMixin, PlanningMixin, ResultsMixin, CallObserverMixin):
+class HubRuntime(ChildLifecycleMixin, PinScreeningMixin, ResourcesMixin, WorkflowRuntimeMixin, BatchMixin, PlanningMixin, ResultsMixin, CallObserverMixin):
     """Child connections, the allowlist, and routing.
 
     Extensions add observers with `add_observer`; with none installed a call is route -> audit -> child.
@@ -102,6 +108,7 @@ class HubRuntime(ChildLifecycleMixin, PinScreeningMixin, WorkflowRuntimeMixin, B
         playbooks: Mapping[str, Playbook] | None = None, projects: Mapping[str, ProjectConfig] | None = None,
         client_profiles: ClientProfileCatalog | None = None, shared_service: bool = False,
         processing_observer: ProcessingObserver | None = None, pin_path: Path | None = None,
+        plan_path: Path | None = None,
     ) -> None:
         self.config = config
         self.audit = audit
@@ -115,7 +122,7 @@ class HubRuntime(ChildLifecycleMixin, PinScreeningMixin, WorkflowRuntimeMixin, B
         self.activity_source: ActivitySource | None = None
         self.processing_observer = processing_observer
         self.result_cache = ResultCache(max_entries=settings.cache.max_entries, max_bytes=settings.cache.max_bytes)
-        self.child_opener: ChildOpener = open_stdio_client
+        self.child_opener: ChildOpener = open_child_client
         self.child_backoff = Backoff(
             initial=settings.children.reconnect_initial_seconds, maximum=settings.children.reconnect_max_seconds,
         )
@@ -125,20 +132,26 @@ class HubRuntime(ChildLifecycleMixin, PinScreeningMixin, WorkflowRuntimeMixin, B
         self.config_sources = ConfigSources(audit, settings.children.config_status_timeout_seconds)
         self._discovered: dict[str, dict[str, Tool]] = {}
         self._read_only: set[str] = set()
-        self._setup_planning(settings, playbooks, projects, client_profiles, shared_service)
+        self._setup_planning(settings, playbooks, projects, client_profiles, shared_service, plan_path=plan_path)
         self.events = HubEvents(settings.protocol.list_changed_debounce_seconds, on_publish=self._audit_tools_published)
         self._background: set[asyncio.Task[None]] = set()
+        self._reload_lock = asyncio.Lock()
+        self._plan_save_lock = asyncio.Lock()
         self._setup_pins(pin_path, settings)
         self._starting = False
 
     def _setup_planning(
         self, settings: Settings, playbooks: Mapping[str, Playbook] | None,
         projects: Mapping[str, ProjectConfig] | None, client_profiles: ClientProfileCatalog | None,
-        shared_service: bool,
+        shared_service: bool, *, plan_path: Path | None = None,
     ) -> None:
         """Initialize plan book, playbooks, projects, client profiles, and optional result helpers."""
         self._call_facts: dict[str, CallFacts] = {}
-        self.plans = PlanBook(settings.policy.max_plans, repeat_after_seconds=settings.policy.repeat_after_seconds)
+        self.plans = PlanBook(
+            settings.policy.max_plans,
+            repeat_after_seconds=settings.policy.repeat_after_seconds,
+            persist_path=plan_path,
+        )
         self.confirm_tokens = plan_confirm.ConfirmTokens(settings.policy.confirm_token_seconds)
         self.playbooks: Mapping[str, Playbook] = load_playbooks() if playbooks is None else playbooks
         self.projects: Mapping[str, ProjectConfig] = projects or {}
@@ -152,12 +165,13 @@ class HubRuntime(ChildLifecycleMixin, PinScreeningMixin, WorkflowRuntimeMixin, B
         self.full_results: FullResultStore | None = None
 
     def _setup_pins(self, pin_path: Path | None, settings: Settings) -> None:
-        """Pins are kept only when a pin file is given (the service passes the private one) and the mode is warn."""
+        """Pins are kept when a pin file is given and the mode is warn or enforce."""
         self.pins: PinStore | None = (
             PinStore(pin_path) if pin_path is not None and settings.security.tool_pin_mode != "off" else None
         )
         self._max_description_chars = settings.security.max_description_chars
         self._pin_changes: dict[str, tuple[str, ...]] = {}
+        self._suspicious_tools: dict[str, tuple[str, ...]] = {}
         # Pin saves take turns in the order they were scheduled, so the newest snapshot is written last (F3).
         self._pin_save_lock = asyncio.Lock()
 
@@ -198,15 +212,13 @@ class HubRuntime(ChildLifecycleMixin, PinScreeningMixin, WorkflowRuntimeMixin, B
         parts: list[tuple[str, str, str]] = []
         for route in _in_list_order(self.config.routes, self.config.servers):
             child_tool = self._discovered.get(route.server_id, {}).get(route.tool_name)
-            if child_tool is None:
+            blocked = self._blocked_tool_reason(route.server_id, route.tool_name) if child_tool is not None else None
+            if child_tool is None or blocked is not None:
                 if only_server in (None, route.server_id):
+                    reason = blocked or ("server unavailable" if route.server_id not in self._discovered else "tool not found")
                     self.audit.write(
-                        "route.skipped",
-                        level=logging.WARNING,
-                        feature=route.feature,
-                        server=route.server_id,
-                        tool=route.tool_name,
-                        reason="server unavailable" if route.server_id not in self._discovered else "tool not found",
+                        "route.skipped", level=logging.WARNING, feature=route.feature,
+                        server=route.server_id, tool=route.tool_name, reason=reason,
                     )
                 continue
             routes[route.exposed_name] = route
@@ -218,6 +230,27 @@ class HubRuntime(ChildLifecycleMixin, PinScreeningMixin, WorkflowRuntimeMixin, B
                 route.exposed_name, route.server_id, route.exposed_name in read_only, policy.tool_accepts_env(child_tool),
             )
         self.routes, self.public_tools, self._read_only, self._call_facts = routes, [*hub_tools, *child_tools], read_only, facts
+        return self._exposed_signature() if self.settings.protocol.tool_exposure == "planned" else _tools_signature(parts)
+
+    def _exposed_tools(self) -> list[Tool]:
+        if self.settings.protocol.tool_exposure != "planned":
+            return self.public_tools
+        active = self.plans.active_servers()
+        return [
+            tool for tool in self.public_tools
+            if tool.name.startswith("hub__") or (
+                (route := self.routes.get(tool.name)) is not None and route.server_id in active
+            )
+        ]
+
+    def _exposed_signature(self) -> str:
+        """Signature of the tools currently visible in tools/list (tracks planned server activation)."""
+        parts = [
+            (route.server_id, route.tool_name, fingerprint(child_tool))
+            for tool in self._exposed_tools()
+            if (route := self.routes.get(tool.name)) is not None
+            and (child_tool := self._discovered.get(route.server_id, {}).get(route.tool_name)) is not None
+        ]
         return _tools_signature(parts)
 
     async def list_tools(
@@ -227,7 +260,8 @@ class HubRuntime(ChildLifecycleMixin, PinScreeningMixin, WorkflowRuntimeMixin, B
     ) -> ListToolsResult:
         if self.observers:
             self.notify_client(ctx)
-        tools = [*self.public_tools, full_result_tool()] if self.full_results is not None else self.public_tools
+        base = self._exposed_tools()
+        tools = [*base, full_result_tool()] if self.full_results is not None else base
         self.audit.write(
             "hub.tools.listed",
             request_id=str(ctx.request_id) if ctx.request_id is not None else None,
@@ -374,17 +408,26 @@ class HubRuntime(ChildLifecycleMixin, PinScreeningMixin, WorkflowRuntimeMixin, B
         return CallToolResult(content=[TextContent(type="text", text=json.dumps(status))])
 
 
-    def _screen_arguments(self, route: ToolRoute, arguments: dict[str, Any], request_id: str) -> None:
-        """In warn mode, audit arguments that do not match the child's input schema; the call still runs (FR-012)."""
-        if self.settings.protocol.validate_arguments != "warn":
-            return
+    def _screen_arguments(self, route: ToolRoute, arguments: dict[str, Any], request_id: str) -> CallToolResult | None:
+        """Check arguments against the child's input schema: warn audits only; enforce refuses before calling."""
+        mode = self.settings.protocol.validate_arguments
+        if mode not in {"warn", "enforce"}:
+            return None
         child_tool = self._discovered.get(route.server_id, {}).get(route.tool_name)
         paths = validate_args(getattr(child_tool, "input_schema", None), arguments)
-        if paths:
-            self.audit.write(
-                TOOL_ARGUMENTS_INVALID, level=logging.WARNING, request_id=request_id, feature=route.feature,
-                server=route.server_id, tool=route.tool_name, fields=paths,
-            )
+        if not paths:
+            return None
+        self.audit.write(
+            TOOL_ARGUMENTS_INVALID, level=logging.WARNING, request_id=request_id, feature=route.feature,
+            server=route.server_id, tool=route.tool_name, fields=paths,
+        )
+        if mode != "enforce":
+            return None
+        self.audit.write(
+            "tool.call.denied", level=logging.WARNING, request_id=request_id, feature=route.feature,
+            server=route.server_id, tool=route.tool_name, reason="invalid_arguments",
+        )
+        return error_result(f"Invalid arguments for {route.exposed_name}: {', '.join(paths)}.")
 
     async def call_child_tool(
         self,
@@ -403,7 +446,9 @@ class HubRuntime(ChildLifecycleMixin, PinScreeningMixin, WorkflowRuntimeMixin, B
             denied = redact(str(name)[:DENIED_NAME_LIMIT + SUMMARY_REDACTION_MARGIN], limit=DENIED_NAME_LIMIT)
             self.audit.write("tool.call.denied", level=logging.WARNING, request_id=request_id, tool=denied)
             return error_result("This tool is not enabled in the Hub configuration.")
-        self._screen_arguments(route, arguments, request_id)
+        invalid = self._screen_arguments(route, arguments, request_id)
+        if invalid is not None:
+            return invalid
         tokens = self._observe_start(route, client_name, agent_role) if self.observers else None
         call = ChildCallState(route, request_id, tokens, perf_counter())
         if self.processing_observer is not None:
@@ -428,14 +473,17 @@ class HubRuntime(ChildLifecycleMixin, PinScreeningMixin, WorkflowRuntimeMixin, B
             self._complete_call(call, "failed", error_type, "tool.call.failed", logging.ERROR,
                                 error_type=error_type, error=error)
             return error_result(f"Child MCP call failed. See Hub log request_id={request_id}.")
+        self._record_call_outcome(call, result, cached)
+        return result
+
+    def _record_call_outcome(self, call: ChildCallState, result: CallToolResult, cached: bool) -> None:
         error_summary = result_error_summary(result)
         if error_summary is not None:
             extra = {"error_summary": error_summary} if error_summary else {}
             self._complete_call(call, "failed", "ToolError", "tool.call.failed", logging.ERROR, **extra)
-        else:
-            event = "tool.call.cached" if cached else "tool.call.succeeded"
-            self._complete_call(call, "succeeded", None, event, logging.INFO)
-        return result
+            return
+        event = "tool.call.cached" if cached else "tool.call.succeeded"
+        self._complete_call(call, "succeeded", None, event, logging.INFO)
 
     async def _invoke_child(
         self, route: ToolRoute, arguments: dict[str, Any], options: ChildOptions | None = None,
@@ -461,7 +509,11 @@ class HubRuntime(ChildLifecycleMixin, PinScreeningMixin, WorkflowRuntimeMixin, B
         if client is None:
             raise ChildUnavailable(route.server_id)
         with anyio.fail_after(self.config.servers[route.server_id].timeout_seconds):
-            return await client.call_tool(route.tool_name, arguments, **_child_call_kwargs(options))
+            result = await client.call_tool(route.tool_name, arguments, **_child_call_kwargs(options))
+        if self.settings.security.redact_results:
+            redact_fn = self.audit.redact_result_text if isinstance(self.audit, AuditLog) else redact_secrets
+            result = redact_tool_result(result, redact_fn)
+        return result
 
     def _server_tools(self, server_id: str) -> list[str]:
         return [name for name, route in self.routes.items() if route.server_id == server_id]
@@ -562,6 +614,9 @@ def create_mcp_server(runtime: HubRuntime, job_runner: Any | None = None) -> Ser
         cache_hints={"tools/list": CacheHint(ttl_ms=runtime.settings.protocol.tools_list_ttl_ms)},
         on_list_tools=list_tools,
         on_call_tool=call_tool,
+        on_list_resources=runtime.list_resources,
+        on_list_resource_templates=runtime.list_resource_templates,
+        on_read_resource=runtime.read_resource,
         on_list_prompts=runtime.list_prompts,
         on_subscriptions_listen=runtime.events.listen_handler,
         on_get_prompt=runtime.get_prompt,
@@ -572,27 +627,31 @@ def create_mcp_server(runtime: HubRuntime, job_runner: Any | None = None) -> Ser
 
 
 async def serve() -> None:
-    audit = AuditLog()
-    inputs = load_start_inputs(audit)
-    runtime = HubRuntime(
-        inputs.config, audit, inputs.settings, playbooks=inputs.playbooks, projects=inputs.projects,
-        client_profiles=inputs.client_profiles, shared_service=False, pin_path=tool_pins_path(),
-    )
-    async with AsyncExitStack() as stack:
-        await runtime.connect(stack)
-        runtime.enable_core_condenser()
-        server = create_mcp_server(runtime)
-        audit.write(
-            "hub.started",
-            config=repo_relative(inputs.config.config_path),
-            servers=list(inputs.config.servers),
-            tool_count=len(runtime.public_tools),
+    audit = AuditLog(async_writes=True)
+    try:
+        inputs = load_start_inputs(audit)
+        runtime = HubRuntime(
+            inputs.config, audit, inputs.settings, playbooks=inputs.playbooks, projects=inputs.projects,
+            client_profiles=inputs.client_profiles, shared_service=False,
+            pin_path=tool_pins_path(), plan_path=plans_snapshot_path(),
         )
-        try:
-            async with stdio_server() as (read_stream, write_stream):
-                await server.run(read_stream, write_stream, server.create_initialization_options())
-        finally:
-            audit.write("hub.stopped")
+        async with AsyncExitStack() as stack:
+            await runtime.connect(stack)
+            runtime.enable_core_condenser()
+            server = create_mcp_server(runtime)
+            audit.write(
+                "hub.started",
+                config=repo_relative(inputs.config.config_path),
+                servers=list(inputs.config.servers),
+                tool_count=len(runtime.public_tools),
+            )
+            try:
+                async with stdio_server() as (read_stream, write_stream):
+                    await server.run(read_stream, write_stream, server.create_initialization_options())
+            finally:
+                audit.write("hub.stopped")
+    finally:
+        audit.close()
 
 
 def main() -> None:

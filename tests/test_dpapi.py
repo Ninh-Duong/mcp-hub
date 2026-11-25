@@ -105,6 +105,25 @@ class DPAPIProtectorTest(unittest.TestCase):
         self.assertNotEqual(sealed, b"round-trip value")
         self.assertEqual(protector.unprotect(sealed), b"round-trip value")
 
+    def test_fernet_protector_round_trips_persists_key_and_rejects_foreign_blobs(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            key_path = Path(tmp) / "job_store.key"
+            first = dpapi.FernetProtector(key_path)
+            self.assertTrue(first.available)
+            sealed = first.protect(b"posix job payload")
+            self.assertNotEqual(sealed, b"posix job payload")
+            self.assertTrue(key_path.is_file())
+            self.assertEqual(dpapi.FernetProtector(key_path).unprotect(sealed), b"posix job payload")
+            other = dpapi.FernetProtector(Path(tmp) / "other.key")
+            with self.assertRaisesRegex(ValueError, "Could not decrypt"):
+                other.unprotect(sealed)
+            with patch.object(dpapi, "os", SimpleNamespace(name="posix")):
+                chosen = dpapi.default_protector(key_path)
+            self.assertIsInstance(chosen, dpapi.FernetProtector)
+
 
 if __name__ == "__main__":
     unittest.main()

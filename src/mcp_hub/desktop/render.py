@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from .constants import NOT_DRAWN
 from collections.abc import Callable
-from PySide6.QtWidgets import QVBoxLayout
+from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 from . import status, theme, usage
-from .widgets import ProcessingLog, Row, Spinner, UsageRow, dot_icon, label, set_props, show_elided
+from .widgets import ProcessingLog, Row, Spinner, UsageRow, button, dot_icon, label, set_props, show_elided
 
 
 
@@ -31,6 +31,8 @@ class RenderMixin:
             ("hub", (language, hub, activity_ui), self._render_hub),
             ("children", (language, hub, snapshot.children if snapshot else (), snapshot.bitnet if snapshot else None),
              self._render_children),
+            ("approvals", (language, hub, self.compact, snapshot.pending_approvals if snapshot else ()),
+             self._render_approvals),
             ("usage", (language, activity_ui, self._usage_lines(activity_ui)), self._render_usage),
             ("clients", (language, hub, activity_ui, snapshot.clients if snapshot else (),
                          snapshot.recent if snapshot else ()), self._render_clients),
@@ -114,6 +116,26 @@ class RenderMixin:
             self.children_list.addWidget(item)
             self.child_rows[child.server_id] = item
         self._render_bitnet_row(self.snapshot.bitnet)
+
+    def _render_approvals(self, hub: str | None) -> None:
+        self.clear_rows(self.approvals_list)
+        pending = self.snapshot.pending_approvals if (hub == "running" and self.snapshot) else ()
+        self.approvals_card.setVisible(bool(pending) and not self.compact)
+        self.approvals_count.setText(str(len(pending)) if pending else "")
+        for item in pending:
+            box = QWidget()
+            row = QHBoxLayout(box)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(theme.SPACE_XS)
+            detail = f"{item.tool_name} ({', '.join(item.argument_keys)})" if item.argument_keys else item.tool_name
+            row.addWidget(label(detail, role="caption", wrap=True), 1)
+            approve = button(lambda jid=item.job_id: self.decide_approval(jid, True))
+            approve.setText(self.t("desktop.approvals.approve"))
+            reject = button(lambda jid=item.job_id: self.decide_approval(jid, False))
+            reject.setText(self.t("desktop.approvals.reject"))
+            row.addWidget(approve)
+            row.addWidget(reject)
+            self.approvals_list.addWidget(box)
 
     def _render_bitnet_row(self, info: status.BitnetInfo | None) -> None:
         """BitNet under the children, not counted with them: green only when llama-server really answers."""

@@ -1,5 +1,6 @@
 {
   "transport": "stdio",
+  "useHubVenv": true,
   "command": "../mcp-hub/.venv/Scripts/python.exe",
   "args": ["server.py"],
   "cwd": "../mcp-jira-sync",

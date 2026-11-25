@@ -34,6 +34,20 @@ class FakeRemoteClient:
     async def call_tool(self, name: str, arguments: dict[str, str]):
         return CallToolResult(content=[TextContent(type="text", text=f"{name}:{arguments['text']}")])
 
+    async def list_resources(self, *, cursor: str | None = None):
+        from mcp.types import ListResourcesResult, Resource
+        return ListResourcesResult(resources=[Resource(name="r1", uri="mcp-hub://child/file%3A%2F%2F%2Fa.txt")])
+
+    async def list_resource_templates(self, *, cursor: str | None = None):
+        from mcp.types import ListResourceTemplatesResult, ResourceTemplate
+        return ListResourceTemplatesResult(
+            resource_templates=[ResourceTemplate(name="t1", uri_template="mcp-hub://child/doc%3A%2F%2F{id}")],
+        )
+
+    async def read_resource(self, uri: str):
+        from mcp.types import ReadResourceResult, TextResourceContents
+        return ReadResourceResult(contents=[TextResourceContents(uri=uri, text=f"read:{uri}")])
+
 
 class StdioBridgeTest(unittest.TestCase):
     def test_stdio_bridge_forwards_tool_list_and_calls(self) -> None:
@@ -63,6 +77,12 @@ class StdioBridgeTest(unittest.TestCase):
                             self.assertTrue(tools.tools[0].annotations.read_only_hint)
                             result = await client.call_tool("sample__echo", {"text": "hello"})
                             self.assertEqual(result.content[0].text, "sample__echo:hello")
+                            resources = await client.list_resources()
+                            self.assertEqual([r.name for r in resources.resources], ["r1"])
+                            templates = await client.list_resource_templates()
+                            self.assertEqual([t.name for t in templates.resource_templates], ["t1"])
+                            read = await client.read_resource("mcp-hub://child/file%3A%2F%2F%2Fa.txt")
+                            self.assertEqual(read.contents[0].text, "read:mcp-hub://child/file%3A%2F%2F%2Fa.txt")
                     finally:
                         task_group.cancel_scope.cancel()
 

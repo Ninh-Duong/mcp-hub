@@ -1,7 +1,7 @@
 """Shape rules for tool results: which results the Hub may condense, and how condensed results are marked."""
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from mcp.types import CallToolResult, TextContent
@@ -88,3 +88,18 @@ def result_error_summary(result: CallToolResult) -> str | None:
     text = _first_text(result)
     # Truncate before the redaction regexes run; the margin keeps a secret cut at the limit matchable.
     return redact(text[:SUMMARY_LIMIT + SUMMARY_REDACTION_MARGIN], limit=SUMMARY_LIMIT)
+
+
+def redact_tool_result(result: CallToolResult, redact_text: Callable[[str], str]) -> CallToolResult:
+    """Redact TextContent blocks in a tool result without copying when nothing changed."""
+    changed = False
+    blocks: list[Any] = []
+    for block in result.content or ():
+        if isinstance(block, TextContent):
+            cleaned = redact_text(block.text)
+            if cleaned != block.text:
+                changed = True
+                blocks.append(block.model_copy(update={"text": cleaned}))
+                continue
+        blocks.append(block)
+    return result.model_copy(update={"content": blocks}) if changed else result

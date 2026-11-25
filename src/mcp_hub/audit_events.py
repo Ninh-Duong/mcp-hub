@@ -11,12 +11,15 @@ TOOLS_LIST_CHANGED_PUBLISHED = "tools.list_changed.published"
 TOOL_DEFINITION_CHANGED = "tool.definition.changed"
 # A tool description has hidden characters or is longer than security.maxDescriptionChars.
 TOOL_DESCRIPTION_SUSPICIOUS = "tool.description.suspicious"
-# A call's arguments do not match the child's input schema (protocol.validateArguments warn mode).
+# A call's arguments do not match the child's input schema (protocol.validateArguments warn/enforce).
 TOOL_ARGUMENTS_INVALID = "tool.arguments.invalid"
+# An operator explicitly accepted updated tool definitions for a child server.
+TOOL_PINS_ACCEPTED = "tool.pins.accepted"
 
 ALL = (
     TOOLS_LIST_CHANGED_PUBLISHED,
     TOOL_DEFINITION_CHANGED,
     TOOL_DESCRIPTION_SUSPICIOUS,
     TOOL_ARGUMENTS_INVALID,
+    TOOL_PINS_ACCEPTED,
 )

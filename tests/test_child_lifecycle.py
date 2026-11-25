@@ -63,5 +63,59 @@ class ChildLifecycleTest(unittest.TestCase):
         self.assertNotIn(ALPHA, self.runtime.tools_by_server())
 
 
+class ChildHotToggleTest(unittest.IsolatedAsyncioTestCase):
+    async def test_reload_server_stops_disabled_child_and_starts_enabled_child(self) -> None:
+        import asyncio
+        from contextlib import asynccontextmanager
+        from unittest.mock import AsyncMock
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            audit = AuditLog(root / "audit.jsonl")
+            try:
+                child = ServerConfig(ALPHA, "python", (), root, {}, (), timeout_seconds=60.0)
+                enabled_cfg = HubConfig(root / "hub.json", {ALPHA: child}, (ROUTE,))
+                disabled_cfg = HubConfig(root / "hub.json", {}, (), unavailable={ALPHA: "disabled"})
+                runtime = HubRuntime(enabled_cfg, audit, Settings(policy=PolicySettings(mode="off")))
+                runtime.child_log_dir = root / "children"
+
+                fake_client = SimpleNamespace(
+                    list_tools=AsyncMock(return_value=SimpleNamespace(tools=[COUNT], next_cursor=None)),
+                )
+
+                @asynccontextmanager
+                async def fake_opener(_cfg, _errlog, _on_closed, *, message_handler=None):
+                    del message_handler
+                    yield fake_client
+
+                runtime.child_opener = fake_opener
+                stopped = False
+
+                class _FakeSupervisor:
+                    async def stop(self) -> None:
+                        nonlocal stopped
+                        stopped = True
+
+                runtime.supervisors[ALPHA] = _FakeSupervisor()
+                runtime.child_connected(ALPHA, fake_client, {"count": COUNT})
+                self.assertIn("alpha-server__count", runtime.routes)
+
+                is_enabled = await runtime.reload_server(ALPHA, config_loader=lambda: disabled_cfg)
+                self.assertFalse(is_enabled)
+                self.assertTrue(stopped)
+                self.assertNotIn(ALPHA, runtime.clients)
+                self.assertNotIn("alpha-server__count", runtime.routes)
+
+                is_enabled = await runtime.reload_server(ALPHA, config_loader=lambda: enabled_cfg)
+                self.assertTrue(is_enabled)
+                await asyncio.sleep(0.05)
+                self.assertIn(ALPHA, runtime.clients)
+                self.assertIn("alpha-server__count", runtime.routes)
+                await runtime.close_children()
+                runtime.events.close()
+            finally:
+                audit.close()
+
+
 if __name__ == "__main__":
     unittest.main()

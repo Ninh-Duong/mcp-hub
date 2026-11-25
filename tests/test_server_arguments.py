@@ -99,6 +99,15 @@ class ArgumentCheckTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.child.calls), 2)
         self.assertEqual([event["fields"] for event in self.invalid_events()], [["limit"]])
 
+    async def test_enforce_mode_refuses_invalid_arguments_before_calling_child(self) -> None:
+        runtime = self.runtime(mode="enforce")
+        res = await runtime.call_child_tool("child__read", {"limit": "ten"}, request_id="r-enforce")
+        self.assertTrue(res.is_error)
+        self.assertIn("Invalid arguments", res.content[0].text)
+        self.assertEqual(self.child.calls, [])
+        lines = [json.loads(line) for line in (self.root / "audit.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.assertTrue(any(ev["event"] == "tool.call.denied" and ev.get("reason") == "invalid_arguments" for ev in lines))
+
 
 if __name__ == "__main__":
     unittest.main()

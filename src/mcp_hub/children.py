@@ -28,9 +28,11 @@ from typing import Any, Literal, Protocol, TextIO
 from collections.abc import AsyncIterator
 
 import anyio
+import httpx2
 from mcp import Client, StdioServerParameters
 from mcp.client.session import IncomingMessage, MessageHandlerFnT
 from mcp.client.stdio import get_default_environment, stdio_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.types import Tool, ToolListChangedNotification
 
 from .audit import AuditLog, describe_exception
@@ -118,6 +120,38 @@ def open_stdio_client(
 
 
 @asynccontextmanager
+async def open_http_client(
+    config: ServerConfig,
+    errlog: TextIO,
+    on_closed: Callable[[], None],
+    *,
+    message_handler: MessageHandlerFnT | None = None,
+) -> AsyncIterator[Client]:
+    """Open one remote/local Streamable HTTP child MCP client; ignores env proxies for credential safety."""
+    del errlog
+    if not config.url:
+        raise ValueError(f"server {config.server_id} has no streamable-http url")
+    timeout = httpx2.Timeout(config.connect_timeout_seconds, read=None)
+    async with httpx2.AsyncClient(headers=dict(config.headers), timeout=timeout, trust_env=False) as http_client:
+        transport = _watched(streamable_http_client(config.url, http_client=http_client), on_closed)
+        async with Client(transport, message_handler=message_handler) as client:
+            yield client
+
+
+def open_child_client(
+    config: ServerConfig,
+    errlog: TextIO,
+    on_closed: Callable[[], None],
+    *,
+    message_handler: MessageHandlerFnT | None = None,
+) -> AbstractAsyncContextManager[Client]:
+    """Select the stdio or Streamable HTTP transport configured for one child."""
+    if config.transport == "streamable-http":
+        return open_http_client(config, errlog, on_closed, message_handler=message_handler)
+    return open_stdio_client(config, errlog, on_closed, message_handler=message_handler)
+
+
+@asynccontextmanager
 async def _watched(transport: AbstractAsyncContextManager[Any], on_closed: Callable[[], None]) -> AsyncIterator[Any]:
     async with transport as (read_stream, write_stream):
         yield _ClosingReadStream(read_stream, on_closed), write_stream
@@ -179,7 +213,7 @@ class ChildSupervisor:
         on_lost: LostCallback,
         *,
         log_dir: Path,
-        opener: ChildOpener = open_stdio_client,
+        opener: ChildOpener = open_child_client,
         backoff: Backoff = _DEFAULT_BACKOFF,
         log_max_bytes: int | None = None,
         on_tools_changed: ToolsChangedCallback | None = None,

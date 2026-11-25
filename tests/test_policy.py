@@ -1,6 +1,7 @@
 """The usage policy: `hub__plan`, its checks, and the Hub runtime's gate on direct client calls."""
 from __future__ import annotations
 
+import json
 import re
 import tempfile
 import unittest
@@ -702,6 +703,85 @@ class RepeatAfterTest(unittest.TestCase):
         self.assertEqual(book.repeat_after_seconds, PolicySettings().repeat_after_seconds)
         self.assertEqual(PolicySettings().repeat_after_seconds, 0.0)
         self.assertIs(book.clock, time.monotonic)
+
+
+class PlanPersistenceTest(unittest.TestCase):
+    def test_plan_snapshot_round_trip_ttl_expiry_and_corrupt_recovery(self) -> None:
+        from mcp_hub.planning import plan_store
+
+        now = [10_000.0]
+        with tempfile.TemporaryDirectory() as tmp:
+            snap = Path(tmp) / "plans.json"
+            book = PlanBook(max_plans=4, persist_path=snap, ttl_seconds=120.0, wall_clock=lambda: now[0])
+            created = book.create(plan_args(env="stg"), CATALOG)
+            self.assertEqual(book.active_servers(), created.servers)
+            book.save_snapshot()
+            raw = json.loads(snap.read_text(encoding="utf-8"))
+            self.assertEqual(raw["version"], plan_store.SNAPSHOT_VERSION)
+            self.assertEqual(len(raw["plans"]), 1)
+
+            # Survives restart within TTL
+            now[0] = 10_060.0
+            restored = PlanBook(max_plans=4, persist_path=snap, ttl_seconds=120.0, wall_clock=lambda: now[0])
+            self.assertEqual(restored.load(CATALOG), 1)
+            loaded = restored.get(created.plan_id)
+            self.assertIsNotNone(loaded)
+            self.assertEqual(loaded.servers, created.servers)
+            self.assertEqual(loaded.env, "stg")
+
+            # Expired plans are dropped on load
+            now[0] = 10_500.0
+            expired = PlanBook(max_plans=4, persist_path=snap, ttl_seconds=120.0, wall_clock=lambda: now[0])
+            self.assertEqual(expired.load(CATALOG), 0)
+            self.assertIsNone(expired.get(created.plan_id))
+
+            # Corrupt snapshot logs plans.snapshot.invalid and starts empty
+            snap.write_text("{corrupt", encoding="utf-8")
+            audit = MagicMock()
+            corrupt = PlanBook(max_plans=4, persist_path=snap, ttl_seconds=120.0, wall_clock=lambda: now[0])
+            self.assertEqual(corrupt.load(CATALOG, audit=audit), 0)
+            audit.write.assert_called_once()
+            self.assertEqual(audit.write.call_args.args[0], "plans.snapshot.invalid")
+
+    def test_workflow_execution_and_window_metadata_round_trip(self) -> None:
+        from mcp_hub.client_profiles import SessionExecution
+        from mcp_hub.planning.playbooks import load_playbooks
+
+        playbooks = load_playbooks()
+        facts = {
+            **FACTS,
+            "logs__find_openobserve_logs_by_rcid": CallFacts("logs__find_openobserve_logs_by_rcid", "mcp-server-logs", True, True),
+            "logs__list_ai_context_snapshots": CallFacts("logs__list_ai_context_snapshots", "mcp-server-logs", True, False),
+            "logs__read_ai_context": CallFacts("logs__read_ai_context", "mcp-server-logs", True, False),
+            "source__search": CallFacts("source__search", "mcp-read-source", True, False),
+        }
+        projects = {"orders": ProjectConfig("orders", ("stg",), "stg", {"stg": TARGET})}
+        catalog = PlanCatalog(facts, playbooks=playbooks, projects=projects)
+        now = [20_000.0]
+        with tempfile.TemporaryDirectory() as tmp:
+            snap = Path(tmp) / "plans.json"
+            book = PlanBook(max_plans=4, persist_path=snap, ttl_seconds=600.0, wall_clock=lambda: now[0])
+            exec_cfg = SessionExecution("antigravity", "multi_agent", "subagent", "pro", "flash")
+            plan = book.create(
+                {
+                    "task": "Trace rcid", "playbook": "rcid-bug", "project": "orders", "env": "stg",
+                    "rcid": "0HN-1", "since": "2026-11-25T00:00:00Z", "until": "2026-11-25T01:00:00Z",
+                },
+                catalog,
+                execution=exec_cfg,
+            )
+            plan.workflow.record("logs__find_openobserve_logs_by_rcid", "succeeded", 12)
+            book.save_snapshot()
+            raw = snap.read_text(encoding="utf-8")
+            self.assertNotIn(TARGET.organization, raw)  # resolved log targets stay out of snapshot
+
+            reloaded = PlanBook(max_plans=4, persist_path=snap, ttl_seconds=600.0, wall_clock=lambda: now[0])
+            self.assertEqual(reloaded.load(catalog), 1)
+            loaded = reloaded.get(plan.plan_id)
+            self.assertEqual(loaded.execution, exec_cfg)
+            self.assertEqual(loaded.target, TARGET)
+            self.assertIsNotNone(loaded.window)
+            self.assertEqual(len(loaded.workflow.receipts), 1)
 
 
 if __name__ == "__main__":

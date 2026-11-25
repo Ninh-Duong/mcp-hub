@@ -7,7 +7,7 @@ from typing import Any
 from mcp.types import (
     Tool,
 )
-from .audit_events import TOOL_DEFINITION_CHANGED, TOOL_DESCRIPTION_SUSPICIOUS
+from .audit_events import TOOL_DEFINITION_CHANGED, TOOL_DESCRIPTION_SUSPICIOUS, TOOL_PINS_ACCEPTED
 from .jsonio import read_json, write_json_atomic
 import hashlib
 import json
@@ -35,6 +35,7 @@ _CHARACTER_FINDINGS: tuple[tuple[str, tuple[tuple[int, int], ...]], ...] = (
     ("bidi-control", ((0x202A, 0x202E), (0x2066, 0x2069))),
     ("zero-width", ((0x200B, 0x200D), (0x2060, 0x2060), (0xFEFF, 0xFEFF))),
 )
+_BLOCKING_FINDINGS = frozenset(code for code, _ in _CHARACTER_FINDINGS)
 
 
 def description_findings(text: str, max_chars: int) -> list[str]:
@@ -141,23 +142,59 @@ class PinScreeningMixin:
     """Tool-definition screening and pin saving on HubRuntime: checks each child's tools against the pins and the description screen."""
 
     def _check_tools(self, only_server: str | None) -> None:
-        """Screen each child's tool descriptions and, when pins are on, check its definitions (warn mode)."""
+        """Screen each child's tool descriptions and, when pins are on, check its definitions."""
         for server_id, found in self._discovered.items():
             if only_server not in (None, server_id):
                 continue
             tools = [found[name] for name in sorted(found)]
-            for tool in tools:
-                self._screen_description(server_id, tool)
+            suspicious = [tool.name for tool in tools if self._screen_description(server_id, tool)]
+            self._suspicious_tools[server_id] = tuple(suspicious)
             if self.pins is not None:
                 self._check_pins(server_id, tools)
 
-    def _screen_description(self, server_id: str, tool: Tool) -> None:
+    def _screen_description(self, server_id: str, tool: Tool) -> bool:
         findings = description_findings(tool.description or "", self._max_description_chars)
         if findings:
             self.audit.write(
                 TOOL_DESCRIPTION_SUSPICIOUS, level=logging.WARNING, server=server_id, tool=tool.name,
                 reason=", ".join(findings),
             )
+        return bool(_BLOCKING_FINDINGS.intersection(findings))
+
+    def _blocked_tool_reason(self, server_id: str, tool_name: str) -> str | None:
+        """Under toolPinMode=='enforce', block tools with hidden Unicode or unaccepted pin changes."""
+        if self.settings.security.tool_pin_mode != "enforce":
+            return None
+        if tool_name in self._suspicious_tools.get(server_id, ()):
+            return "suspicious description"
+        if tool_name in self._pin_changes.get(server_id, ()):
+            return "pin mismatch"
+        return None
+
+    def accept_pins(self, server_id: str | None = None) -> list[dict[str, str]]:
+        """Accept changed (non-suspicious) tool definitions for one or all connected servers."""
+        if self.pins is None:
+            return []
+        accepted: list[dict[str, str]] = []
+        for sid, changed in list(self._pin_changes.items()):
+            if server_id not in (None, sid) or not changed:
+                continue
+            found = self._discovered.get(sid, {})
+            suspicious = set(self._suspicious_tools.get(sid, ()))
+            count = 0
+            for name in changed:
+                tool = found.get(name)
+                if tool is None or name in suspicious:
+                    continue
+                self.pins.accept(sid, tool)
+                accepted.append({"server": sid, "tool": name})
+                count += 1
+            if count:
+                self.audit.write(TOOL_PINS_ACCEPTED, server=sid, count=count)
+        if accepted:
+            self._save_pins()
+            self._schedule_announcement(self._rebuild_child_routes(server_id) if server_id else self._register_routes())
+        return accepted
 
     def _check_pins(self, server_id: str, tools: list[Tool]) -> None:
         """A changed tool is audited and keeps running; a tool seen for the first time gets its pin saved."""

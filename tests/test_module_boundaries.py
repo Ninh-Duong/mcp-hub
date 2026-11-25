@@ -20,7 +20,7 @@ LEAVES = {"jsonio", "clients", "tool_meta", "progress", "textnorm", "timeutil"}
 RESULTS = {"results"}
 PLANNING = {"planning"}
 # Core runtime modules: they must never import an extension (activity_ui, bitnet, jobs, agents).
-CORE = {"server", "http", "extensions", "instructions", "batch", "tool_pins", "child_lifecycle", "call_observers", "bootstrap"}
+CORE = {"server", "http", "extensions", "instructions", "batch", "tool_pins", "child_lifecycle", "call_observers", "bootstrap", "resources"}
 EXTENSIONS = {"activity_ui", "bitnet", "jobs", "agents"}
 AGENTS = {"agents"}
 JOBS = {"jobs"}

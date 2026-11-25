@@ -1,6 +1,6 @@
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("install", "status", "start", "stop", "restart", "preflight", "app", "autostart", "update")]
+    [ValidateSet("install", "status", "start", "stop", "restart", "preflight", "app", "autostart", "update", "approvals", "pins")]
     [string]$Command = "status",
     # start, restart, install: run activity and connected-client tracking for this start,
     # even when the saved mode (desktop app: Settings > Hub > Track AI clients) is fast.
@@ -16,7 +16,13 @@ param(
     # update: run an unattended check, full update, or retry these validated component IDs.
     [switch]$Check,
     [string]$RetryIds,
-    [string]$RunId
+    [string]$RunId,
+    # approvals: list pending investigation write approvals, or approve/reject one job ID.
+    [string]$JobId,
+    [ValidateSet("approve", "reject")]
+    [string]$Action,
+    # pins: accept changed tool definitions for one server or all connected children.
+    [string]$ServerId
 )
 
 $ErrorActionPreference = "Stop"
@@ -563,6 +569,26 @@ function Write-HubStatus {
     if ($health) { Write-ConnectedClients }
 }
 
+function Invoke-Approvals {
+    $headers = @{ Authorization = "Bearer $(Get-AdminToken)" }
+    if ($JobId) {
+        if (-not $Action) { throw "Choose an action: hubctl approvals -JobId $JobId -Action approve|reject" }
+        $body = @{ action = $Action } | ConvertTo-Json -Compress
+        $res = Invoke-RestMethod -Uri "$(Get-HubUrl)/dashboard/api/jobs/$([uri]::EscapeDataString($JobId))/decision" -Method Post -Headers $headers -ContentType "application/json" -Body $body -TimeoutSec 10
+        Write-Output ($res | ConvertTo-Json -Compress)
+        return
+    }
+    $res = Invoke-RestMethod -Uri "$(Get-HubUrl)/dashboard/api/jobs/pending" -Method Get -Headers $headers -TimeoutSec 5
+    Write-Output ($res | ConvertTo-Json -Depth 4 -Compress)
+}
+
+function Invoke-AcceptPins {
+    $headers = @{ Authorization = "Bearer $(Get-AdminToken)" }
+    $body = if ($ServerId) { @{ server_id = $ServerId } | ConvertTo-Json -Compress } else { "{}" }
+    $res = Invoke-RestMethod -Uri "$(Get-HubUrl)/dashboard/api/security/pins/accept" -Method Post -Headers $headers -ContentType "application/json" -Body $body -TimeoutSec 10
+    Write-Output ($res | ConvertTo-Json -Depth 4 -Compress)
+}
+
 switch ($Command) {
     "install" {
         # Stop first: a running service locks .venv\Scripts\mcp-hub-service.exe, which uv sync may need to replace.
@@ -604,4 +630,6 @@ switch ($Command) {
         }
         Write-Autostart
     }
+    "approvals" { Invoke-Approvals }
+    "pins" { Invoke-AcceptPins }
 }

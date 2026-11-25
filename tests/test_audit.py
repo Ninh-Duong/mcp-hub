@@ -117,6 +117,26 @@ class RedactPatternTest(unittest.TestCase):
         self.assertLess(time.perf_counter() - started, 2.0)
         self.assertEqual(redact("x-access_token=abc foo-token: def"), "x-access_token=[REDACTED] foo-token: [REDACTED]")
 
+    def test_async_audit_log_flushes_and_closes_and_redacts_result_text(self) -> None:
+        from mcp_hub.settings import LogSettings
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "async-audit.jsonl"
+            audit = AuditLog(path, logs=LogSettings(max_bytes=1, backups=1), async_writes=True)
+            try:
+                audit.add_secrets(["super-secret-val"])
+                self.assertEqual(
+                    audit.redact_result_text("ok super-secret-val token_count=5 ghp_12345678901234567890"),
+                    "ok [REDACTED] token_count=5 [REDACTED_TOKEN]",
+                )
+                with patch("logging.handlers.RotatingFileHandler.doRollover", side_effect=PermissionError):
+                    audit.write("hub.started", servers=["alpha"])
+                    audit.write("hub.stopped")
+                    audit.flush()
+                self.assertIn("hub.started", path.read_text(encoding="utf-8"))
+            finally:
+                audit.close()
+
 
 if __name__ == "__main__":
     unittest.main()

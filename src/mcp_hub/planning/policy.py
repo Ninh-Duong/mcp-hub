@@ -28,9 +28,19 @@ from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any, NamedTuple
 
 from .merge import parse_window
+from .plan_store import (
+    DEFAULT_PLAN_TTL_SECONDS,
+    read_snapshot_entries,
+    restore_execution,
+    restore_window,
+    restore_workflow,
+    serialize_plan,
+    write_snapshot,
+)
 from .workflow import Workflow, WorkflowError
 from .workflow_scope import fill_context, source_projects, related_issues
 from .workflow_definition import REVIEW_SELECTION
@@ -199,17 +209,32 @@ class PlanBook:
     def __init__(
         self, max_plans: int, *, clock: Callable[[], float] = time.monotonic,
         repeat_after_seconds: float = PolicySettings().repeat_after_seconds,
+        persist_path: Path | None = None,
+        ttl_seconds: float = DEFAULT_PLAN_TTL_SECONDS,
+        wall_clock: Callable[[], float] = time.time,
     ) -> None:
         self.max_plans = max_plans
         self.clock = clock
         self.repeat_after_seconds = repeat_after_seconds
+        self.persist_path = persist_path
+        self.ttl_seconds = ttl_seconds
+        self.wall_clock = wall_clock
         self._plans: OrderedDict[str, Plan] = OrderedDict()
+        self._created_at: dict[str, float] = {}
 
     def get(self, plan_id: Any) -> Plan | None:
         plan = self._plans.get(plan_id) if isinstance(plan_id, str) else None
         if plan is not None:
             self._plans.move_to_end(plan_id)
         return plan
+
+    def active_servers(self) -> frozenset[str]:
+        """Child server IDs referenced by non-terminal plans currently held in the book."""
+        active: set[str] = set()
+        for plan in self._plans.values():
+            if plan.workflow is None or plan.workflow.stage not in {"finished", "superseded", "blocked"}:
+                active.update(plan.servers)
+        return frozenset(active)
 
     def create(
         self, arguments: Mapping[str, Any], catalog: PlanCatalog, *, execution: SessionExecution | None = None,
@@ -221,9 +246,74 @@ class PlanBook:
         plan.clock = self.clock
         plan.repeat_after = self.repeat_after_seconds
         self._plans[plan.plan_id] = plan
+        self._created_at[plan.plan_id] = self.wall_clock()
         while len(self._plans) > self.max_plans:
-            self._plans.popitem(last=False)
+            evicted_id, _ = self._plans.popitem(last=False)
+            self._created_at.pop(evicted_id, None)
         return plan
+
+    def snapshot_entries(self) -> list[dict[str, Any]]:
+        """Non-expired metadata snapshots of currently held plans in LRU order."""
+        cutoff = self.wall_clock() - self.ttl_seconds
+        entries: list[dict[str, Any]] = []
+        for plan_id, plan in self._plans.items():
+            created = self._created_at.get(plan_id, self.wall_clock())
+            if created >= cutoff:
+                entries.append(serialize_plan(plan, created))
+        return entries
+
+    def save_snapshot(self) -> None:
+        if self.persist_path is not None:
+            write_snapshot(self.persist_path, self.snapshot_entries())
+
+    def load(self, catalog: PlanCatalog, audit: Any = None) -> int:
+        """Restore non-expired plan metadata from `persist_path`; corrupt files log and start empty."""
+        if self.persist_path is None:
+            return 0
+        entries = read_snapshot_entries(self.persist_path, self.ttl_seconds, audit=audit, now=self.wall_clock())
+        restored = 0
+        for entry in entries:
+            plan = self._restore_plan(entry, catalog)
+            if plan is None:
+                continue
+            self._plans[plan.plan_id] = plan
+            self._created_at[plan.plan_id] = float(entry["created_at"])
+            restored += 1
+        while len(self._plans) > self.max_plans:
+            evicted_id, _ = self._plans.popitem(last=False)
+            self._created_at.pop(evicted_id, None)
+        return restored
+
+    def _restore_plan(self, entry: dict[str, Any], catalog: PlanCatalog) -> Plan | None:
+        plan_id = entry.get("plan_id")
+        if not isinstance(plan_id, str) or not plan_id:
+            return None
+        playbook_id = entry.get("playbook_id")
+        playbook = catalog.playbooks.get(playbook_id) if isinstance(playbook_id, str) else None
+        if playbook_id is not None and playbook is None:
+            return None
+        project = entry.get("project") if isinstance(entry.get("project"), str) else None
+        env = entry.get("env") if isinstance(entry.get("env"), str) else None
+        project_cfg = catalog.projects.get(project) if project is not None else None
+        target = project_cfg.logs.get(env) if project_cfg is not None and env is not None else None
+        sql_target = project_cfg.sql.get(env) if project_cfg is not None and env is not None else None
+        servers = frozenset(s for s in (entry.get("servers") or ()) if isinstance(s, str))
+        writes = frozenset(w for w in (entry.get("writes") or ()) if isinstance(w, str))
+        steps = tuple(s for s in (entry.get("steps") or ()) if isinstance(s, str))
+        if not servers:
+            return None
+        try:
+            window = restore_window(entry.get("window"))
+            workflow = restore_workflow(entry.get("workflow"), playbook, catalog, target)
+        except (TypeError, ValueError):
+            return None
+        return Plan(
+            plan_id, servers, env, writes, bool(entry.get("connection_checks", False)), steps,
+            playbook, project, target, task=str(entry.get("task") or ""), window=window,
+            sql_target=sql_target, had_failure=bool(entry.get("had_failure", False)),
+            repeat_after=self.repeat_after_seconds, clock=self.clock,
+            workflow=workflow, execution=restore_execution(entry.get("execution")),
+        )
 
     def _continue(self, plan: Plan, previous_id: Any) -> None:
         previous = self.get(previous_id)

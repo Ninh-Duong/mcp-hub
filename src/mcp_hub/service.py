@@ -19,7 +19,7 @@ from .jobs.runner import JobRunner
 from .jobs.store import JobStore
 from .preflight import refresh_windows_path
 from .bootstrap import load_settings_logged, load_start_inputs
-from .server import HubRuntime, create_mcp_server, enable_core_condenser, tool_pins_path
+from .server import HubRuntime, create_mcp_server, enable_core_condenser, plans_snapshot_path, tool_pins_path
 from .service_config import load_service_config, new_admin_token, write_connection_file
 from .settings import HttpSettings
 
@@ -29,35 +29,39 @@ async def run_http() -> None:
     settings = load_settings_logged()
     service_config = load_service_config(port=settings.http.port)
     admin_token = new_admin_token()
-    audit = AuditLog(logs=settings.logs)
-    await asyncio.to_thread(_publish_connection, service_config, admin_token, audit)
-    requested = read_launch_extensions(audit=audit) | saved_extensions()
-    inputs = load_start_inputs(audit, settings)
-    config, playbooks, projects = inputs.config, inputs.playbooks, inputs.projects
-    agent_configs = load_agent_configs()
-    job_store = _open_job_store(settings.jobs.retention_days)
-    runtime = HubRuntime(
-        config, audit, settings, playbooks=playbooks, projects=projects,
-        client_profiles=inputs.client_profiles, shared_service=True, pin_path=tool_pins_path(),
-    )
+    audit = AuditLog(logs=settings.logs, async_writes=True)
     try:
-        async with AsyncExitStack() as stack:
-            await runtime.connect(stack)
-            job_runner = JobRunner(
-                store=job_store, runtime=runtime, projects=projects, agents=agent_configs, limits=settings.jobs,
-                condense_min_chars=settings.bitnet.condense_min_chars,
-                condense_timeout_seconds=settings.bitnet.condense_timeout_seconds,
-            )
-            job_runner.resume_queued_jobs()
-            job_runner.watch_pending_approvals()
-            hub_root = HUB_ROOT
-            extensions = install_extensions(
-                requested, runtime, job_store, audit, job_runner=job_runner, root=hub_root,
-            )
-            tokens = (service_config.token, admin_token)
-            await _serve(runtime, job_runner, extensions, service_config.host, service_config.port, tokens, job_store)
+        await asyncio.to_thread(_publish_connection, service_config, admin_token, audit)
+        requested = read_launch_extensions(audit=audit) | saved_extensions()
+        inputs = load_start_inputs(audit, settings)
+        config, playbooks, projects = inputs.config, inputs.playbooks, inputs.projects
+        agent_configs = load_agent_configs()
+        job_store = _open_job_store(settings.jobs.retention_days)
+        runtime = HubRuntime(
+            config, audit, settings, playbooks=playbooks, projects=projects,
+            client_profiles=inputs.client_profiles, shared_service=True,
+            pin_path=tool_pins_path(), plan_path=plans_snapshot_path(),
+        )
+        try:
+            async with AsyncExitStack() as stack:
+                await runtime.connect(stack)
+                job_runner = JobRunner(
+                    store=job_store, runtime=runtime, projects=projects, agents=agent_configs, limits=settings.jobs,
+                    condense_min_chars=settings.bitnet.condense_min_chars,
+                    condense_timeout_seconds=settings.bitnet.condense_timeout_seconds,
+                )
+                job_runner.resume_queued_jobs()
+                job_runner.watch_pending_approvals()
+                hub_root = HUB_ROOT
+                extensions = install_extensions(
+                    requested, runtime, job_store, audit, job_runner=job_runner, root=hub_root,
+                )
+                tokens = (service_config.token, admin_token)
+                await _serve(runtime, job_runner, extensions, service_config.host, service_config.port, tokens, job_store)
+        finally:
+            job_store.close()
     finally:
-        job_store.close()
+        audit.close()
 
 
 async def _serve(
@@ -164,7 +168,7 @@ def _build_http_app(
     )
     routes = create_dashboard_routes(
         runtime, shutdown_callback=shutdown_event.set,
-        extensions=dashboard_exts,
+        extensions=dashboard_exts, job_runner=job_runner,
     )
     token, admin_token = tokens
     middleware = ui.middleware() if ui is not None else ()

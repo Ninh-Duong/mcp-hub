@@ -98,6 +98,10 @@ class WorkflowRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse((await self.operation("finish", outcome="blocked", refs=[ref])).is_error)
 
     async def test_busy_and_cancellation_release_lock(self):
+        self.runtime.settings = Settings(
+            policy=PolicySettings(mode="enforce", confirm_playbook="off", confirm_execution="off",
+                                  workflow_lock_timeout_seconds=0.05),
+        )
         entered, release = asyncio.Event(), asyncio.Event()
 
         async def slow(*args, **kwargs):
@@ -117,6 +121,23 @@ class WorkflowRuntimeTest(unittest.IsolatedAsyncioTestCase):
         w = self.runtime.plans.get(self.pid).workflow
         self.assertFalse(w.lock.locked())
         self.assertEqual(next(iter(w.receipts.values())).outcome, "cancelled")
+
+    async def test_parallel_workflow_reads_queue_cleanly_without_refusal(self):
+        await self.listed("cache_hit")
+
+        async def delayed_call(name, arguments, **kwargs):
+            await asyncio.sleep(0.03)
+            self.client.calls.append((name, arguments))
+            return CallToolResult(content=[TextContent(type="text", text=f"ok:{arguments.get('file')}")])
+
+        self.client.call_tool = delayed_call
+        r1, r2 = await asyncio.gather(
+            self.child("logs__read_ai_context", snapshot="cache-1", file="A.lhub"),
+            self.child("logs__read_ai_context", snapshot="cache-1", file="B.lhub"),
+        )
+        self.assertFalse(r1.is_error, r1.content)
+        self.assertFalse(r2.is_error, r2.content)
+        self.assertEqual(self.runtime.plans.get(self.pid).workflow.refusals, 0)
 
     async def test_batch_metadata_condensation_and_shape(self):
         await self.listed("cache_hit")

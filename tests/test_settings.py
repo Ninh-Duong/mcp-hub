@@ -93,16 +93,26 @@ class SettingsTest(unittest.TestCase):
 
     def test_new_keys_accept_their_documented_ranges(self) -> None:
         settings = parse_settings({
-            "protocol": {"validateArguments": "off", "listChangedDebounceSeconds": 0, "toolsListTtlMs": 0},
-            "security": {"toolPinMode": "off", "maxDescriptionChars": 512},
-            "policy": {"repeatAfterSeconds": 0},
+            "protocol": {
+                "validateArguments": "enforce", "toolExposure": "planned",
+                "listChangedDebounceSeconds": 0, "toolsListTtlMs": 0,
+            },
+            "security": {"toolPinMode": "enforce", "maxDescriptionChars": 512, "redactResults": False},
+            "policy": {"repeatAfterSeconds": 0, "workflowLockTimeoutSeconds": 12.5},
             "jobs": {"promptCache": False, "contextChars": 1000},
             "bitnet": {"fullResultMaxBytes": 1024},
         })
-        self.assertEqual(settings.protocol.validate_arguments, "off")
+        self.assertEqual(settings.protocol.validate_arguments, "enforce")
+        self.assertEqual(settings.protocol.tool_exposure, "planned")
+        self.assertEqual(settings.security.tool_pin_mode, "enforce")
+        self.assertIs(settings.security.redact_results, False)
+        self.assertEqual(settings.policy.workflow_lock_timeout_seconds, 12.5)
         self.assertIs(settings.jobs.prompt_cache, False)
         self.assertEqual(settings.security.max_description_chars, 512)
         self.assertEqual(settings.bitnet.full_result_max_bytes, 1024)
+        self.assertEqual(Settings().protocol.tool_exposure, "all")
+        self.assertIs(Settings().security.redact_results, True)
+        self.assertEqual(Settings().policy.workflow_lock_timeout_seconds, 30.0)
         self.assertEqual(Settings().policy.confirm_execution, "always")
         self.assertEqual(parse_settings({"policy": {"confirmExecution": "always"}}).policy.confirm_execution, "always")
         self.assertEqual(parse_settings({"policy": {"confirmExecution": "off"}}).policy.confirm_execution, "off")
@@ -110,9 +120,18 @@ class SettingsTest(unittest.TestCase):
     def test_new_keys_refuse_bad_values_naming_the_key(self) -> None:
         cases = {
             "settings.jobs.promptCache must be true or false": {"jobs": {"promptCache": "yes"}},
-            "settings.protocol.validateArguments must be one of: off, warn": {"protocol": {"validateArguments": "block"}},
-            "settings.security.toolPinMode must be one of: off, warn": {"security": {"toolPinMode": "block"}},
+            "settings.security.redactResults must be true or false": {"security": {"redactResults": "yes"}},
+            "settings.protocol.validateArguments must be one of: off, warn, enforce": {
+                "protocol": {"validateArguments": "block"},
+            },
+            "settings.protocol.toolExposure must be one of: all, planned": {
+                "protocol": {"toolExposure": "lazy"},
+            },
+            "settings.security.toolPinMode must be one of: off, warn, enforce": {"security": {"toolPinMode": "block"}},
             "settings.policy.confirmExecution must be one of: always, off": {"policy": {"confirmExecution": "ambiguous"}},
+            "settings.policy.workflowLockTimeoutSeconds must be positive": {
+                "policy": {"workflowLockTimeoutSeconds": 0},
+            },
             "settings.protocol.toolsListTtlMs must be at least 0": {"protocol": {"toolsListTtlMs": -1}},
             "settings.policy.repeatAfterSeconds must be at least 0": {"policy": {"repeatAfterSeconds": -0.5}},
             "settings.children.startupWaitSeconds must be positive": {"children": {"startupWaitSeconds": 0}},
