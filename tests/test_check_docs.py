@@ -96,6 +96,32 @@ class CheckDocsTest(unittest.TestCase):
             "default child mcp-c has no contract docs/mcps/mcp-c.md",
         ])
 
+    def test_mcp_tools_playbook_catalog_and_config_sync_checks_detect_drift(self) -> None:
+        reference = self.write("docs/reference.md", "| `hub__status` | client | ok |\n| `hub__ghost` | client | x |\n")
+        self.write("docs/playbooks/demo.md", "# demo\n")
+        self.write("README.md", "No playbook here\n")
+        self.write("docs/client-rules.md", "demo\n")
+        self.write("docs/playbooks/README.md", "demo\n")
+        self.write("docs/clients/templates/mcp-hub/SKILL.md", "demo\n")
+        self.write("config/agents.example.json", json.dumps({"version": 1, "agents": {"coordinator": {}, "typo": {}}}))
+        self.write("config/hub.example.json", json.dumps({
+            "servers": {"mcp-a": {"repository": "https://example.com/o/mcp-a.git"}},
+            "features": {"f": {"tools": [{"server": "mcp-a", "name": "t", "exposeAs": "a__t"}]}},
+        }))
+        self.write("docs/mcps/mcp-a.md", "# contract without tool\n")
+        with patch.object(self.docs, "ROOT", self.root), patch.object(self.docs, "DOCS", self.root / "docs"), \
+                patch.object(self.docs, "REFERENCE", reference):
+            tools = self.docs.mcp_tool_problems()
+            playbooks = self.docs.playbook_catalog_problems()
+            agents = self.docs.agent_config_problems()
+            children = self.docs.child_problems()
+        self.assertIn("MCP tool hub__plan is exposed but not in docs/reference.md", tools)
+        self.assertIn("MCP tool hub__ghost is in docs/reference.md but not exposed", tools)
+        self.assertEqual(playbooks, ["playbook demo is not listed in README.md"])
+        self.assertIn("agent role sql is missing from config/agents.example.json", agents)
+        self.assertIn("config/agents.example.json lists unknown role typo", agents)
+        self.assertEqual(children, ["tool a__t in config/hub.example.json is not documented in docs/mcps/mcp-a.md"])
+
 
 if __name__ == "__main__":
     unittest.main()

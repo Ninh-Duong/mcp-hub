@@ -18,6 +18,23 @@ class ProjectConfigTest(unittest.TestCase):
             shutil.copy2(HUB_ROOT / "config" / "projects.example.json", path)
             self.assertEqual(load_projects(path=path, private_root=root), {})
 
+    def test_full_project_example_loads_with_logs_and_sql_targets(self) -> None:
+        from mcp_hub.config import HUB_ROOT
+        from mcp_hub.projects import LogTarget, SqlTarget, load_projects
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "projects.json"
+            shutil.copy2(HUB_ROOT / "config" / "projects.full.example.json", path)
+            loaded = load_projects(path=path, private_root=root)
+
+        self.assertIn("example-service", loaded)
+        project = loaded["example-service"]
+        self.assertEqual(project.default_env, "dev")
+        self.assertEqual(project.allowed_envs, ("dev", "stg", "prod"))
+        self.assertEqual(project.logs["dev"], LogTarget("<SET_BY_USER>", "<SET_BY_USER>", "rcid"))
+        self.assertEqual(project.sql["dev"], SqlTarget("<SET_BY_USER>", ("<SET_BY_USER>",)))
+
     def test_loads_registered_aliases_and_validates_default_environment(self) -> None:
         from mcp_hub.projects import load_projects
 

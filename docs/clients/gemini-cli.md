@@ -29,6 +29,7 @@ Do the general procedure in [../connecting-a-client.md](../connecting-a-client.m
 ## 5. Daily use
 - Call `hub__status` to see the automatically detected sibling MCPs and readiness before choosing a child.
 - `/mcp-hub <server-id> <task>`, `/<server-id> --task="…"`, or `mcp-hub:<server-id> <task>` as plain text.
+- Built-in execution profile: `gemini-cli` (`inline`, `single_agent`, with `inherit`/`gemini-2.5-pro`/`gemini-2.5-flash`). Customize models in `config/private/client_profiles.json` and verify with `uv run python scripts/private_config.py client-status`.
 
 ## 6. Logs and quirks
 - Run `gemini --debug`, or press F12 for the debug console; it captures server stderr. `/mcp list` shows connection errors.

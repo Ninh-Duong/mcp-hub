@@ -6,7 +6,7 @@
 
 Python 3.12 is the project runtime (`.python-version`, `requires-python >=3.12`). The launcher prepares the local prerequisites before starting.
 
-**Support matrix.** The per-client stdio Hub works on Windows, macOS, and Linux. The shared service, investigation jobs (their data is encrypted with Windows DPAPI), and preflight's winget runtime install are Windows-only; off Windows, `hub__submit_issue` answers `investigation jobs require Windows DPAPI`. Details: [Packaging and QC → Support matrix](packaging-and-qc.md#support-matrix).
+**Support matrix.** The per-client stdio Hub works on Windows, macOS, and Linux. The shared Task Scheduler service and preflight's winget runtime install are Windows-only; investigation job blobs use Windows DPAPI on Windows and fall back to a user-only `0600` Fernet key (`job_store.key`) on macOS/Linux. Details: [Packaging and QC → Support matrix](packaging-and-qc.md#support-matrix).
 
 Run directly, including when an AI client starts the Hub over stdio:
 
@@ -38,14 +38,15 @@ After preparing this repository and the desired child MCPs, follow [the shared A
 - whether each child MCP is connected;
 - with the activity UI, the connected AI clients.
 
-The window has a **Start Hub** button when the Hub is stopped. Its ⚙ Settings card has three tabs:
+The window has a **Start Hub** button when the Hub is stopped, and shows a compact **Pending approvals** card when an investigation job waits for a gated write. Its ⚙ Settings card has four tabs:
 - **Appearance:** theme, language, glass on or off and its style (Frosted or Clear), card opacity, and background tint.
-- **Hub:** start, restart, or stop the Hub; **Track AI clients** (the activity UI, kept on for every start); and whether the Hub and the app start at sign-in.
-- **MCPs:** each child MCP on or off.
+- **Hub:** start, restart, or stop the Hub; **Track AI clients** (the activity UI, kept on for every start); **BitNet (local AI)** (install and toggle); and whether the Hub and the app start at sign-in.
+- **MCPs:** each child MCP on or off (live-reloaded without restarting the Hub).
+- **Config:** each child MCP's required settings (`hub-requirements.json`) and a button to open its private config file in your editor.
 
-The Hub saves those changes to `config/private/hub.json` (they apply at the next Hub start), so the Hub and MCPs tabs need a running Hub; Restart and Stop ask for a second click. Secrets never appear in the app. Design rules, states, and keys are in [docs/desktop-app.md](desktop-app.md).
+The Hub saves those changes to `config/private/hub.json` (child on/off toggles hot-reload live; tracking and BitNet changes apply at the next Hub start), so the Hub, MCPs, and Config tabs need a running Hub; Restart and Stop ask for a second click. Secrets never appear in the app. Design rules, states, and keys are in [docs/desktop-app.md](desktop-app.md).
 
-Every start first syncs the locked Python environment and runs the pre-start checks: each enabled child's runtime (Node.js is installed or upgraded with winget when needed) and its dependency step. When the BitNet extension is on, preflight also runs `scripts/install_bitnet.ps1`. `hubctl preflight` only reports them. See [Pre-start checks](operations/shared-agent-hub.md#pre-start-checks).
+Every start first syncs the locked Python environment and runs the pre-start checks: each enabled child's runtime (Node.js or .NET SDK is installed or upgraded with winget when needed) and its dependency step. When the BitNet extension is on, preflight reports whether BitNet is installed without downloading it (BitNet installs from the desktop app under Settings → Hub). `hubctl preflight` only reports them. See [Pre-start checks](operations/shared-agent-hub.md#pre-start-checks).
 
 Clients with a safe dynamic-header helper can connect over HTTP using `scripts/http_headers.ps1`. Other clients use the stdio bridge by passing `-Bridge -ClientName "<AI_CLIENT>"` to `scripts/start.ps1`. The existing stdio launcher remains available for development and per-client compatibility.
 
@@ -138,7 +139,7 @@ A child without a `CHECKS` entry gets `PASS  N tools, connected (no read-only ch
 ## Layout
 
 - `src/mcp_hub/`: the Hub package; [docs/architecture.md → Module layout](architecture.md#module-layout) lists every module and the dependency direction. `desktop/` is the desktop status app (installer files in `packaging/desktop/`) and `control.py` the shared background `hubctl` launcher.
-- `config/`: tracked templates (`hub.example.json`, `mcps/*.example.json`); `config/private/` holds the user's ignored files (see [AGENTS.md → Private files](../AGENTS.md#private-files)).
+- `config/`: tracked templates (`hub.example.json`, `projects.example.json`, `projects.full.example.json`, `agents.example.json`, `client_profiles.example.json`, `mcps/*.example.json`, and [config/README.md](../config/README.md)); `config/private/` holds the user's ignored files (see [AGENTS.md → Private files](../AGENTS.md#private-files)).
 - `docs/batch.md`: `hub__batch`, independent read-only calls in parallel in one request, with test prompts to see the speed difference.
 - `docs/reference.md`: every environment variable and HTTP route, with who may call each route.
 - `docs/settings.md`: the optional `settings` block in `hub.json` (port, log rotation, cache, job and batch limits), with every default.

@@ -25,7 +25,7 @@ Each result is headed `[i] <tool>: ok|error (<ms> ms)`. The `hub_plan_id` comes 
 
 ## Rules
 
-- **Read-only tools only.** A tool the child does not mark `readOnlyHint: true` refuses the whole batch; writes (`jira__sync_ticket`, `logs__export_openobserve_logs`, `pr__sync_my_open_prs`) are always called on their own.
+- **Read-only tools only.** A tool the child does not mark `readOnlyHint: true` refuses the whole batch; writes (`jira__sync_ticket`, `logs__export_openobserve_logs`, `pr__sync_my_open_prs`, and PR-specific readers marked `readOnlyHint: false`) are always called on their own.
 - **Independent calls only.** A call that needs another call's result (for example a trace ID found in the logs) comes after the batch, on its own.
 - **One failure does not spoil the batch.** A failed or timed-out call reports `error`; retry only that one. The batch is an error only when every call failed.
 - **Nothing is bypassed.** Each call takes the normal path:
@@ -34,7 +34,7 @@ Each result is headed `[i] <tool>: ok|error (<ms> ms)`. The `hub_plan_id` comes 
   - redaction;
   - the result cache;
   - the child's timeout.
-- **Result shape is kept.** A batch item whose tool declares an `outputSchema`, returns `structuredContent`, or returns a non-text block is not condensed or compacted, and each item's argument check runs as for a direct call (`tool.arguments.invalid` in warn mode; the call still runs).
+- **Result shape is kept.** A batch item whose tool declares an `outputSchema`, returns `structuredContent`, or returns a non-text block is not condensed or compacted, and each item's argument check runs as for a direct call (`tool.arguments.invalid` in `warn` or `enforce` mode; `enforce` rejects invalid arguments before calling the child).
 - **Limits come from [settings](settings.md):**
   - `settings.batch.maxCalls` (8): the most calls in one batch;
   - `maxPerChild` (8): the most calls one child serves at the same time;
@@ -50,7 +50,7 @@ Run the same five reads twice in your AI client, first one by one, then in one b
 **Before you start:**
 - Reload the `mcp-hub` server in the client (or restart the client) so it lists `hub__batch`.
 - Run each prompt in a **new chat**.
-- Wait **at least 3 minutes** between the two runs. The Hub caches read-only results for up to 120 s, and a cached second run would look fast for the wrong reason.
+- Wait **at least 10 minutes** between the two runs (or restart the Hub). The Hub caches read-only discovery results for up to 600 s (for example `logs__list_log_providers`), and a cached second run would look fast for the wrong reason.
 
 **Prompt A, one by one:**
 

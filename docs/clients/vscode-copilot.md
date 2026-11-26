@@ -35,6 +35,7 @@ Do the general procedure in [../connecting-a-client.md](../connecting-a-client.m
 ## 5. Daily use
 - Call `hub__status` to see the automatically detected sibling MCPs and readiness before choosing a child.
 - `/mcp-hub <server-id> <task>`, `/mcp-hub.<server-id>`, or `mcp-hub:<server-id> <task>` as plain text.
+- Built-in execution profile: `github-copilot` (`runSubagent`, default `single_agent`, with `inherit`/`claude-sonnet`/`gpt-5`/`gemini-pro` and `gpt-5-mini`/`claude-haiku`/`gemini-flash`). Customize models in `config/private/client_profiles.json` and verify with `uv run python scripts/private_config.py client-status`.
 
 ## 6. Logs and quirks
 - **MCP: List Servers** → `mcp-hub` → **Show Output**. For more detail, run **Developer: Set Log Level** → Trace. The Chat Debug view shows what the model received.

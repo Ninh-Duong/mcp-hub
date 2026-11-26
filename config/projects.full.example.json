@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "projects": {
+    "example-service": {
+      "default_env": "dev",
+      "allowed_envs": ["dev", "stg", "prod"],
+      "logs": {
+        "dev": {
+          "organization": "<SET_BY_USER>",
+          "stream": "<SET_BY_USER>",
+          "rcid_field": "rcid"
+        }
+      },
+      "sql": {
+        "dev": {
+          "default_database": "<SET_BY_USER>",
+          "databases": ["<SET_BY_USER>"]
+        }
+      }
+    }
+  }
+}

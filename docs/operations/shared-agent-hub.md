@@ -13,9 +13,10 @@ Keep the Hub and child repositories as siblings:
   mcp-jira-sync/
   mcp-pr-companion/
   mcp-read-source/
+  mcp-sqlserver/
 ```
 
-Use [the README preparation steps](../manual-setup.md#default-setup) for the existing logs/Jira/PR children. The source child requires Python 3.12 and uses the Hub's locked Python environment when launched by the Hub. Prepare its standalone environment with `uv sync --locked` only if using it outside the Hub.
+Use [the default setup steps](../manual-setup.md#default-setup) for the logs, Jira, PR, and SQL Server children. The source child requires Python 3.12 and uses the Hub's locked Python environment when launched by the Hub. Prepare its standalone environment with `uv sync --locked` only if using it outside the Hub.
 
 ## 2. Configure projects and agents
 
@@ -28,21 +29,13 @@ Copy-Item config/projects.example.json config/private/projects.json
 Copy-Item ../mcp-read-source/config/projects.example.json ../mcp-read-source/config/private/projects.json
 ```
 
-- In the Hub's `config/private/agents.json`, set a provider (`openai`, `gemini`, or `anthropic`), model, and API key independently for `coordinator`, `logs`, `source`, `jira`, and `pr`. For investigation jobs, pairing a strong reasoning model on `coordinator` with fast, lower-cost models on the specialists (`logs`, `source`, `jira`, `pr`) keeps triage thorough and responsive. The key is read only inside the Hub process. Check readiness with `uv run python scripts/private_config.py agent-status`.
+- In the Hub's `config/private/agents.json`, set a provider (`openai`, `gemini`, or `anthropic`), model, and API key independently for `coordinator`, `logs`, `source`, `jira`, `pr`, and `sql`. For investigation jobs, pairing a strong reasoning model on `coordinator` with fast, lower-cost models on the specialists (`logs`, `source`, `jira`, `pr`, `sql`) keeps triage thorough and responsive. The key is read only inside the Hub process. Check readiness with `uv run python scripts/private_config.py agent-status`.
 - Optionally copy `config/client_profiles.example.json` to `config/private/client_profiles.json` to customize per-client execution modes and model choices for direct `hub__plan` sessions ([usage-policy.md](../usage-policy.md#session-execution-confirmation)). Verify the active profiles with `uv run python scripts/private_config.py client-status`.
-- In the Hub's `config/private/projects.json`, register each project alias, optional `default_env`, allowed environments (`dev`, `stg`, `prod`), and optional log targets per environment (below). Run `uv run python scripts/private_config.py project-status` to validate the aliases and environments.
-- In the source child's `config/private/projects.json`, map the same alias to a local repository root. The source child reads the root mapping; the Hub's project config contains only the alias, environment choices, and log targets.
-- Copy and fill the private MCP configs for logs/Jira/PR as described in their contracts under `docs/mcps/`. Their existing local fallbacks still work.
+- In the Hub's `config/private/projects.json`, register each project alias as a JSON object with optional `default_env`, `allowed_envs` (`dev`, `stg`, `prod`), and optional `logs`/`sql` targets per environment (see `config/projects.full.example.json` and [config/README.md](../../config/README.md)). Run `uv run python scripts/private_config.py project-status` to validate the aliases and environments.
+- In the source child's `config/private/projects.json`, map the same alias to a local repository root string. The source child reads the root mapping; the Hub's project config contains only the alias, environment choices, and log/SQL targets.
+- Copy and fill the private MCP configs for logs/Jira/PR/SQL Server as described in their contracts under `docs/mcps/`. Their existing local fallbacks still work.
 
-The examples start with empty `projects` maps so a copied file is valid before the user adds a repo. A matching entry pair looks like this:
-
-Hub `config/private/projects.json`:
-
-```json
-{"version":1,"projects":{"app":{"default_env":"dev","allowed_envs":["dev","stg","prod"],
-  "logs":{"dev":{"organization":"<SET_BY_USER>","stream":"<SET_BY_USER>","rcid_field":"rcid"}},
-  "sql":{"dev":{"default_database":"<SET_BY_USER>","databases":["<SET_BY_USER>"]}}}}}
-```
+The examples start with empty `projects` maps so a copied file is valid before the user adds a repo. For a full Hub `config/private/projects.json` entry (with `default_env`, `allowed_envs`, `logs`, and `sql`), see [config/projects.full.example.json](../../config/projects.full.example.json).
 
 `logs` is optional. Per allowed environment it names the OpenObserve `organization` and `stream` where the project's logs live, and the request-ID field (`rcid_field`, default `rcid`). The log playbooks (`rcid-bug`, `service-errors`, `jira-ticket-bug`) need it: `hub__plan` returns these targets to the agent, so the agent never has to discover them, and refuses a log playbook for an environment without them ([usage-policy.md](../usage-policy.md#playbooks)). Optional `sql` entries give `default_database` and `databases` hints through `hub__plan` and `hub__list_projects`. `project-status` lists which environments have `logs` and `sql` entries, never the values.
 
@@ -81,7 +74,7 @@ The desktop status app is a separate product with its own installer and its own 
 `install`, `start`, and `restart` run the same preparation before starting the task, so one command is enough on a fresh machine:
 
 1. Bootstrap uv and Python into the repository if they are missing, then sync the locked Hub environment (`uv sync --locked`).
-2. Run `python -m mcp_hub.preflight --install`. For each enabled child with a `prepare` block in `config/hub.example.json`, it checks the declared runtime and version (for example Node.js 22+ for `mcp-server-logs`, 20.12+ for `mcp-pr-companion`). A missing or outdated runtime is installed or upgraded with winget; Windows may show a UAC prompt. It then runs the child's own dependency step (`node start.mjs --preflight`, `node bin/cli.js prepare`) in the child repository.
+2. Run `python -m mcp_hub.preflight --install`. For each enabled child with a `prepare` block in `config/hub.example.json`, it checks the declared runtime and version (for example Node.js 22+ for `mcp-server-logs`, Node.js 20.12+ for `mcp-pr-companion`, .NET 10 SDK for `mcp-sqlserver`). A missing or outdated runtime is installed or upgraded with winget; Windows may show a UAC prompt. It then runs the child's own dependency step (`node start.mjs --preflight`, `node bin/cli.js prepare`, `scripts/prepare.ps1`) in the child repository.
 3. Start the task, wait for `/health`, and print the status.
 
 A child that still fails is reported (`preflight.check` in the Hub log) and the Hub starts with the remaining children. Child output is not printed; run the reported command in the child repository for details. `hubctl preflight` checks the runtimes only, without installing or starting anything, and exits non-zero when a requirement is not met:
@@ -130,7 +123,7 @@ Each client still has exactly one entry named `mcp-hub`:
 - Use the stdio bridge for clients that cannot safely supply the bearer header. It starts with `scripts/start.ps1 -Bridge -ClientName "<AI_CLIENT>"` and forwards MCP protocol messages to the shared Hub. It reads the bearer token in process and labels calls in activity tracking. HTTP clients are labeled from MCP `clientInfo`.
 - The original `scripts/start.ps1` without `-Bridge` still launches an isolated stdio Hub for development or a temporary compatibility fallback. It does not share jobs with the service.
 
-Follow [connecting-a-client.md](../connecting-a-client.md) and that client's guide. The setup agent must ask before editing a user-level client config and before removing an old direct child entry. Replace only child server entries that point to the logs/Jira/PR repos, then install/refresh the Hub rule and `/mcp-hub` command. This repository change does not modify any AI client settings.
+Follow [connecting-a-client.md](../connecting-a-client.md) and that client's guide. The setup agent must ask before editing a user-level client config and before removing an old direct child entry. Replace only child server entries that point to the Hub's child repos (logs, Jira, PR, source, SQL Server), then install/refresh the Hub rule and `/mcp-hub` command. This repository change does not modify any AI client settings.
 
 ## 5. Run and inspect an issue job
 
@@ -161,7 +154,7 @@ SQLite job records, events, pending actions, summaries, tool results, and daily 
 | Source alias is unknown | Check `project-status`, then check the matching alias in the source child's private project config and restart |
 | Agent shows unconfigured | Check `agent-status`; edit the provider/model/key in private `agents.json`, then restart |
 | Agent shows "Provider package not installed" | The provider's SDK (`openai`, `anthropic`, or `google-genai`) is missing from the Hub environment; run `hubctl start` to resync the locked environment |
-| Agent shows "Needs Windows DPAPI" | The Hub runs off Windows, where job details cannot be encrypted; `hub__submit_issue` refuses jobs there. Direct child tools still work |
+| Job store encryption fails or cannot decrypt | On Windows, `jobs.sqlite3` uses per-user DPAPI; on POSIX, it uses a user-only `0600` Fernet key (`config/private/job_store.key`). A database copied from another user account cannot be decrypted there. Direct child tools still work |
 | Write waits unexpectedly | Inspect the job state with `hub__get_job`; a forced Jira re-sync is gated by design, and other writes are never offered to specialists |
 | Submitting a job says the queue is full | 20 jobs are already queued; wait for one to start or cancel one with `hub__cancel_job` |
 

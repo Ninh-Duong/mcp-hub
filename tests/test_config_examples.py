@@ -20,21 +20,33 @@ class ConfigExamplesTest(unittest.TestCase):
         for path in paths:
             with self.subTest(path=path.name):
                 config = json.loads(path.read_text(encoding="utf-8"))
-                self.assertEqual(config.get("transport"), "stdio")
-                self.assertIsInstance(config.get("command"), str)
-                self.assertTrue(config["command"].strip())
-                self.assertIsInstance(config.get("cwd"), str)
-                self.assertTrue(config["cwd"].strip())
-                self.assertIsInstance(config.get("args", []), list)
-                self.assertTrue(all(isinstance(arg, str) for arg in config.get("args", [])))
-                self.assertIsInstance(config.get("env", {}), dict)
-                self.assertTrue(all(isinstance(key, str) and isinstance(value, str) for key, value in config.get("env", {}).items()))
-                self.assertIsInstance(config.get("inheritEnv", []), list)
-                self.assertTrue(all(isinstance(name, str) for name in config.get("inheritEnv", [])))
-                timeout = config.get("timeoutSeconds", 60)
-                self.assertIsInstance(timeout, (int, float))
-                self.assertNotIsInstance(timeout, bool)
-                self.assertTrue(math.isfinite(timeout) and timeout > 0)
+                transport = config.get("transport")
+                self.assertIn(transport, ("stdio", "streamable-http"))
+                if transport == "stdio":
+                    self.assertIsInstance(config.get("command"), str)
+                    self.assertTrue(config["command"].strip())
+                    self.assertIsInstance(config.get("cwd"), str)
+                    self.assertTrue(config["cwd"].strip())
+                    self.assertIsInstance(config.get("args", []), list)
+                    self.assertTrue(all(isinstance(arg, str) for arg in config.get("args", [])))
+                    self.assertIsInstance(config.get("env", {}), dict)
+                    self.assertTrue(all(isinstance(key, str) and isinstance(value, str) for key, value in config.get("env", {}).items()))
+                    self.assertIsInstance(config.get("inheritEnv", []), list)
+                    self.assertTrue(all(isinstance(name, str) for name in config.get("inheritEnv", [])))
+                else:
+                    parsed = urlparse(str(config.get("url", "")))
+                    self.assertIn(parsed.scheme, ("https", "http"))
+                    self.assertTrue(parsed.hostname)
+                    if parsed.scheme == "http":
+                        self.assertIn(parsed.hostname, ("127.0.0.1", "localhost", "::1"))
+                    self.assertIsInstance(config.get("headers", {}), dict)
+                    self.assertTrue(all(isinstance(k, str) and k.strip() and isinstance(v, str)
+                                        for k, v in config.get("headers", {}).items()))
+                for key, default in (("timeoutSeconds", 60), ("connectTimeoutSeconds", 120)):
+                    timeout = config.get(key, default)
+                    self.assertIsInstance(timeout, (int, float))
+                    self.assertNotIsInstance(timeout, bool)
+                    self.assertTrue(math.isfinite(timeout) and timeout > 0)
 
     def test_hub_example_has_only_disabled_routes_to_known_servers(self) -> None:
         config = json.loads((HUB_ROOT / "config" / "hub.example.json").read_text(encoding="utf-8"))

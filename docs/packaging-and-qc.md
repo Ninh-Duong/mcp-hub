@@ -11,7 +11,7 @@
 | Shared service (`hubctl.ps1`: Task Scheduler, `pythonw.exe`), stdio bridge, `http_headers.ps1` | Yes | No |
 | Dashboard service controls (stop/restart run `hubctl.ps1`) | Yes | No (`503`) |
 | Desktop status app (Qt; installer `mcp-hub-status-setup-<version>.exe`, or `python -m mcp_hub.desktop` from source) | Yes, per-user installer with Start Menu shortcut and an optional sign-in entry; frosted glass on Windows 10/11 through the acrylic accent | From source only: runs with a display, opaque (no glass), shows **Not installed** without the shared service; no installer, no sign-in entry, and Start Hub reports a failure |
-| Investigation jobs (`hub__submit_issue` …; job blobs encrypted with DPAPI) | Yes | No: `hub__submit_issue` returns `investigation jobs require Windows DPAPI`, and agent status shows it |
+| Investigation jobs (`hub__submit_issue` …; encrypted job blobs) | Yes (Windows DPAPI via shared service) | Job-store encryption works via a user-only `0600` Fernet key (`job_store.key`), though the shared Task Scheduler service itself is Windows-only |
 | Preflight runtime install with winget | Yes | No: a missing runtime is reported; install it yourself |
 
 Python 3.12 is required (`.python-version`, `requires-python = ">=3.12"`); the launchers use exactly that minor version and CI tests only 3.12.
@@ -32,7 +32,7 @@ When no uv is found, the launchers download the installer of one pinned uv relea
 
 ### Dependency groups
 
-`pyproject.toml` groups the runtime dependencies by purpose: core (MCP, HTTP service, validation), investigation providers (`openai`, `anthropic`, `google-genai`, imported only when a role makes its first request; a missing one is shown as "provider package not installed"), the desktop status app (`PySide6-Essentials`: QtCore, QtGui, and QtWidgets only, not the full PySide6), and child-shared packages (`httpx`, `python-dotenv`, `cryptography`) that `mcp-jira-sync` and `mcp-read-source` use from the Hub's venv. A status app run from source keeps Qt libraries open, so `hubctl` stops it before an environment sync and reopens it afterwards; the installed app has its own copy and is never stopped. The launchers sync all of them. The `dev` dependency group holds the QC tools (`ruff`, `coverage`); uv syncs it by default (`[tool.uv] default-groups`). The `build` group holds PyInstaller for the desktop installer and is synced only on request (`uv run --isolated --group build ...`).
+`pyproject.toml` groups the runtime dependencies by purpose: core (MCP, HTTP service, validation), investigation providers (`openai`, `anthropic`, `google-genai`, imported only when a role makes its first request; a missing one is shown as "provider package not installed"), the desktop status app (`PySide6-Essentials` and `pyside6-fluent-widgets`), and child-shared packages (`httpx`, `python-dotenv`, `cryptography`, `tree-sitter`, `tree-sitter-c-sharp`) that `mcp-jira-sync` and `mcp-read-source` use from the Hub's venv. A status app run from source keeps Qt libraries open, so `hubctl` stops it before an environment sync and reopens it afterwards; the installed app has its own copy and is never stopped. The launchers sync all of them. The `dev` dependency group holds the QC tools (`ruff`, `coverage`); uv syncs it by default (`[tool.uv] default-groups`). The `build` group holds PyInstaller for the desktop installer and is synced only on request (`uv run --isolated --group build ...`).
 
 ### Desktop installer
 

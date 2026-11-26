@@ -53,4 +53,15 @@ The client token gets `403` on every `/dashboard` API route. Job inspection and 
 
 | Tool | Who | What |
 |---|---|---|
+| `hub__status` | client token | Show detected child MCPs, connected count, per-child state, `result_cache` stats, and any changed tool pins. |
+| `hub__plan` | client token | Declare or confirm a scoped task plan (or playbook) and session execution profile; returns `hub_plan_id`, allowed tools, targets, and concise runtime child contracts. |
+| `hub__batch` | client token | Run 2 to `settings.batch.maxCalls` independent read-only tool calls in parallel under one `hub_plan_id`. |
+| `hub__workflow` | client token | Inspect or advance a playbook workflow (`status`, `provide_input`, `report`, `finish`) for a given `hub_plan_id`. |
 | `hub__get_full_result` | client token | Retrieve full or filtered (`contains`, `regex`, `fields`) pages from condensed results by `result_id` or `result_ids` (default raw text, or `format="json"`; works standalone and in `hub__batch`). |
+| `hub__list_projects` | client token (shared service) | List registered project aliases, allowed environments, default environment, and optional SQL database hints without local roots. |
+| `hub__submit_issue` | client token (shared service) | Start an asynchronous cross-system investigation job using configured `logs`, `source`, `jira`, `pr`, and `sql` specialists. |
+| `hub__get_job` | client token (shared service) | Get investigation state, summary, evidence references, agent status, pending approval metadata, and timeline events. |
+| `hub__get_job_detail` | client token (shared service) | Read one bounded page of an encrypted stored tool result by `job_id` and `source_id`. |
+| `hub__provide_job_input` | client token (shared service) | Supply a validated environment to an investigation job waiting in `awaiting_input`. |
+| `hub__approve_job` | client token (shared service) | Approve a pending gated write in a job using the user's one-time code. |
+| `hub__cancel_job` | client token (shared service) | Cancel a queued, waiting, or running investigation job. |

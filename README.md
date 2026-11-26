@@ -1,6 +1,6 @@
 # mcp-hub
 
-Use your AI client to review tickets, investigate bugs, review pull requests and find code through one MCP connection. mcp-hub connects the client to your Jira, logs, Bitbucket and registered source repositories.
+Use your AI client to review tickets, investigate bugs, review pull requests, inspect SQL Server data, and find code through one MCP connection. mcp-hub connects the client to your Jira, logs, Bitbucket, SQL Server, and registered source repositories.
 
 **Agents: read [AGENTS.md](AGENTS.md) before working in this repository.**
 
@@ -77,6 +77,14 @@ Use mcp-hub to find "retry" in project <PROJECT_ALIAS>, limited to *.py.
 Show the relevant locations and explain the implementation.
 ```
 
+### Review local git changes
+
+```text
+Use mcp-hub to review my local git changes for shared-caller impact, duplicate helpers, and potential bugs.
+BE source: <BE_ALIAS>. Database source: <DB_ALIAS>.
+Changed paths: src/orders/service.py, db/sp_update_order.sql.
+```
+
 You can also use `/mcp-hub <server-id> <request>` when your client has the command installed. Jira/PR summaries and other narrow reads can use a custom plan; the playbooks above follow their specific workflows.
 
 ## Why the AI asks again
@@ -108,7 +116,7 @@ Use **Check updates**, **Update** and **Retry** in mcp-hub Status for upgrades. 
 - [Playbooks and their steps](docs/playbooks/README.md)
 - [Workflow rules and permissions](docs/usage-policy.md)
 - [Child tools and contracts](docs/mcps/README.md)
-- [Architecture](docs/architecture.md) and [settings](docs/settings.md)
+- [Architecture](docs/architecture.md), [settings](docs/settings.md), and [configuration templates](config/README.md)
 - [Development and quality checks](docs/packaging-and-qc.md)
 
 ## License

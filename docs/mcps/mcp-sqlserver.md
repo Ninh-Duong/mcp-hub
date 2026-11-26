@@ -36,7 +36,7 @@ Shared rules: [Hub result cache](README.md#hub-result-cache). Defaults here: 60 
 - Start with `sql__list_databases` (or use `hub__plan` SQL hints when configured; call `sql__check_connection` only after a failed call or with `connection_checks: true`). Prefer `sql__search_context` / `sql__find_columns` / `sql__describe_table` to learn the schema before reading data, then `sql__lookup_rows` or `sql__get_related_rows`; use `sql__run_select` only for what they cannot express.
 - Results are **real business data**. Do not copy personal data into tickets, pull requests or logs; quote only what the finding needs.
 - `write_capable: true` is a warning about the login, not about this MCP; it still cannot write. Ask the owner for the read-only login described in the child's `docs/readonly-login.sql`.
-- Do not use this MCP's tools in a Hub job specialist unless a `sql` role has been added deliberately: specialist tool results go to the configured model provider.
+- The `sql` investigation specialist role (`docs/agents/sql.md`) is opt-in via `config/private/agents.json`; when configured, specialist tool results are sent to that role's model provider. Keep it unconfigured if database rows must stay off external providers.
 - A query on production runs with `READ UNCOMMITTED` and a 3 s lock timeout by default; large unfiltered scans can still be slow. Use `sql__explain_select` first.
 
 ## Hub integration

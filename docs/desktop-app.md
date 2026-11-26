@@ -17,7 +17,7 @@ A small frosted-glass window (Qt), installed on its own with `mcp-hub-status-set
   - **MCPs:** each child MCP on or off.
   - **Config:** each child MCP's required settings and the state of its requirements file (see [Child config files](#child-config-files)). The ⚙-style edit button opens the child's private config file in the user's editor; the app never reads its values.
 
-  The Hub keeps these settings, so the Hub and MCPs tabs show them only while it runs (otherwise `desktop.settings.needsHub`). A change to the tracking mode or a child is saved by the Hub to `config/private/hub.json` and applies at the next Hub start; the card then shows **Restart Hub**.
+  The Hub keeps these settings, so the Hub, MCPs, and Config tabs show them only while it runs (otherwise `desktop.settings.needsHub`). Changes are saved by the Hub to `config/private/hub.json`: toggling a child MCP (`servers.<id>.enabled`) live-reloads that child via `HubRuntime.reload_server`, while tracking and BitNet extension changes apply at the next Hub start (the card shows **Restart Hub**).
 - **Update card.** The card reports updates for the Hub and enabled child MCPs, and stays compact: the title with **What's new** beside it, one status sentence, one summary line (`done/total done`, then only the components that are not finished, with their state or error; the tooltip lists every component), and a rolling log of the newest progress line per component (three rows, newest on top, each older row fainter, fixed height). One main button shows at a time: **Update**, or **Retry** for failed components; a ⟳ button checks now. The status sentence is red only when installing the app itself failed. The app installer runs last when a newer release exists (see [Updates](#updates)).
 - **Pending approvals.** When an investigation job pauses for a gated write, a compact **Pending approvals** card appears (hidden when empty) listing `job_id`, `tool_name`, `agent`, and parameter names (`argument_keys` only — never argument values) with **Approve** and **Reject** buttons routed through the admin-authenticated local API.
 - **Not in scope.** Full job timelines, logs, tool allowlists, cache times, and every secret stay outside the desktop app. There is no browser interface for job review. The app never shows tool arguments, results, tokens, or file paths.
@@ -77,6 +77,15 @@ How releases, numbering, and upgrades of the other parts work is in [versioning.
 
 ## Hub settings
 
+The Hub and MCPs tabs call the Hub's settings API (`dashboard/settings_api.py`, see [Architecture](#architecture)). The Hub then changes `config/private/hub.json` through `src/mcp_hub/hub_settings.py`, the only writer of these values:
+
+- **`servers.<id>.enabled`.** The MCPs tab lists the children found next to the Hub (`../<id>`) or listed in `hub.json`. It never offers a missing repository, which would stop the Hub from starting. A child whose private config still holds `<SET_BY_USER>` shows "needs credentials". Toggling a child saves `hub.json` and live-reloads that child (`HubRuntime.reload_server`, returning `reloaded` in the API response).
+- **Top-level `extensions`.** `["activity-ui"]` and/or `["bitnet"]` keep those extensions on for every start, logon starts included, until turned off. The service starts the union of this list and the one-shot `launch.json` that `hubctl ... -Ui` writes. `load_config` ignores the key.
+
+Writes are atomic and keep every other key as it is. Only booleans and the extension list are written, so `hub.json` stays free of secrets. With `MCP_HUB_CONFIG` set, the file belongs to the user: the API refuses changes (409) and the Hub, MCPs, and Config tabs show the values read-only.
+
+Restart and Stop disconnect AI clients for a moment, so they need a second click within `CONFIRM_MS` (4 s); the armed button turns `red` and reads `desktop.settings.confirm`.
+
 ## Child config files
 
 A child MCP can declare the settings it needs in `hub-requirements.json` in its own repository (format in [child-mcp-compatibility.md](child-mcp-compatibility.md#declaring-required-settings)). The app shows the result in two places:
@@ -85,15 +94,6 @@ A child MCP can declare the settings it needs in `hub-requirements.json` in its 
 - **Settings → Config.** One row per child with its state: **Ready** (also when the child reports a group as set from its own files), **Missing: <key paths>** (names only), **Ready. Restart the Hub to apply.** (the file is complete but the running Hub started with the gap), **No requirements declared**, or **Requirements file is invalid**.
 
 The edit button asks the Hub to create the child's private file from its template when it is missing (`POST /dashboard/api/settings/servers/{id}/config-file`), then opens that file in the default editor. The Hub returns only the path. The app never reads the file and never shows its path or values. With `MCP_HUB_CONFIG` set, or while the Hub is not running, the button is disabled and its tooltip says why. A press that fails shows the reason on that child's row.
-
-The Hub and MCPs tabs call the Hub's settings API (`dashboard/settings_api.py`, see [Architecture](#architecture)). The Hub then changes `config/private/hub.json` through `src/mcp_hub/hub_settings.py`, the only writer of these values:
-
-- **`servers.<id>.enabled`.** The MCPs tab lists the children found next to the Hub (`../<id>`) or listed in `hub.json`. It never offers a missing repository, which would stop the Hub from starting. A child whose private config still holds `<SET_BY_USER>` shows "needs credentials".
-- **Top-level `extensions`.** `["activity-ui"]` keeps the activity UI on for every start, logon starts included, until it is turned off. The service starts the union of this list and the one-shot `launch.json` that `hubctl ... -Ui` writes. `load_config` ignores the key.
-
-Writes are atomic and keep every other key as it is. Only booleans and the extension list are written, so `hub.json` stays free of secrets. With `MCP_HUB_CONFIG` set, the file belongs to the user: the API refuses changes (409) and both tabs show the values read-only.
-
-Restart and Stop disconnect AI clients for a moment, so they need a second click within `CONFIRM_MS` (4 s); the armed button turns `red` and reads `desktop.settings.confirm`.
 
 ### BitNet install
 
@@ -157,7 +157,7 @@ The **connection file** is `%LOCALAPPDATA%\mcp-hub\connection.json`: `{"version"
 | `desktop/stream.py` | `StreamController`: the one reconnect loop with backoff for the usage and processing streams, plus `parse_sse`. |
 | `desktop/constants.py` | Names shared with the installer and the build (`APP_NAME`, `EXE_NAME`, ...), and the view constants `NOT_DRAWN`, `CAPTURE_POSITION`, `START_TIMEOUT_KEY`, `STICKY_ERROR_KEYS`. |
 | `desktop/cli.py` | The command line: `parse_args`, `run_screenshots` (the `--screenshot` mode), `appearance_from`, and `main`. The package entry points (`python -m mcp_hub.desktop` and `packaging/desktop/entry.py`) start it. |
-| Hub side: `dashboard/settings_api.py` | `GET /dashboard/api/settings`, `POST …/settings/tracking`, `POST …/settings/servers/{id}` (body `{"enabled": bool}`; 400 for another body, 404 for an unknown child, 409 for a custom config), and `GET` or `POST …/settings/autostart` (the Hub's task only; 503 when `hubctl` fails). Bearer required; only booleans and child ids go in or out; file and `hubctl` work runs in `asyncio.to_thread`. |
+| Hub side: `dashboard/settings_api.py`, `dashboard/api.py`, `dashboard/update_api.py` | Admin-bearer local routes (see [reference.md](reference.md#http-routes)): settings (`GET /dashboard/api/settings`, `POST …/settings/tracking`, `POST …/settings/bitnet`, `POST …/settings/servers/{id}` with live reload, `POST …/settings/servers/{id}/config-file`, `GET|POST …/settings/autostart`), pending approvals (`GET …/jobs/pending`, `POST …/jobs/{job_id}/decision`), security pins (`POST …/security/pins/accept`), and update coordination (`GET …/update`, `POST …/update/{check,retry}`, `POST …/update`). File and `hubctl` work runs in `asyncio.to_thread`. |
 
 Data flow: every `POLL_INTERVAL_MS` (5 s), a `QTimer` starts a daemon thread that runs `fetch_snapshot`. That function never raises: each failure maps to a Hub state. The thread puts the result on a queue. A second `QTimer` drains the queue on the Qt thread every `QUEUE_CHECK_MS` (200 ms) and renders. The settings calls and sign-in switches also run on daemon threads (`StatusWindow.run_worker`) and report back through the same queue. So do Start, Restart, and Stop: the window shows the expected state at once, and a failed call (`control_failed`) drops it, shows `desktop.error.controlUnavailable`, and polls again. A start or restart that has not brought the Hub up within `START_GRACE_SECONDS` shows `desktop.error.startTimeout`. Both errors (`STICKY_ERROR_KEYS`) stay in the footer while the Hub is stopped, until it runs or another command is sent. When the Hub starts running while a settings tab is open, the tab loads its settings.
 
@@ -314,19 +314,23 @@ The app's own keys:
 - `desktop.error.configOpen.{hub,editor}`, `connection.configIncomplete`
 - `desktop.settings.hub.{control,start,restart,stop,tracking,trackingHint,autostartHub,autostartApp,autostartAppSource}`
 - `desktop.settings.mcps.{empty,readOnly,credentials}`
-- `desktop.section.{children,clients}`
-- `desktop.checking`
+- `desktop.section.{children,clients,approvals}`
+- `desktop.approvals.{approve,reject}`
+- `desktop.checking`, `desktop.refresh`
 - `desktop.hub.{running,starting,stopped,notInstalled,unauthorized}`
 - `desktop.mode.{fast,activityUi}`
 - `desktop.waitingForHub`, `desktop.children.empty`, `desktop.clients.hint`
 - `desktop.button.startHub`
 - `desktop.updated`
-- `desktop.update.{title,available,current,button,whatsNew,downloading,installing,failed,blocked,hubNotChecked}`
-- `desktop.error.{controlUnavailable,startTimeout,settings,autostart}`
+- `desktop.update.{title,available,current,hubOnly,check,checking,running,hubNotRunning,retry,button,whatsNew,downloading,installing,failed,needsAttention,summary}`
+- `desktop.update.state.{checking,available,updating,complete,skipped,failed}`
+- `desktop.update.phase.{check,fetch,pull,stopHub,restart,smoke,current}`
+- `desktop.update.error.{gitUnavailable,gitFailed,repoMissing,worktreeDirty,upstreamMissing,branchAheadOrDiverged,hubStopFailed,hubStartFailed,hubUpdateFailed,healthCheckFailed,processStartFailed,configUnavailable,timeout,unknown}`
+- `desktop.error.{controlUnavailable,startTimeout,settings,autostart,approval}`
 - `desktop.settings.hub.{bitnet,bitnetHint}`
 - `desktop.bitnet.{name,install,retry,restart,restartToConnect}`
 - `desktop.bitnet.step.{prepare,runtime,model,extract}`
-- `desktop.bitnet.error.{platform,disk,network,release,checksum,extract,cancelled,unexpected,request}`
+- `desktop.bitnet.error.{platform,cpu,disk,network,release,checksum,extract,cancelled,unexpected,request}`
 - `desktop.bitnet.state.{not_installed,off,installing,starting,ready,restarting,unavailable,stopped}`
 - `desktop.usage.{line,detail,now,justNow,minutesAgo}`
 - `desktop.processing.{line,sourceLine}`
@@ -362,7 +366,7 @@ The command opens the window on top of other windows and renders fixed sample da
 
 - **Snapshot mapping:** every Hub state, the child tones, client merging, and malformed status fields.
 - **Theme:**
-  - `theme.LIGHT` equals the `style.css` `:root` tokens, and both palettes share token names;
+  - `theme.LIGHT` and `theme.DARK` share identical token names and contrast targets;
   - the stylesheet is frosted only with glass;
   - the tint and `rgba` helpers.
 - **Language:** the default choice, placeholders, and that every key the app uses exists in both locales.

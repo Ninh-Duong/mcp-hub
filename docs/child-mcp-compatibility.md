@@ -4,10 +4,10 @@ This is the Hub's source of truth for changing a child MCP while keeping it usab
 
 ## Process and transport
 
-- The Hub launches each child as a separate local process over MCP `stdio`, using `command`, an argument list, and the configured child `cwd`. Do not require a shell command string or assume the Hub's working directory.
+- The Hub supports `stdio` (default for local sibling children) and `streamable-http` (`https://` or loopback `http://` with optional headers). For `stdio`, the Hub launches each child as a separate local process using `command`, an argument list, and the configured child `cwd`. Do not require a shell command string or assume the Hub's working directory.
 - Keep stdout exclusively for MCP protocol messages. Write diagnostics to stderr or the child's own log file. The Hub keeps child stderr in `logs/children/<server-id>.log` (size-capped), which only the user reads; never write secrets there.
 - Keep startup predictable and tool calls bounded. `timeoutSeconds` is a positive finite number of seconds for each routed tool call; it is not the client application's Hub startup timeout.
-- Keep transport as `stdio`. The Hub allowlists exact child tool names and exposes the configured aliases, normally `<prefix>__<tool>`.
+- Use `stdio` for local sibling children or `streamable-http` for remote/loopback HTTP children. The Hub allowlists exact child tool names and exposes the configured aliases, normally `<prefix>__<tool>`.
 
 ## Tools and behavior
 
@@ -19,8 +19,8 @@ This is the Hub's source of truth for changing a child MCP while keeping it usab
 - Never put credentials or private configuration values in tool descriptions, tool results, errors, or logs. Return upstream data only when it is part of the requested tool behavior.
 - **`isError`.** Set the MCP error flag on failures. The Hub's failure check also reads an error prefix in the first text block (`_ERROR_PREFIXES`), so a result that starts with `Error:` counts as failed too. A result with `isError` is never condensed.
 - **`outputSchema`.** A tool that declares an `outputSchema` must return `structuredContent` that validates against it. The Hub forwards such a result unchanged: it is never condensed, and batch packing skips it. The Hub also does not check the result against the schema.
-- **`notifications/tools/list_changed`.** A child that adds, removes, or changes a tool may send this notification. The Hub relists that child's tools on it (no reconnect), rebuilds its routes, and announces the change to clients once per debounce window. A child whose tool definition changes without a notification is seen at its next reconnect. Changing a definition is audited (`tool.definition.changed`, warn mode) and the tool keeps running.
-- **Arguments.** The Hub checks each call's arguments against the input schema the child published (warn mode, `tool.arguments.invalid`) and still runs the call, so a schema the child publishes should match what it accepts.
+- **`notifications/tools/list_changed`.** A child that adds, removes, or changes a tool may send this notification. The Hub relists that child's tools on it (no reconnect), rebuilds its routes, and announces the change to clients once per debounce window. A child whose tool definition changes without a notification is seen at its next reconnect. Changing a definition is audited (`tool.definition.changed`) according to `security.toolPinMode` (`off`, `warn`, or `enforce`): in `warn` mode the tool keeps running, while in `enforce` mode changed tools and hidden-Unicode descriptions are omitted from routes until accepted via `hubctl pins` or the admin API.
+- **Arguments.** The Hub checks each call's arguments against the input schema the child published according to `protocol.validateArguments` (`off`, `warn`, or `enforce`, auditing `tool.arguments.invalid` in `warn`/`enforce` and refusing invalid calls before reaching the child in `enforce`), so a schema the child publishes should match what it accepts.
 
 ## Configuration and secrets
 

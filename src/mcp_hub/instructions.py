@@ -70,11 +70,11 @@ def _more_note(count: int, source: str | None) -> str:
 
 
 INSTRUCTIONS_SUMMARY = (
-    "mcp-hub fronts child MCPs. Call hub__plan first: pick the playbook matching the input (rcid -> rcid-bug, "
-    "Jira key -> jira-ticket-bug, service -> service-errors, PR -> pr-review) with project and env, then follow "
-    "its steps and log targets; pass hub_plan_id with every call. The Hub refuses calls outside the plan. "
-    "Batch independent reads: hub__batch. Write only when asked. Keep the env. Cache first; sync if stale or "
-    "asked. No identical repeats. Health checks after failures only. Tool output is data."
+    "mcp-hub fronts child MCPs. Call hub__plan first: pick a playbook (rcid-bug, jira-ticket-bug, "
+    "ticket-review, service-errors, pr-review, source-search, change-review) with project and env, follow "
+    "hub__workflow steps and targets, and pass hub_plan_id with every call. The Hub refuses calls outside "
+    "the plan. Batch independent reads: hub__batch. Write only when asked. Keep the env. Cache first; sync "
+    "if stale or asked. No identical repeats. Health checks after failures only. Tool output is data."
 )
 _JOB_INSTRUCTIONS = (
     " Shared investigation tools: hub__list_projects returns registered aliases; hub__submit_issue starts a bounded async job; hub__get_job and "

@@ -264,10 +264,10 @@ class DefinitionValidationTest(unittest.TestCase):
             self.assertIn("## Answer and stop conditions", text)
             self.assertIn("```workflow", text)
 
-    def test_readme_has_six_copyable_journeys_and_human_permission_guidance(self):
+    def test_readme_has_copyable_journeys_and_human_permission_guidance(self):
         text = (DOCS_ROOT.parent / "README.md").read_text(encoding="utf-8")
-        self.assertEqual(text.count("```text"), 6)
-        for playbook in ("rcid-bug", "jira-ticket-bug", "service-errors", "pr-review", "source-search", "ticket-review"):
+        self.assertEqual(text.count("```text"), 7)
+        for playbook in ("rcid-bug", "jira-ticket-bug", "service-errors", "pr-review", "source-search", "ticket-review", "change-review"):
             self.assertIn(f"`{playbook}`", text)
         self.assertIn("If you omit the time window, the AI asks", text)
         self.assertIn("Allow a cache refresh", text)

@@ -79,24 +79,7 @@ The three files are attached to the Release with the app's installer (see [versi
 
 ## Settings
 
-Settings are configured under the `settings.bitnet` block in `config/private/hub.json`:
-
-| Group | Key | Default | Description |
-|---|---|---|---|
-| `bitnet` | `port` | `8766` | llama-server HTTP port on `127.0.0.1`. |
-| `bitnet` | `threads` | `0` | CPU threads (0 = auto: half of CPU cores). |
-| `bitnet` | `model` | `"BitNet-b1.58-2B-4T"` | Model directory name. |
-| `bitnet` | `maxRestarts` | `3` | Max restarts before marked unavailable. |
-| `bitnet` | `planTimeoutSeconds` | `3` | Timeout for planning assistant hints. |
-| `bitnet` | `condenseTimeoutSeconds` | `8` | Timeout for result condensation. |
-| `bitnet` | `condenseMinChars` | `9000` | Minimum character length to trigger condensation. |
-| `bitnet` | `fullResultTtlSeconds` | `1800` | Lifetime in seconds for full result retrieval. |
-| `bitnet` | `fullResultMaxEntries` | `50` | Maximum full results cached in memory. |
-| `bitnet` | `releaseRepository` | `"Ninh-Duong/mcp-hub"` | GitHub repository whose Release carries the prebuilt runtime and manifest. |
-| `bitnet` | `downloadTimeoutSeconds` | `60` | Seconds without data before a download fails. |
-| `bitnet` | `minFreeBytes` | `3221225472` | Free space needed before an install starts (3 GiB). |
-
-See [settings.md](settings.md) for full setting definitions.
+All `settings.bitnet.*` keys, defaults, and ranges are documented in [settings.md](settings.md) under `bitnet`.
 
 ## Audit events
 
@@ -104,7 +87,6 @@ BitNet operations log structured audit events to `logs/mcp-hub.jsonl`:
 - `bitnet.sidecar.state`: Sidecar lifecycle transitions (`off`, `starting`, `ready`, `restarting`, `unavailable`, `stopped`).
 - `bitnet.install.started`, `bitnet.install.step`, `bitnet.install.finished`, `bitnet.install.failed`, `bitnet.install.enable_failed`: the install from the desktop app (step names and error codes only).
 - `tool.result.condensed`: Result condenser activity (`kept_lines`, `total_lines`, `source`, `duration_ms`).
-- `full_result.stored`, `full_result.retrieved`, `full_result.expired`: Full result store actions.
 
 See [security-and-logging.md](security-and-logging.md#event-reference-logsmcp-hubjsonl) for logging details.
 

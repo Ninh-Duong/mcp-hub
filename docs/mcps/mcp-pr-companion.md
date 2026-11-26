@@ -52,7 +52,7 @@ After a pre-encryption file is detected, the reader treats that PR as unsynced. 
 
 ## Working guidance
 
-- Cache first: use `pr__list_synced_prs` to find already cached PRs and `pr__get_pr_sync_status` to check one, then `pr__get_pr_context_pack` and the file tools. Call `pr__list_my_open_prs` only to discover PRs that are not cached, and pass `refresh=true` only when the cache is stale or the user asks.
+- Cache first: use `pr__list_synced_prs` (read-only) to find already cached PRs, then ask before write-capable PR readers (`pr__get_pr_sync_status`, `pr__get_pr_context_pack`, and the file/comment tools, which check freshness and may sync the encrypted cache). Call `pr__list_my_open_prs` only to discover PRs that are not cached, and pass `refresh=true` only when the cache is stale or the user asks.
 - To sync open PRs when the user asks, call `pr__sync_my_open_prs` with a repository when useful and show its `prs` as a table. Include failed rows and their `error`.
 - Never repeat an identical call within a task, and call `pr__check_bitbucket_connection` only to explain a failed call.
 - PR-specific file readers check the latest PR metadata and automatically sync a missing or changed revision before returning file data. If the metadata check is unavailable, they report that cached data may be stale. Start with the Read Strategy and open only `Read next` file ids, then `Optional` if needed. For re-review, open the ids listed in “Changed since last sync”.

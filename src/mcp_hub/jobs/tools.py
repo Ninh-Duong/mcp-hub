@@ -18,7 +18,7 @@ JOB_ID_SCHEMA = {"job_id": {"type": "string"}}
 JOB_TOOLS: tuple[tuple[str, str, dict[str, Any], tuple[str, ...], bool], ...] = (
     ("hub__list_projects", "List registered project aliases and their allowed environments without local roots.",
      {}, (), True),
-    ("hub__submit_issue", "Start an asynchronous issue investigation using configured logs, source, Jira, and PR "
+    ("hub__submit_issue", "Start an asynchronous issue investigation using configured logs, source, Jira, PR, and SQL "
      "agents. At most {max_queued} jobs can wait in the queue.",
      {"project": {"type": "string"}, "question": {"type": "string"}, "env": ENV_SCHEMA,
       "issue_key": {"type": "string"}, "rcid": {"type": "string"},

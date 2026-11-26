@@ -6,10 +6,12 @@ It checks:
 - links and anchors between the repo's Markdown files;
 - that the docs the Hub loads at runtime exist;
 - the audit events against the table in docs/security-and-logging.md, both ways;
-- the environment variables and HTTP routes against docs/reference.md, both ways;
+- the environment variables, HTTP routes, and Hub MCP tools against docs/reference.md, both ways;
 - the hubctl commands against the runbook;
 - the settings keys against docs/settings.md;
-- the default children in config/hub.example.json: each has a repository address (what Setup clones) and a contract;
+- the default children in config/hub.example.json: each has a repository address (what Setup clones), a contract, and every exposed tool listed in that contract;
+- that every playbook ID appears in README.md, docs/client-rules.md, docs/playbooks/README.md, and the SKILL.md template;
+- that config/agents.example.json matches AGENT_ROLES;
 - a short list of retired wording.
 
 It prints file and line or the missing name, and exits 1 on any problem.
@@ -34,7 +36,7 @@ HUBCTL = ROOT / "scripts" / "hubctl.ps1"
 # Wording of features that are gone; docs must not describe them again.
 RETIRED = (
     "-Target hub|app", "discards child stderr", "mcp-hub-status-setup.exe", "GLYPH_COLUMN_CHARS", "Get-ServiceToken",
-    "start.ps1 -Service", "same bearer token",
+    "start.ps1 -Service", "same bearer token", "Needs Windows DPAPI", "full_result.stored", "style.css",
 )
 _LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
 ENV_SCHEMA = re.compile(r"\bMCP_HUB_[A-Z0-9_]*[A-Z0-9]\b")
@@ -42,7 +44,8 @@ _EVENT = re.compile(r"^[a-z_]+(?:\.[a-z_]+)+$")
 
 
 def markdown_files() -> list[Path]:
-    return sorted([ROOT / "README.md", ROOT / "AGENTS.md", *DOCS.rglob("*.md")])
+    candidates = [ROOT / "README.md", ROOT / "AGENTS.md", ROOT / "config" / "README.md", *DOCS.rglob("*.md")]
+    return sorted(path for path in candidates if path.is_file())
 
 
 def slug(heading: str) -> str:
@@ -193,13 +196,23 @@ def settings_problems() -> list[str]:
 
 
 def child_problems() -> list[str]:
-    servers = json.loads((ROOT / "config" / "hub.example.json").read_text(encoding="utf-8"))["servers"]
+    hub = json.loads((ROOT / "config" / "hub.example.json").read_text(encoding="utf-8"))
     problems = []
-    for server_id, server in servers.items():
+    contracts: dict[str, str] = {}
+    for server_id, server in hub["servers"].items():
         if not str(server.get("repository", "")).startswith("https://"):
             problems.append(f"default child {server_id} has no https `repository` in config/hub.example.json")
-        if not (DOCS / "mcps" / f"{server_id}.md").is_file():
+        contract = DOCS / "mcps" / f"{server_id}.md"
+        if contract.is_file():
+            contracts[server_id] = contract.read_text(encoding="utf-8")
+        else:
             problems.append(f"default child {server_id} has no contract docs/mcps/{server_id}.md")
+    for feature in hub.get("features", {}).values():
+        for tool in feature.get("tools", []):
+            sid = tool["server"]
+            exposed = tool.get("exposeAs") or f"{sid}__{tool['name']}"
+            if sid in contracts and exposed not in contracts[sid]:
+                problems.append(f"tool {exposed} in config/hub.example.json is not documented in docs/mcps/{sid}.md")
     return problems
 
 
@@ -214,10 +227,41 @@ def retired_problems(files: Iterable[Path]) -> list[str]:
     return problems
 
 
+def mcp_tool_problems() -> list[str]:
+    from mcp_hub.batch import BATCH_TOOL
+    from mcp_hub.jobs.tools import JOB_TOOLS
+    from mcp_hub.planning.policy import PLAN_TOOL
+    from mcp_hub.planning.workflow_runtime import WORKFLOW_TOOL
+    from mcp_hub.results.runtime import FULL_RESULT_TOOL
+
+    exposed = {"hub__status", PLAN_TOOL, BATCH_TOOL, WORKFLOW_TOOL, FULL_RESULT_TOOL, *(name for name, *_ in JOB_TOOLS)}
+    documented = {name for name in table_names(REFERENCE, column=0) if name.startswith("hub__")}
+    return ([f"MCP tool {name} is exposed but not in docs/reference.md" for name in sorted(exposed - documented)]
+            + [f"MCP tool {name} is in docs/reference.md but not exposed" for name in sorted(documented - exposed)])
+
+
+def playbook_catalog_problems() -> list[str]:
+    playbooks = sorted(p.stem for p in (DOCS / "playbooks").glob("*.md") if p.name != "README.md")
+    catalogs = (ROOT / "README.md", DOCS / "client-rules.md", DOCS / "playbooks" / "README.md",
+                DOCS / "clients" / "templates" / "mcp-hub" / "SKILL.md")
+    return [f"playbook {name} is not listed in {path.relative_to(ROOT).as_posix()}"
+            for path in catalogs for text in (path.read_text(encoding="utf-8"),)
+            for name in playbooks if name not in text]
+
+
+def agent_config_problems() -> list[str]:
+    from mcp_hub.agents.config import AGENT_ROLES
+
+    roles = set(json.loads((ROOT / "config" / "agents.example.json").read_text(encoding="utf-8")).get("agents", {}))
+    return ([f"agent role {role} is missing from config/agents.example.json" for role in sorted(set(AGENT_ROLES) - roles)]
+            + [f"config/agents.example.json lists unknown role {role}" for role in sorted(roles - set(AGENT_ROLES))])
+
+
 def all_problems() -> list[str]:
     files = markdown_files()
     return [*link_problems(files), *runtime_doc_problems(), *event_problems(), *env_problems(), *route_problems(),
-            *hubctl_problems(), *settings_problems(), *child_problems(), *retired_problems(files)]
+            *mcp_tool_problems(), *hubctl_problems(), *settings_problems(), *child_problems(),
+            *playbook_catalog_problems(), *agent_config_problems(), *retired_problems(files)]
 
 
 def main() -> int:

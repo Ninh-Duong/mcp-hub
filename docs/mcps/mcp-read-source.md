@@ -27,7 +27,7 @@ Search is case-insensitive substring matching. Globs are relative and cannot con
 
 ## Hub result cache
 
-Shared rules: [Hub result cache](README.md#hub-result-cache). Defaults here: 120 s for `source__check_connection`; none for `source__search` and `source__read`, because the user may be editing the files. Never repeat an identical search or read within a task, and call `source__check_connection` only to explain a failed call.
+Shared rules: [Hub result cache](README.md#hub-result-cache). Defaults here: 120 s for `source__check_connection`; none for `source__index`, `source__find_entry`, `source__trace`, `source__callers`, `source__outline`, `source__read_symbol`, `source__search`, and `source__read`, because the user may be editing the files. Never repeat an identical search or read within a task, and call `source__check_connection` only to explain a failed call.
 
 ## Setup and diagnostics
 
