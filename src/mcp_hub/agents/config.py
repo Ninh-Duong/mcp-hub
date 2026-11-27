@@ -3,13 +3,16 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlparse
 
 from ..jsonio import read_json
 from ..config import PRIVATE_ROOT, SECRET_PLACEHOLDER
 
 
 AGENT_ROLES = ("coordinator", "logs", "source", "jira", "pr", "sql")
-PROVIDERS = frozenset({"openai", "gemini", "anthropic"})
+PROVIDERS = frozenset({"openai", "gemini", "anthropic", "opencode"})
+DEFAULT_OPENCODE_BASE_URL = "https://opencode.ai/zen/v1"
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
 class AgentConfigError(ValueError):
@@ -22,6 +25,7 @@ class AgentConfig:
     provider: str | None
     model: str | None
     api_key: str | None = field(default=None, repr=False)
+    base_url: str | None = None
 
     @property
     def configured(self) -> bool:
@@ -65,8 +69,25 @@ def load_agent_configs(
             raise AgentConfigError(f"Agent '{role}' has an unsupported provider")
         model = _optional_string(item.get("model"), "model")
         api_key = _optional_string(item.get("api_key"), "api_key")
-        result[role] = AgentConfig(role, provider, model, api_key)
+        base_url = _validated_base_url(item.get("base_url"), provider)
+        result[role] = AgentConfig(role, provider, model, api_key, base_url)
     return result
+
+
+def _validated_base_url(value: object, provider: str | None) -> str | None:
+    raw = _optional_string(value, "base_url")
+    if raw is None:
+        return DEFAULT_OPENCODE_BASE_URL if provider == "opencode" else None
+    if provider != "opencode":
+        raise AgentConfigError("Agent base_url is only supported for the 'opencode' provider")
+    parsed = urlparse(raw)
+    if parsed.username or parsed.password:
+        raise AgentConfigError("Agent base_url must not contain credentials")
+    if parsed.scheme == "https" and parsed.netloc:
+        return raw.rstrip("/")
+    if parsed.scheme == "http" and (parsed.hostname or "").lower() in _LOOPBACK_HOSTS:
+        return raw.rstrip("/")
+    raise AgentConfigError("Agent base_url must be an https URL or loopback http URL")
 
 
 def _optional_string(value: object, label: str) -> str | None:

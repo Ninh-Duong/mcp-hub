@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from ..settings import JobSettings
+from .config import DEFAULT_OPENCODE_BASE_URL
 
 
 # One request is retried at most this many times by the SDK, each attempt bounded by the provider timeout.
@@ -14,7 +15,12 @@ DEFAULT_TIMEOUT_SECONDS = JobSettings().provider_timeout_seconds
 
 
 # The SDK package each provider imports lazily on its first request (optional investigation dependencies).
-PROVIDER_PACKAGES = {"openai": "openai", "anthropic": "anthropic", "gemini": "google.genai"}
+PROVIDER_PACKAGES = {
+    "openai": "openai",
+    "anthropic": "anthropic",
+    "gemini": "google.genai",
+    "opencode": "openai",
+}
 PACKAGE_MISSING_MESSAGE = "provider package not installed"
 
 
@@ -101,6 +107,46 @@ class OpenAIProvider(_Provider):
         from openai import AsyncOpenAI
 
         self._client = AsyncOpenAI(api_key=self.api_key, timeout=self.timeout_seconds, max_retries=self.max_retries)
+        return self._client
+
+
+class OpenCodeProvider(_Provider):
+    """OpenAI-compatible Chat Completions provider (defaulting to OpenCode Zen)."""
+
+    provider_name = "OpenCode"
+
+    def __init__(
+        self, model: str, api_key: str, *, base_url: str = DEFAULT_OPENCODE_BASE_URL,
+        client: Any = None, timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS, max_retries: int = MAX_RETRIES,
+    ) -> None:
+        super().__init__(model, api_key, client=client, timeout_seconds=timeout_seconds, max_retries=max_retries)
+        self.base_url = base_url
+
+    async def complete(
+        self, messages: list[dict[str, Any]], tools: list[Any], *, max_output_tokens: int = JobSettings().provider_output_tokens,
+    ) -> ModelTurn:
+        try:
+            client = self._client or self._create_client()
+            kwargs: dict[str, Any] = {
+                "model": self.model,
+                "messages": _chat_messages(messages),
+                "max_tokens": max_output_tokens,
+            }
+            if tools:
+                kwargs["tools"] = _chat_tools(tools)
+            response = await client.chat.completions.create(**kwargs)
+            return _parse_chat_completion(response)
+        except ProviderError:
+            raise
+        except Exception as exc:
+            raise self._safe_error(exc) from None
+
+    def _create_client(self) -> Any:
+        from openai import AsyncOpenAI
+
+        self._client = AsyncOpenAI(
+            api_key=self.api_key, base_url=self.base_url, timeout=self.timeout_seconds, max_retries=self.max_retries,
+        )
         return self._client
 
 
@@ -214,6 +260,44 @@ def _tool_name(tool: Any) -> str:
 def _openai_tools(tools: list[Any]) -> list[dict[str, Any]]:
     """Tool definitions sorted by name, so the request prefix is byte-stable between calls."""
     return [_openai_tool(tool) for tool in sorted(tools, key=_tool_name)]
+
+
+def _chat_tool(tool: Any) -> dict[str, Any]:
+    name, description, schema = _tool_fields(tool)
+    return {"type": "function", "function": {"name": name, "description": description, "parameters": schema}}
+
+
+def _chat_tools(tools: list[Any]) -> list[dict[str, Any]]:
+    """Chat Completions tool definitions sorted by name."""
+    return [_chat_tool(tool) for tool in sorted(tools, key=_tool_name)]
+
+
+def _chat_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    converted: list[dict[str, Any]] = []
+    for message in messages:
+        role = message.get("role")
+        if role == "tool":
+            converted.append({
+                "role": "tool",
+                "tool_call_id": message.get("tool_call_id", ""),
+                "content": str(message.get("content", "")),
+            })
+        elif role == "assistant" and message.get("tool_calls"):
+            tool_calls = [
+                {
+                    "id": call.get("id", ""),
+                    "type": "function",
+                    "function": {
+                        "name": call.get("name", ""),
+                        "arguments": json.dumps(call.get("arguments", {}), ensure_ascii=False),
+                    },
+                }
+                for call in message["tool_calls"]
+            ]
+            converted.append({"role": "assistant", "content": message.get("content") or "", "tool_calls": tool_calls})
+        else:
+            converted.append({"role": role, "content": message.get("content", "")})
+    return converted
 
 
 def _anthropic_tools(tools: list[Any], *, cache: bool) -> list[dict[str, Any]]:
@@ -334,6 +418,23 @@ def _parse_openai(response: Any) -> ModelTurn:
     if not text_parts and getattr(response, "output_text", None):
         text_parts.append(str(response.output_text))
     return ModelTurn("\n".join(text_parts), tuple(calls))
+
+
+def _parse_chat_completion(response: Any) -> ModelTurn:
+    choices = getattr(response, "choices", ()) or ()
+    if not choices:
+        return ModelTurn("")
+    message = getattr(choices[0], "message", None)
+    if message is None:
+        return ModelTurn("")
+    text = str(getattr(message, "content", None) or "")
+    calls: list[ModelToolCall] = []
+    for item in getattr(message, "tool_calls", ()) or ():
+        function = getattr(item, "function", None)
+        name = str(getattr(function, "name", "") if function is not None else "")
+        arguments = getattr(function, "arguments", "{}") if function is not None else "{}"
+        calls.append(ModelToolCall(str(getattr(item, "id", "")), name, _parse_arguments(arguments)))
+    return ModelTurn(text, tuple(calls))
 
 
 def _parse_anthropic(response: Any) -> ModelTurn:

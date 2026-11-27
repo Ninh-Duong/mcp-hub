@@ -5,9 +5,9 @@ from typing import Any
 from collections.abc import Callable
 
 
-from ..agents.config import AGENT_ROLES, AgentConfig
+from ..agents.config import AGENT_ROLES, DEFAULT_OPENCODE_BASE_URL, AgentConfig
 from ..agents.providers import (
-    PACKAGE_MISSING_MESSAGE, AnthropicProvider, GeminiProvider, ModelProvider, OpenAIProvider,
+    PACKAGE_MISSING_MESSAGE, AnthropicProvider, GeminiProvider, ModelProvider, OpenAIProvider, OpenCodeProvider,
     provider_package_installed,
 )
 from ..settings import JobSettings
@@ -101,6 +101,7 @@ def create_provider(
         "openai": OpenAIProvider,
         "anthropic": AnthropicProvider,
         "gemini": GeminiProvider,
+        "opencode": OpenCodeProvider,
     }
     provider_type = provider_types.get(config.provider)
     if provider_type is None:
@@ -110,6 +111,11 @@ def create_provider(
     if provider_type is AnthropicProvider:
         return AnthropicProvider(
             config.model, config.api_key, prompt_cache=prompt_cache, timeout_seconds=timeout_seconds,
+        )
+    if provider_type is OpenCodeProvider:
+        return OpenCodeProvider(
+            config.model, config.api_key, base_url=config.base_url or DEFAULT_OPENCODE_BASE_URL,
+            timeout_seconds=timeout_seconds,
         )
     return provider_type(config.model, config.api_key, timeout_seconds=timeout_seconds)
 

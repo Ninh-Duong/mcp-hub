@@ -100,6 +100,12 @@ class ProviderPackageTest(_RunnerCase):
         self.assertEqual(set(runner.providers), set(AGENT_ROLES))
         self.assertEqual({(entry["configured"], entry["unavailable"]) for entry in status.values()}, {(True, None)})
 
+    def test_opencode_provider_is_created_with_custom_or_default_base_url(self) -> None:
+        with patch.object(providers.importlib.util, "find_spec", return_value=object()):
+            created = create_provider(AgentConfig("logs", "opencode", "example-model", "test-key", "https://example.com/v1"))
+        self.assertIsInstance(created, providers.OpenCodeProvider)
+        self.assertEqual(created.base_url, "https://example.com/v1")
+
 
 class JobWindowTest(_RunnerCase):
     def test_submit_issue_with_valid_window_stores_window_and_reaches_specialist_task(self) -> None:

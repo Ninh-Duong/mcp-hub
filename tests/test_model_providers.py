@@ -94,8 +94,9 @@ class ModelProviderTest(unittest.TestCase):
         import sys
         from unittest.mock import MagicMock, patch
 
+        from mcp_hub.agents.config import DEFAULT_OPENCODE_BASE_URL
         from mcp_hub.agents.providers import (
-            DEFAULT_TIMEOUT_SECONDS, MAX_RETRIES, AnthropicProvider, GeminiProvider, OpenAIProvider,
+            DEFAULT_TIMEOUT_SECONDS, MAX_RETRIES, AnthropicProvider, GeminiProvider, OpenAIProvider, OpenCodeProvider,
         )
 
         openai, anthropic, genai = MagicMock(), MagicMock(), MagicMock()
@@ -103,15 +104,50 @@ class ModelProviderTest(unittest.TestCase):
         modules = {"openai": openai, "anthropic": anthropic, "google": google, "google.genai": genai}
         with patch.dict(sys.modules, modules):
             OpenAIProvider("test-model", "test-only-key")._create_client()
+            OpenCodeProvider("test-model", "test-only-key")._create_client()
             AnthropicProvider("test-model", "test-only-key")._create_client()
             GeminiProvider("test-model", "test-only-key")._create_client()
         self.assertEqual(MAX_RETRIES, 2)
         for factory in (openai.AsyncOpenAI, anthropic.AsyncAnthropic):
             self.assertEqual(factory.call_args.kwargs["max_retries"], MAX_RETRIES)
             self.assertEqual(factory.call_args.kwargs["timeout"], DEFAULT_TIMEOUT_SECONDS)
+        self.assertEqual(openai.AsyncOpenAI.call_args.kwargs["base_url"], DEFAULT_OPENCODE_BASE_URL)
         options = genai.Client.call_args.kwargs["http_options"]
         self.assertEqual(options["retry_options"], {"attempts": MAX_RETRIES + 1})
         self.assertEqual(options["timeout"], int(DEFAULT_TIMEOUT_SECONDS * 1000))
+
+    def test_opencode_normalizes_chat_completion_and_sanitizes_errors(self) -> None:
+        from mcp_hub.agents.providers import OpenCodeProvider, ProviderError
+
+        message = SimpleNamespace(
+            content=None,
+            tool_calls=[SimpleNamespace(id="tc1", function=SimpleNamespace(name="logs__search", arguments='{"q":"500"}'))],
+        )
+        client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(
+            create=AsyncMock(return_value=SimpleNamespace(choices=[SimpleNamespace(message=message)])),
+        )))
+        provider = OpenCodeProvider("test-model", "test-only-key", client=client)
+        turn = asyncio.run(provider.complete([
+            {"role": "system", "content": "sys"},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "tc0", "name": "logs__search", "arguments": {"q": "1"}}]},
+            {"role": "tool", "tool_call_id": "tc0", "content": "ok"},
+        ], [TOOL]))
+
+        self.assertEqual(turn.text, "")
+        self.assertEqual(turn.tool_calls[0].call_id, "tc1")
+        self.assertEqual(turn.tool_calls[0].arguments, {"q": "500"})
+        sent = client.chat.completions.create.await_args.kwargs
+        self.assertEqual(sent["tools"][0]["function"]["name"], "logs__search")
+
+        failing = OpenCodeProvider(
+            "test-model", "do-not-leak-this-key",
+            client=SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(
+                create=AsyncMock(side_effect=RuntimeError("do-not-leak-this-key")),
+            ))),
+        )
+        with self.assertRaises(ProviderError) as caught:
+            asyncio.run(failing.complete([{"role": "user", "content": "hi"}], []))
+        self.assertNotIn("do-not-leak-this-key", str(caught.exception))
 
 
 if __name__ == "__main__":

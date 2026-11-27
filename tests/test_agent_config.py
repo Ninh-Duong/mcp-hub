@@ -68,6 +68,32 @@ class AgentConfigTest(unittest.TestCase):
         with self.assertRaises(AgentConfigError):
             load_agent_configs(path=self.root.parent / "outside.json", private_root=self.root)
 
+    def test_opencode_provider_defaults_and_validates_base_url(self) -> None:
+        from mcp_hub.agents.config import DEFAULT_OPENCODE_BASE_URL, AgentConfigError, load_agent_configs
+
+        self.path.write_text(json.dumps({
+            "version": 1,
+            "agents": {
+                "coordinator": {"provider": "opencode", "model": "example-model", "api_key": "test-key"},
+                "logs": {
+                    "provider": "opencode", "model": "example-model", "api_key": "test-key",
+                    "base_url": "http://localhost:8080/v1/",
+                },
+            },
+        }), encoding="utf-8")
+        configs = load_agent_configs(path=self.path, private_root=self.root)
+        self.assertEqual(configs["coordinator"].base_url, DEFAULT_OPENCODE_BASE_URL)
+        self.assertEqual(configs["logs"].base_url, "http://localhost:8080/v1")
+
+        for bad_agent in (
+            {"provider": "openai", "model": "m", "api_key": "k", "base_url": "https://example.com/v1"},
+            {"provider": "opencode", "model": "m", "api_key": "k", "base_url": "http://example.com/v1"},
+            {"provider": "opencode", "model": "m", "api_key": "k", "base_url": "https://user:pass@example.com/v1"},
+        ):
+            self.path.write_text(json.dumps({"version": 1, "agents": {"coordinator": bad_agent}}), encoding="utf-8")
+            with self.assertRaises(AgentConfigError):
+                load_agent_configs(path=self.path, private_root=self.root)
+
 
 if __name__ == "__main__":
     unittest.main()
